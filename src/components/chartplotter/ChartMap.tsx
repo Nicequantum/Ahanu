@@ -16,6 +16,8 @@ import {
   canyonHeadsForLabels,
   canyonsForChart,
   contoursForChart,
+  encCatalogForChart,
+  encCatalogLabelPoints,
   hmsForChart,
 } from "@/lib/ahanu/packed-chart";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
@@ -136,6 +138,7 @@ export function ChartMap() {
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const shipRef = useRef<import("maplibre-gl").Marker | null>(null);
   const labelRefs = useRef<import("maplibre-gl").Marker[]>([]);
+  const encLabelRefs = useRef<import("maplibre-gl").Marker[]>([]);
   const rippleRef = useRef<import("maplibre-gl").Marker | null>(null);
 
   const layers = useAhanu((s) => s.layers);
@@ -270,6 +273,25 @@ export function ChartMap() {
           type: "line",
           source: "hms",
           paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": 0 },
+        });
+
+        map.addSource("enc", { type: "geojson", data: encCatalogForChart() });
+        map.addLayer({
+          id: "enc",
+          type: "fill",
+          source: "enc",
+          paint: { "fill-color": "#4ecdc4", "fill-opacity": 0 },
+        });
+        map.addLayer({
+          id: "enc-outline",
+          type: "line",
+          source: "enc",
+          paint: {
+            "line-color": "#4ecdc4",
+            "line-width": 1.1,
+            "line-dasharray": [3, 2],
+            "line-opacity": 0,
+          },
         });
 
         map.addSource("buoys", { type: "geojson", data: buoyPointsGeo(buoysForChart()) });
@@ -489,6 +511,16 @@ export function ChartMap() {
             .setLngLat([c.lon, c.lat])
             .addTo(map!);
         });
+        encLabelRefs.current.forEach((m) => m.remove());
+        encLabelRefs.current = encCatalogLabelPoints().map((c) => {
+          const el = document.createElement("div");
+          el.style.cssText =
+            "font:600 10px Outfit,sans-serif;letter-spacing:.04em;color:#4ecdc4;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
+          el.textContent = c.id;
+          return new maplibregl.Marker({ element: el, anchor: "center" })
+            .setLngLat([c.lon, c.lat])
+            .addTo(map!);
+        });
       });
 
       map.on("click", (e) => {
@@ -514,6 +546,8 @@ export function ChartMap() {
       dead = true;
       labelRefs.current.forEach((m) => m.remove());
       labelRefs.current = [];
+      encLabelRefs.current.forEach((m) => m.remove());
+      encLabelRefs.current = [];
       shipRef.current?.remove();
       rippleRef.current?.remove();
       mapRef.current?.remove();
@@ -545,6 +579,8 @@ export function ChartMap() {
     vis("chl-edges", layers.chl_edges.visible, 0.8);
     vis("hms", layers.hms_zones.visible, layers.hms_zones.opacity);
     vis("hms-outline", layers.hms_zones.visible, layers.hms_zones.opacity);
+    vis("enc", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-outline", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("buoys", layers.buoys.visible, 0.9);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
@@ -562,6 +598,20 @@ export function ChartMap() {
         "line-opacity",
         layers.hms_zones.visible ? Math.min(1, layers.hms_zones.opacity + 0.35) : 0,
       );
+    }
+    if (map.getLayer("enc")) {
+      map.setPaintProperty("enc", "fill-opacity", layers.enc?.visible ? (layers.enc.opacity ?? 0.32) : 0);
+    }
+    if (map.getLayer("enc-outline")) {
+      map.setPaintProperty(
+        "enc-outline",
+        "line-opacity",
+        layers.enc?.visible ? Math.min(1, (layers.enc.opacity ?? 0.32) + 0.4) : 0,
+      );
+    }
+    for (const m of encLabelRefs.current) {
+      const el = m.getElement();
+      if (el) el.style.display = layers.enc?.visible ? "" : "none";
     }
     if (map.getLayer("wind")) {
       map.setPaintProperty("wind", "line-opacity", layers.wind.visible ? layers.wind.opacity : 0);
@@ -598,6 +648,7 @@ export function ChartMap() {
     set("c200", packedContours.c200);
     set("canyons", canyonsForChart());
     set("hms", hmsForChart());
+    set("enc", encCatalogForChart());
     set("buoys", buoyPointsGeo(buoysForChart()));
     void import("maplibre-gl").then((maplibregl) => {
       if (mapRef.current !== map) return;
@@ -608,6 +659,18 @@ export function ChartMap() {
           "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
         el.textContent = c.name.replace(" Canyon", "");
         return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
+          .setLngLat([c.lon, c.lat])
+          .addTo(map);
+      });
+      encLabelRefs.current.forEach((m) => m.remove());
+      const encOn = Boolean(useAhanu.getState().layers.enc?.visible);
+      encLabelRefs.current = encCatalogLabelPoints().map((c) => {
+        const el = document.createElement("div");
+        el.style.cssText =
+          "font:600 10px Outfit,sans-serif;letter-spacing:.04em;color:#4ecdc4;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
+        el.style.display = encOn ? "" : "none";
+        el.textContent = c.id;
+        return new maplibregl.Marker({ element: el, anchor: "center" })
           .setLngLat([c.lon, c.lat])
           .addTo(map);
       });

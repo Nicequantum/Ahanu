@@ -9,6 +9,8 @@ import type { TripPackLayer } from "@/lib/ahanu/types";
 import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
+/** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
+
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
   if (status === "stale" || status === "downloading") return "caution";
@@ -40,6 +42,8 @@ export function PacksPanel() {
   useAhanu((s) => s.packEpoch);
   const total = packs.length;
   const ok = packs.filter((p) => p.status === "ready").length;
+  const noaaCount = packs.filter((p) => p.source === "noaa").length;
+  const fixtureCount = packs.filter((p) => p.source === "fixture").length;
   const pct = total ? (ok / total) * 100 : 0;
   const offshore = Boolean(ready?.ready);
   const badge = readyOffshoreBadge(ready);
@@ -63,7 +67,7 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            Buoys, tides, ENC catalog, and hour-0 wind/wave when the NCEP subset parses. SST and the 72 h series stay fixtures.
+            SST (CoralTemp 5 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, hour-0 GFS, plus buoys, tides, and ENC catalog when those fetches parse. 72 h GFS series stays off. Failed fetches stay fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -84,7 +88,7 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA paints hour-0 wind/wave only when those bytes parse; it does not fetch a 72 h
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, hour-0 wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not fetch a 72 h
         series and does not claim official ENC. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
@@ -180,6 +184,7 @@ export function PacksPanel() {
       <div className="mb-1 flex items-baseline justify-between text-[11px] text-muted">
         <span>
           {ok}/{total || "—"} hashed
+          {total ? ` · ${noaaCount} NOAA / ${fixtureCount} fixture` : ""}
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>
       </div>
@@ -218,8 +223,8 @@ export function PacksPanel() {
         <div className="mt-4">
           <h3 className="mb-1 text-sm font-medium">
             {packs.find((layer) => layer.id === "enc")?.source === "noaa"
-              ? "ENC catalog (NOAA)"
-              : "ENC clip (fixture)"}
+              ? "ENC catalog (aid · NOAA)"
+              : "ENC catalog (aid)"}
           </h3>
           <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
             {packedEncCells().map((c) => (

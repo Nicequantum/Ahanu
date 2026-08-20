@@ -52,6 +52,7 @@ describe("layerPaintSource — no pack", () => {
     assert.equal(layerPaintSource("hms_zones"), "local");
     assert.equal(layerPaintSource("buoys"), "local");
     assert.equal(layerPaintSource("ais"), "local");
+    assert.equal(layerPaintSource("enc"), "local");
   });
 });
 
@@ -71,6 +72,7 @@ describe("layerPaintSource — fixture pack", () => {
     assert.equal(layerPaintSource("canyons"), "fixture");
     assert.equal(layerPaintSource("hms_zones"), "fixture");
     assert.equal(layerPaintSource("buoys"), "fixture");
+    assert.equal(layerPaintSource("enc"), "fixture");
   });
 
   it("missing chlorophyll stays missing — no synthetic fallback", async () => {
@@ -192,8 +194,16 @@ describe("packedGridFeatures", () => {
   });
 });
 
-const { canyonsForChart, contoursForChart, hmsForChart, buoysForChart, packedEncCells } =
-  await import("../src/lib/ahanu/packed-chart.ts");
+const {
+  canyonsForChart,
+  contoursForChart,
+  hmsForChart,
+  buoysForChart,
+  packedEncCells,
+  encCatalogFeatures,
+  encCatalogForChart,
+  encCellHasBounds,
+} = await import("../src/lib/ahanu/packed-chart.ts");
 
 describe("packed chart layers", () => {
   it("uses packed canyons / contours / HMS / buoys when present", async () => {
@@ -212,6 +222,10 @@ describe("packed chart layers", () => {
     const buoys = buoysForChart();
     assert.ok(buoys.some((b) => b.id === "44097"));
     assert.ok(packedEncCells().some((c) => c.id === "US5RI10M"));
+    assert.ok(packedEncCells().some((c) => c.id === "US5RI10M" && encCellHasBounds(c)));
+    const encBoxes = encCatalogForChart();
+    assert.ok(encBoxes.features.length >= 1, "fixture cells with bounds should paint");
+    assert.ok(encBoxes.features.some((f) => (f.properties as { id?: string })?.id === "US5RI10M"));
   });
 
   it("missing canyons/contours/HMS/buoys stay empty — no seed fallback", async () => {
@@ -377,5 +391,41 @@ describe("live bathymetry paint", () => {
     const split = contoursForChart();
     assert.ok(split.c100.features.length >= 1);
     assert.ok(split.c200.features.length >= 1, "200 fm should paint when the live grid crosses 366 m");
+  });
+});
+
+describe("ENC catalog aid overlay", () => {
+  it("cells with west/south/east/north become overlay features", () => {
+    const geo = encCatalogFeatures([
+      { id: "US5RI10M", usage: 5, name: "Point Judith / Galilee", west: -71.55, south: 41.34, east: -71.45, north: 41.4 },
+      { id: "US5NONE", usage: 5, name: "no box" },
+    ]);
+    assert.equal(geo.features.length, 1);
+    const f = geo.features[0]!;
+    assert.equal(f.geometry.type, "Polygon");
+    assert.equal((f.properties as { id?: string })?.id, "US5RI10M");
+    assert.equal((f.properties as { legal?: boolean })?.legal, false);
+    assert.equal((f.properties as { kind?: string })?.kind, "enc-catalog");
+    const ring = (f.geometry as GeoJSON.Polygon).coordinates[0]!;
+    assert.deepEqual(ring[0], [-71.55, 41.34]);
+    assert.deepEqual(ring[2], [-71.45, 41.4]);
+  });
+
+  it("empty or missing catalog stays empty", async () => {
+    assert.equal(encCatalogFeatures([]).features.length, 0);
+    clearPackedOcean();
+    assert.equal(encCatalogForChart().features.length, 0);
+    await loadFixture(["enc"]);
+    assert.equal(layerPaintSource("enc"), "missing");
+    assert.equal(packedEncCells().length, 0);
+    assert.equal(encCatalogForChart().features.length, 0);
+  });
+
+  it("cells without usable bounds do not paint", () => {
+    const geo = encCatalogFeatures([
+      { id: "US5BAD1", usage: 5, name: "inverted", west: -70, south: 41, east: -71, north: 42 },
+      { id: "US5BAD2", usage: 5, name: "nan", west: Number.NaN, south: 41, east: -71, north: 42 },
+    ]);
+    assert.equal(geo.features.length, 0);
   });
 });

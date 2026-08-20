@@ -172,7 +172,17 @@ export function canyonHeadsForLabels(): { name: string; lon: number; lat: number
   }));
 }
 
-export function packedEncCells(): { id: string; usage: number; name: string }[] {
+export type PackedEncCell = {
+  id: string;
+  usage: number;
+  name: string;
+  west?: number;
+  south?: number;
+  east?: number;
+  north?: number;
+};
+
+export function packedEncCells(): PackedEncCell[] {
   return getPackedOcean()?.enc?.cells ?? [];
 }
 
@@ -180,4 +190,64 @@ export function packedEncNote(): string | null {
   const enc = getPackedOcean()?.enc;
   if (!enc) return null;
   return enc.note || ENC_AID_DISCLAIMER;
+}
+
+export function encCellHasBounds(
+  cell: PackedEncCell,
+): cell is PackedEncCell & { west: number; south: number; east: number; north: number } {
+  return (
+    typeof cell.west === "number" &&
+    typeof cell.south === "number" &&
+    typeof cell.east === "number" &&
+    typeof cell.north === "number" &&
+    Number.isFinite(cell.west) &&
+    Number.isFinite(cell.south) &&
+    Number.isFinite(cell.east) &&
+    Number.isFinite(cell.north) &&
+    cell.west < cell.east &&
+    cell.south < cell.north
+  );
+}
+
+/** Aid overlay boxes from catalog west/south/east/north. Missing/empty/no-bounds → no features. Not official S-57. */
+export function encCatalogFeatures(cells: PackedEncCell[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: cells.filter(encCellHasBounds).map((c) => ({
+      type: "Feature" as const,
+      properties: {
+        id: c.id,
+        name: c.name,
+        usage: c.usage,
+        legal: false,
+        kind: "enc-catalog",
+      },
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [
+          [
+            [c.west, c.south],
+            [c.east, c.south],
+            [c.east, c.north],
+            [c.west, c.north],
+            [c.west, c.south],
+          ],
+        ],
+      },
+    })),
+  };
+}
+
+export function encCatalogForChart(): GeoJSON.FeatureCollection {
+  return encCatalogFeatures(packedEncCells());
+}
+
+export function encCatalogLabelPoints(): { id: string; lon: number; lat: number }[] {
+  return packedEncCells()
+    .filter(encCellHasBounds)
+    .map((c) => ({
+      id: c.id,
+      lon: (c.west + c.east) / 2,
+      lat: (c.north + c.south) / 2,
+    }));
 }

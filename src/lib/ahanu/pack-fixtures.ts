@@ -273,12 +273,12 @@ function encClip(bbox: PackBBox): PackedJson {
         coastalTo100fm: true,
       },
       cells: [
-        { id: "US5RI10M", usage: 5, name: "Point Judith / Galilee" },
-        { id: "US5RI11M", usage: 5, name: "Narragansett Bay entrance" },
-        { id: "US5NY19M", usage: 5, name: "Montauk Harbor" },
-        { id: "US4MA14M", usage: 4, name: "Block Island Sound" },
-        { id: "US3NY01M", usage: 3, name: "Approaches to New York — canyons" },
-        { id: "US3MA01M", usage: 3, name: "Approaches to Nantucket — 100-fathom" },
+        { id: "US5RI10M", usage: 5, name: "Point Judith / Galilee", west: -71.55, south: 41.34, east: -71.45, north: 41.4 },
+        { id: "US5RI11M", usage: 5, name: "Narragansett Bay entrance", west: -71.5, south: 41.38, east: -71.28, north: 41.52 },
+        { id: "US5NY19M", usage: 5, name: "Montauk Harbor", west: -72.0, south: 41.04, east: -71.9, north: 41.09 },
+        { id: "US4MA14M", usage: 4, name: "Block Island Sound", west: -72.1, south: 41.08, east: -71.4, north: 41.42 },
+        { id: "US3NY01M", usage: 3, name: "Approaches to New York — canyons", west: -74.0, south: 38.8, east: -71.2, north: 40.8 },
+        { id: "US3MA01M", usage: 3, name: "Approaches to Nantucket — 100-fathom", west: -71.8, south: 39.5, east: -68.8, north: 41.3 },
       ],
     },
   };

@@ -66,7 +66,7 @@ export function LayersPanel() {
       <p className="text-xs text-muted">
         Packed / fixture = trip-pack grid or vector. Synthetic = demo field with no pack. Missing = pack
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
-        pack. ENC is a cell list (fixture or NOAA catalog), not official S-57 — Ahanu is an aid to navigation.
+        pack. ENC catalog (aid) paints cell coverage boxes from the packed list — not official S-57.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
         before you leave the dock.
       </p>

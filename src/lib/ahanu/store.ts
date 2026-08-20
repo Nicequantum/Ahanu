@@ -450,6 +450,7 @@ export const useAhanu = create<AhanuState>()(
       skipHydration: true,
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        state.layers = { ...DEFAULT_LAYERS, ...state.layers };
         const next = applyDisplayMode(state.displayMode);
         writePersistedDisplayMode(next);
         if (next !== state.displayMode) state.displayMode = next;

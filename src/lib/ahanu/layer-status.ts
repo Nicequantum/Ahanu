@@ -82,6 +82,11 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     if (ocean) return "missing";
     return "local";
   }
+  if (id === "enc") {
+    if (ocean?.enc) return packLabel(ocean, ocean.encSource);
+    if (ocean) return "missing";
+    return "local";
+  }
   return "local";
 }
 

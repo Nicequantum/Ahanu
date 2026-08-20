@@ -37,6 +37,10 @@ export interface EncClip {
     id: string;
     usage: number;
     name: string;
+    west?: number;
+    south?: number;
+    east?: number;
+    north?: number;
     zipUrl?: string;
     zipBytes?: number;
     zipSha256?: string;
@@ -77,6 +81,7 @@ export interface PackedOcean {
   hmsSource?: PackFieldSource;
   depthSource?: PackFieldSource;
   contoursSource?: PackFieldSource;
+  encSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -277,7 +282,10 @@ export function packedOceanFromBodies(
   });
   takeJson("enc", (payload) => {
     const enc = asEnc(payload);
-    if (enc) out.enc = enc;
+    if (enc) {
+      out.enc = enc;
+      out.encSource = payloadSource(payload, packSource);
+    }
   });
   return out;
 }

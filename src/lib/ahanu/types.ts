@@ -29,6 +29,7 @@ export type LayerId =
   | "routes"
   | "canyons"
   | "hms_zones"
+  | "enc"
   | "ais";
 
 export type DisplayMode = "night" | "high-contrast" | "pure-black" | "day";

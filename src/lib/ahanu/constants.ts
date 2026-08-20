@@ -61,6 +61,7 @@ export const LAYER_META: Record<
   tracks: { label: "Track", group: "ops" },
   routes: { label: "Routes", group: "ops" },
   hms_zones: { label: "HMS closed areas", group: "ops" },
+  enc: { label: "ENC catalog (aid)", group: "ops" },
   ais: { label: "AIS (gateway)", group: "ops" },
 };
 
@@ -81,6 +82,7 @@ export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number
   tracks: { visible: true, opacity: 0.9 },
   routes: { visible: true, opacity: 1 },
   hms_zones: { visible: false, opacity: 0.35 },
+  enc: { visible: true, opacity: 0.32 },
   ais: { visible: false, opacity: 0.8 },
 };
 
