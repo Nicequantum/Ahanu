@@ -7,6 +7,7 @@ const {
   LIVE_MAX_AGE_MS,
   isPackPath,
   isLivePackRequest,
+  isSkipCachePackRequest,
   packFetchStrategy,
   isLiveCacheFresh,
   respondToPackRequest,
@@ -85,6 +86,8 @@ describe("SW pack URL strategy", () => {
     assert.equal(packFetchStrategy(new URL(packUrl("/api/packs"))), "cache-first");
     assert.equal(packFetchStrategy(new URL(packUrl("/api/objects", "&layer=sst"))), "cache-first");
     assert.equal(packFetchStrategy(new URL(packUrl("/api/packs", "&live=1"))), "network-first");
+    assert.equal(packFetchStrategy(new URL(packUrl("/api/packs", "&skipCache=1"))), "network-first");
+    assert.equal(isSkipCachePackRequest(new URL(packUrl("/api/packs", "&skipCache=true"))), true);
     assert.equal(packFetchStrategy(new URL("http://ahanu.test/api/catches")), null);
   });
 
@@ -213,6 +216,122 @@ describe("respondToPackRequest", () => {
     });
     assert.equal(await fixture!.text(), "cached-wind");
     assert.equal(await live!.text(), "cached-live-manifest");
+  });
+
+  it("sea-trial: last successful GET /api/packs is served after the network is gone", async () => {
+    const caches = createMemoryCaches();
+    const fixtureUrl = packUrl("/api/packs");
+    const liveUrl = packUrl("/api/packs", "&live=1");
+    const fixtureReq = new Request(fixtureUrl);
+    const liveReq = new Request(liveUrl);
+    const first = await respondToPackRequest(fixtureReq, {
+      fetchImpl: (input: Request) => handlePacksRequest(input instanceof Request ? input : new Request(input)),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 10,
+    });
+    assert.ok(first);
+    assert.equal(first.status, 200);
+    const fixtureBody = await first.text();
+    const fixtureJson = JSON.parse(fixtureBody) as { packId?: string; layers?: unknown[] };
+    assert.ok(fixtureJson.packId, "fixture pack GET must return a manifest");
+    assert.ok(Array.isArray(fixtureJson.layers) && fixtureJson.layers.length > 0);
+    assert.equal(caches._size(), 1);
+
+    const offline = async () => {
+      throw new Error("offline");
+    };
+    const fixtureOffline = await respondToPackRequest(fixtureReq, {
+      fetchImpl: offline,
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(fixtureOffline);
+    assert.equal(await fixtureOffline.text(), fixtureBody);
+
+    await respondToPackRequest(liveReq, {
+      fetchImpl: async () => new Response("cached-live-manifest", { status: 200 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 10,
+    });
+    const liveOffline = await respondToPackRequest(liveReq, {
+      fetchImpl: offline,
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(liveOffline);
+    assert.equal(await liveOffline.text(), "cached-live-manifest");
+  });
+
+  it("skipCache is network-first even when the 30 s stamp is fresh; offline still last success", async () => {
+    const caches = createMemoryCaches();
+    const url = packUrl("/api/packs", "&skipCache=1");
+    const req = new Request(url);
+    await (
+      await caches.open(CACHE_NAME)
+    ).put(
+      req,
+      new Response("skip-stale", {
+        status: 200,
+        headers: { "X-Ahanu-Cached-At": "5000" },
+      }),
+    );
+    let fetches = 0;
+    const online = await respondToPackRequest(req, {
+      fetchImpl: async () => {
+        fetches += 1;
+        return new Response("skip-fresh", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 5000 + 1_000,
+    });
+    assert.ok(online);
+    assert.equal(await online.text(), "skip-fresh");
+    assert.equal(fetches, 1);
+
+    const offline = await respondToPackRequest(req, {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(offline);
+    assert.equal(await offline.text(), "skip-fresh");
+  });
+
+  it("live=1 HTTP failure falls back to last success and does not overwrite it", async () => {
+    const caches = createMemoryCaches();
+    const url = packUrl("/api/packs", "&live=1");
+    const req = new Request(url);
+    await respondToPackRequest(req, {
+      fetchImpl: async () => new Response("last-ok-live", { status: 200 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 10,
+    });
+    const failed = await respondToPackRequest(req, {
+      fetchImpl: async () => new Response("upstream-502", { status: 502 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 10 + LIVE_MAX_AGE_MS + 1,
+    });
+    assert.ok(failed);
+    assert.equal(await failed.text(), "last-ok-live");
+    const again = await respondToPackRequest(req, {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.equal(await again!.text(), "last-ok-live");
   });
 
   it("does not claim cross-origin pack URLs or non-GET", async () => {

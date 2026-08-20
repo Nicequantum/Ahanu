@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (SW sea-trial offline fallback, 2026-08-20)
+
+`public/sw-ahanu.js` already caches same-origin GET `/api/packs` and GET `/api/objects` (fixture cache-first; `?live=1` network-first). Sea-trial tests now prove a successful fixture pack GET is served from that cache after the network is gone, and a later `?live=1` fetch may return the last success as a stale fallback (the 30 s stamp is not forever). `skipCache` stays network-first even when that stamp is fresh; a non-ok live response does not overwrite the last success. No NOAA bytes invented. No Worker scoring. No Flutter.
+
 ## This pass (SSR pack cache bust, 2026-08-20)
 
 Vite `ssrLoadModule` kept a stale pack.ts after disk edits; changing `pack*.ts` / `noaa-*.ts` now hard-invalidates that SSR graph so the next GET /api/packs loads `builder.rev` from disk without a process restart. No Worker scoring. No Flutter.
