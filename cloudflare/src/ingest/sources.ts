@@ -451,24 +451,41 @@ export function ndbc(): IngestMeta {
  *   HMS home:           https://www.fisheries.noaa.gov/topic/atlantic-highly-migratory-species
  *   Compliance guides:  https://www.fisheries.noaa.gov/atlantic-highly-migratory-species/atlantic-hms-fishery-compliance-guides
  *   Amd. 15 shapefiles: https://www.fisheries.noaa.gov/resource/map/highly-migratory-species-amendment-15-area-shapefiles-and-maps
+ *   NE PLL KMZ (live):  https://www.fisheries.noaa.gov/s3/2020-04/pelagicll_ne.kmz
+ *   NE PLL S3:          https://s3.amazonaws.com/media.fisheries.noaa.gov/2020-04/pelagicll_ne.kmz
+ *   A15 shapefile zip:  https://s3.amazonaws.com/media.fisheries.noaa.gov/2024-05/HMS-A15-Shapefiles.zip
  *   Monument:           https://www.fisheries.noaa.gov/new-england-mid-atlantic/habitat-conservation/northeast-canyons-and-seamounts-marine-national-monument
  *   GARFO GIS:          https://www.fisheries.noaa.gov/new-england-mid-atlantic/science-data/maps-and-geographic-information-systems-data-program-new-england-mid-atlantic
  *
- * Adapter honesty: store a static GeoJSON in R2 (`static/hms_zones/northeast.geojson`)
- * and copy it into each pack. Refresh when NMFS publishes a new shapefile.
- * An empty FeatureCollection is still a present layer (Ready-for-offshore
- * requires the object to exist, not that it contain closures).
+ * Adapter honesty: tryLive fetches the NE PLL KMZ (and A15 zip as fallback).
+ * First parseable file that intersects the trip bbox paints `hms_zones` as
+ * source: "noaa". A miss keeps the hashed fixture. Refresh when NMFS
+ * publishes a new shapefile. An empty FeatureCollection is still a present
+ * layer (Ready-for-offshore requires the object to exist, not that it
+ * contain closures). Never a legal determination.
  */
 export function hmsClosedAreas(): IngestMeta {
   return meta({
     id: "hms-closed-areas",
-    name: "HMS closed areas (static GeoJSON)",
+    name: "HMS closed areas (NMFS KMZ / shapefile)",
     provider: "NOAA Fisheries / HMS",
     kind: "vector",
     cadence: "static",
     license: "US Government work (public domain) — NOAA Fisheries; overlay is not legal advice",
     layerIds: ["hms_zones"],
     endpoints: [
+      {
+        label: "Northeastern US PLL closed area (KMZ, no-key live)",
+        url: "https://www.fisheries.noaa.gov/s3/2020-04/pelagicll_ne.kmz",
+      },
+      {
+        label: "Northeastern US PLL closed area (S3 KMZ)",
+        url: "https://s3.amazonaws.com/media.fisheries.noaa.gov/2020-04/pelagicll_ne.kmz",
+      },
+      {
+        label: "HMS Amendment 15 shapefiles (S3 zip)",
+        url: "https://s3.amazonaws.com/media.fisheries.noaa.gov/2024-05/HMS-A15-Shapefiles.zip",
+      },
       {
         label: "Atlantic HMS home",
         url: "https://www.fisheries.noaa.gov/topic/atlantic-highly-migratory-species",
@@ -491,7 +508,7 @@ export function hmsClosedAreas(): IngestMeta {
       },
     ],
     notes:
-      "Static GeoJSON. Do not treat PLL closures as recreational no-go, and do not scrape in-season HMS News into the pack. Skipper verifies current NMFS/HMS rules before leaving the dock. Refresh on NMFS shapefile publish, not on a cron.",
+      "Live no-key path that returned a Point Judith polygon is the Northeastern US pelagic-longline closed area KMZ (pelagicll_ne.kmz, 50 CFR 622.274 / same rectangle as HMS 635.21). Amendment 15 shapefiles (Mid-Atlantic shark / Charleston Bump / East Florida / DeSoto) sit south of this canyon box. Miss keeps the hashed fixture. Reminder overlay — not a legal determination. Do not treat PLL closures as recreational no-go, and do not scrape in-season HMS News into the pack. Skipper verifies current NMFS/HMS rules before leaving the dock.",
   });
 }
 

@@ -2,6 +2,14 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (NMFS HMS closed-area probe, 2026-08-20)
+
+`tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key NMFS/NOAA HMS closed-area files for the Point Judith box. First parseable FeatureCollection that intersects the box paints pack layer `hms_zones` as `source: "noaa"`. The path that returned a usable polygon from this network is the **Northeastern US pelagic-longline closed area KMZ** (`https://www.fisheries.noaa.gov/s3/2020-04/pelagicll_ne.kmz`, same bytes on S3). That is a commercial PLL rectangle (39–40 N, 68–74 W), not the Canyon Unit monument and not Amendment 15. A15 shapefiles stay in the probe list; they sit south of this canyon box so a miss there is expected. A 429 / 403 / parse / no-intersection miss keeps the hashed fixture. File must exist for Ready (empty geometry still counts). Reminder overlay — not a legal determination. Tests mock fetch; one live probe skips if blocked. No Worker scoring. No Flutter. AIS stays demo.
+
+## This pass (display mode persist, 2026-08-20)
+
+displayMode (night / high-contrast / pure-black / day) is kept on this device; reload restores the last helm and applies data-mode before first paint. First visit stays night-bridge. No Flutter.
+
 ## This pass (float plan export, 2026-08-20)
 
 Plan and Safety panels export a dry shore-side float plan from store state (no network): vessel, departure harbor, pack bbox and canyon heads in that box, pack window, souls on board, skipper-entered emergency contacts and radios, Ready / stale-SST caution when that override is on, and the aid-not-official-ENC one-liner. Copy and Download .txt; print-friendly HTML is optional. Empty fields stay empty or “not set”. Contacts are never invented. Formatter tests are offline. No Worker scoring. No Flutter.
@@ -54,10 +62,11 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - CoastWatch ERDDAP SST (CoralTemp daily 5 km) for the Point Judith box when that URL returns CSV. Layer `sst` is `source: "noaa"` only then. Resolution is 5 km / 0.05° — not 1 km MUR. Analysis time drives SST age. Fetch/parse miss keeps the fixture.
 - CoastWatch ERDDAP chlorophyll (S-NPP VIIRS NRT L3 daily 4 km) for the Point Judith box when that URL returns CSV. Layer `chlorophyll` is `source: "noaa"` only then. Resolution is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS L4. Fetch/parse miss keeps the fixture. Chlorophyll does not block Ready.
 - CoastWatch ERDDAP SSH / SLA (blended daily 0.25°) for the Point Judith box when that URL returns CSV. Layer `altimetry` is `source: "noaa"` only then. Resolution is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS. Values stored in cm. Fetch/parse miss keeps the fixture. Altimetry does not block Ready.
+- NMFS/NOAA HMS closed-area KMZ (Northeastern US pelagic longline closed area) for the Point Judith box when that URL returns a parseable polygon that intersects the box. Layer `hms_zones` is `source: "noaa"` only then. Reminder overlay — not a legal determination. Amendment 15 shapefiles stay in the probe list (south of this box). Fetch/parse/no-intersection miss keeps the fixture. The HMS file must exist for Ready even if empty.
 
 ### Still fixture / not done
 
-- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the CoastWatch ERDDAP probe parsed a grid (S-NPP VIIRS L3 daily 4 km, not 1 km VIIRS / CMEMS). Altimetry is fixture unless the CoastWatch ERDDAP probe parsed a grid (blended SLA daily 0.25°, not CMEMS / AVISO). Bathymetry / contours / canyons / HMS grids and vectors stay fixture.
+- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the CoastWatch ERDDAP probe parsed a grid (S-NPP VIIRS L3 daily 4 km, not 1 km VIIRS / CMEMS). Altimetry is fixture unless the CoastWatch ERDDAP probe parsed a grid (blended SLA daily 0.25°, not CMEMS / AVISO). Bathymetry / contours / canyons stay fixture. HMS is fixture unless the NMFS/NOAA closed-area probe parsed a polygon that intersects the box (NE PLL KMZ here — reminder only, not a legal determination).
 - 72 h wind and wave **grids** unless the paced series is explicitly enabled and every f000-f072 step decodes (hour 0 may be live; hours 3-72 stay fixture or empty otherwise. NDFD not fetched. Full series is not downloaded in CI).
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.

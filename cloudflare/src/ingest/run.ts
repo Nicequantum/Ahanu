@@ -22,6 +22,9 @@
  * 4 km when that path works) — not invented 1 km VIIRS or CMEMS L4.
  * Live SSH is only the public grid that parsed (CoastWatch blended SLA daily
  * 0.25° when that path works) — not invented CMEMS L4 or AVISO DUACS.
+ * Live HMS is only a public NMFS/NOAA closed-area KMZ or shapefile that
+ * parsed and intersected the box (NE PLL KMZ when that path works) —
+ * reminder overlay, not a legal determination.
  * CMEMS still needs a licence and is not fetched.
  */
 import { buildTripPack } from "../../../src/lib/ahanu/pack";

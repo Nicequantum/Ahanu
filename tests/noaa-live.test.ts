@@ -31,6 +31,14 @@ const {
   fetchLiveSsh,
   sampleSshCsvForTests,
   SSH_ENDPOINTS,
+  parseKmlPolygons,
+  clipHmsFeatures,
+  fetchLiveHms,
+  hmsToPackedJson,
+  sampleHmsKmlForTests,
+  sampleHmsKmzForTests,
+  HMS_ENDPOINTS,
+  HMS_REMINDER_NOTE,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -1003,5 +1011,166 @@ describe("optional live SSH probe", () => {
     if (ssh.dataset === "noaacwBLENDEDsshDaily") {
       assert.ok(Math.abs(ssh.effectiveDeg - 0.25) < 1e-6);
     }
+  });
+});
+
+describe("HMS KML / KMZ parse", () => {
+  it("reads the Northeastern US closed-area rectangle", () => {
+    const feats = parseKmlPolygons(sampleHmsKmlForTests());
+    assert.equal(feats.length, 1);
+    assert.equal((feats[0]!.properties as { name?: string }).name, "Northeastern US closed area");
+    assert.equal((feats[0]!.properties as { legal?: boolean }).legal, false);
+    assert.equal(feats[0]!.geometry.type, "Polygon");
+    const ring = (feats[0]!.geometry as GeoJSON.Polygon).coordinates[0]!;
+    assert.ok(ring.length >= 4);
+    assert.ok(clipHmsFeatures(feats, POINT_JUDITH_CANYON_BBOX).length === 1);
+  });
+
+  it("rejects HTML and drops features outside the box", () => {
+    assert.equal(parseKmlPolygons("<html>nope</html>").length, 0);
+    const feats = parseKmlPolygons(sampleHmsKmlForTests());
+    const south = { west: -80, south: 25, east: -79, north: 26 };
+    assert.equal(clipHmsFeatures(feats, south).length, 0);
+  });
+
+  it("unzips a store-method KMZ", async () => {
+    const kmz = sampleHmsKmzForTests();
+    const { featuresFromZip } = await import("../src/lib/ahanu/noaa-hms.ts");
+    const feats = await featuresFromZip(kmz);
+    assert.equal(feats.length, 1);
+  });
+});
+
+describe("tryLiveNoaa HMS overlay", () => {
+  it("paints hms_zones source noaa when the NE KMZ parses", async () => {
+    const kmz = sampleHmsKmzForTests();
+    const fetchImpl = async (url: string) => {
+      if (url.includes("pelagicll_ne") || url.includes("HMS-A15")) {
+        return new Response(kmz, { status: 200, headers: { "Content-Type": "application/vnd.google-earth.kmz" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.hms);
+    assert.equal(live.hms.source, "noaa");
+    assert.equal(live.hms.dataset, "pelagicll-ne-kmz");
+    assert.ok(live.hms.featureCount >= 1);
+    assert.match(live.hms.note, /not a legal determination/i);
+    const payload = live.hms.body.payload as { source?: string; legal?: boolean; features?: unknown[] };
+    assert.equal(payload.source, "noaa");
+    assert.equal(payload.legal, false);
+    assert.ok((payload.features?.length ?? 0) >= 1);
+  });
+
+  it("omits HMS on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.hms, undefined);
+    assert.ok(live.errors.some((e) => e.includes("hms")));
+  });
+});
+
+describe("buildTripPack HMS overlay", () => {
+  it("hashes live HMS and marks source noaa without claiming legal status", async () => {
+    const kmz = sampleHmsKmzForTests();
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("pelagicll_ne") || url.includes("HMS-A15")) {
+          return new Response(kmz, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const hms = live.manifest.layers.find((l) => l.id === "hms_zones")!;
+    assert.equal(hms.source, "noaa");
+    assert.notEqual(hms.hash, fixture.manifest.layers.find((l) => l.id === "hms_zones")!.hash);
+    assert.equal(await sha256Hex(live.bodies.hms_zones!), hms.hash);
+    const body = parseLayerBody(live.bodies.hms_zones!) as {
+      payload?: { source?: string; legal?: boolean; note?: string; features?: unknown[] };
+    };
+    assert.equal(body.payload?.source, "noaa");
+    assert.equal(body.payload?.legal, false);
+    assert.match(body.payload?.note ?? "", /not a legal determination/i);
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-hms"));
+    assert.equal(live.manifest.readyForOffshore, true);
+    assert.ok(hmsToPackedJson([], HMS_REMINDER_NOTE));
+    assert.equal(HMS_ENDPOINTS[0]!.kind, "kmz");
+  });
+
+  it("keeps fixture HMS when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "hms_zones")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "hms_zones")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "hms_zones")!.source, "fixture");
+  });
+});
+
+describe("optional live HMS probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let hms;
+    try {
+      hms = await fetchLiveHms({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live HMS fetch threw");
+      return;
+    }
+    if (!hms) {
+      t.skip(errors.join("; ") || "live HMS blocked");
+      return;
+    }
+    assert.equal(hms.source, "noaa");
+    assert.ok(hms.featureCount >= 1);
+    assert.match(hms.note, /not a legal determination/i);
+    const payload = hms.body.payload as { legal?: boolean; features?: { properties?: { legal?: boolean } }[] };
+    assert.equal(payload.legal, false);
+    assert.ok(payload.features?.every((f) => f.properties?.legal === false));
   });
 });

@@ -71,7 +71,7 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     return "local";
   }
   if (id === "hms_zones") {
-    if (ocean?.hms) return packLabel(ocean);
+    if (ocean?.hms) return packLabel(ocean, ocean.hmsSource);
     if (ocean) return "missing";
     return "local";
   }

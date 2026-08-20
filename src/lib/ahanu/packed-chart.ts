@@ -14,6 +14,9 @@ import type { PackedBuoyRow } from "./noaa-live";
 export const ENC_AID_DISCLAIMER =
   "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
 
+export const HMS_AID_DISCLAIMER =
+  "HMS closed areas are a reminder overlay, not a legal determination. Recreational trolling is generally not the same as commercial pelagic longline closures. Verify with NOAA HMS before you leave the dock.";
+
 function emptyFc(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
 }

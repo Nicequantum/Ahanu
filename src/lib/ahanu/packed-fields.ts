@@ -74,6 +74,7 @@ export interface PackedOcean {
   sstSource?: PackFieldSource;
   chlSource?: PackFieldSource;
   sshSource?: PackFieldSource;
+  hmsSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -146,7 +147,14 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
 function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSource {
   if (payload && typeof payload === "object") {
     const p = payload as { live?: boolean; source?: string; fixture?: boolean };
-    if (p.source === "ndbc" || p.source === "coops" || p.source === "noaa-enc-catalog" || p.live)
+    if (
+      p.source === "ndbc" ||
+      p.source === "coops" ||
+      p.source === "noaa-enc-catalog" ||
+      p.source === "noaa" ||
+      p.source === "nmfs" ||
+      p.live
+    )
       return "noaa";
     if (p.fixture) return "fixture";
   }
@@ -242,7 +250,10 @@ export function packedOceanFromBodies(
   });
   takeJson("hms_zones", (payload) => {
     const fc = asFeatureCollection(payload);
-    if (fc) out.hms = fc;
+    if (fc) {
+      out.hms = fc;
+      out.hmsSource = payloadSource(payload, packSource);
+    }
   });
   takeJson("buoys", (payload) => {
     const rows = asBuoys(payload);

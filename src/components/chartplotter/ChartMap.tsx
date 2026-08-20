@@ -265,6 +265,12 @@ export function ChartMap() {
           source: "hms",
           paint: { "fill-color": "#e06b5a", "fill-opacity": 0 },
         });
+        map.addLayer({
+          id: "hms-outline",
+          type: "line",
+          source: "hms",
+          paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": 0 },
+        });
 
         map.addSource("buoys", { type: "geojson", data: buoyPointsGeo(buoysForChart()) });
         map.addLayer({
@@ -538,6 +544,7 @@ export function ChartMap() {
     vis("breaks", layers.temp_breaks.visible, 0.85);
     vis("chl-edges", layers.chl_edges.visible, 0.8);
     vis("hms", layers.hms_zones.visible, layers.hms_zones.opacity);
+    vis("hms-outline", layers.hms_zones.visible, layers.hms_zones.opacity);
     vis("buoys", layers.buoys.visible, 0.9);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
@@ -548,6 +555,13 @@ export function ChartMap() {
     vis("community", layers.spots.visible, 0.55);
     if (map.getLayer("hms")) {
       map.setPaintProperty("hms", "fill-opacity", layers.hms_zones.visible ? layers.hms_zones.opacity : 0);
+    }
+    if (map.getLayer("hms-outline")) {
+      map.setPaintProperty(
+        "hms-outline",
+        "line-opacity",
+        layers.hms_zones.visible ? Math.min(1, layers.hms_zones.opacity + 0.35) : 0,
+      );
     }
     if (map.getLayer("wind")) {
       map.setPaintProperty("wind", "line-opacity", layers.wind.visible ? layers.wind.opacity : 0);

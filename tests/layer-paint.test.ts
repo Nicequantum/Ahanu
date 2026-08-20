@@ -319,3 +319,27 @@ describe("live SSH daily paint", () => {
     assert.equal(img.source, "packed");
   });
 });
+
+describe("live HMS closed-area paint", () => {
+  it("marks packed noaa and paints the reminder polygons", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { sampleHmsKmlForTests, parseKmlPolygons, hmsToPackedJson, HMS_REMINDER_NOTE } =
+      await import("../src/lib/ahanu/noaa-hms.ts");
+    const { hmsForChart } = await import("../src/lib/ahanu/packed-chart.ts");
+    const feats = parseKmlPolygons(sampleHmsKmlForTests());
+    const body = hmsToPackedJson(feats, HMS_REMINDER_NOTE);
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.hms_zones = encodeLayerBody(body);
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(layerPaintSource("hms_zones"), "packed");
+    const geo = hmsForChart();
+    assert.ok(geo.features.length >= 1);
+    assert.equal((geo.features[0]!.properties as { legal?: boolean })?.legal, false);
+    assert.equal((geo as { legal?: boolean }).legal, false);
+  });
+});
