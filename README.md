@@ -47,7 +47,7 @@ Ahanu does not replace NOAA ENC, NMFS/HMS regulations, or seamanship. It package
 | --- | --- |
 | Web client (this repo) | React, MapLibre GL JS, TypeScript domain in `src/lib/ahanu` |
 | Preview host | Vercel — Grok web client only, not production delivery |
-| Production app shell | Cloudflare Pages |
+| Production app shell | Cloudflare Workers (`ahanu`, root `wrangler.jsonc`) |
 | Production data | Worker `ahanu-packs`, R2 `ahanu-trip-packs`, D1 `ahanu-core`, Durable Object `CommunityHub` |
 | Ingest (adapters, then cron) | NOAA ENC, GFS-Wave/WW3, NDFD, GHRSST/CoastWatch SST, Copernicus chl-a, altimetry, CO-OPS, NDBC |
 | Native helm | Flutter + MapLibre GL native — **planned**, domain package in [`flutter/`](flutter/README.md), see [docs/FLUTTER_ROADMAP.md](docs/FLUTTER_ROADMAP.md). |
@@ -76,15 +76,26 @@ npm run dev
 
 Requires Node 22. The Vite app binds `0.0.0.0:8080`. This is the PWA preview — packs in the preview may be generated manifests without real R2 bodies; the shape is the production shape.
 
-Cloudflare Worker (separate package, no need to install for the web client):
+### Trip-pack Worker (`ahanu-packs`)
 
 ```bash
 cd cloudflare
-# npm install   # wrangler as a devDependency
-npx wrangler dev
+npx wrangler deploy
 ```
 
-Endpoints: `GET /health`, `GET /api/packs?bbox=w,s,e,n&start=ISO&hours=72`, `GET /api/buoys`, `POST /api/catches`, `GET /api/community?bbox=`.
+Endpoints: `GET /health`, `GET /api/packs?west=&south=&east=&north=&hours=72`, `GET /api/sources`, `GET /api/buoys`, `POST /api/catches`.
+
+### Production helm (Worker `ahanu`)
+
+Root [`wrangler.jsonc`](wrangler.jsonc) is the app shell. In the Cloudflare dashboard set the **deploy command** to:
+
+```bash
+npm run deploy:cf
+```
+
+That sets `AHANU_CF=1` so Vite uses the Cloudflare plugin instead of the Vercel/Nitro preset the Grok preview needs. A bare `npx wrangler deploy` on a repo without that config makes Wrangler auto-wire TanStack Start, rewrite scripts, and then fail because MapLibre cannot be marked `ssr.external` in a Worker.
+
+MapLibre stays in the browser. Habitat scoring stays on-device.
 
 ---
 

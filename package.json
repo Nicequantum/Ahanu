@@ -12,6 +12,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "deploy:cf": "AHANU_CF=1 wrangler deploy",
+    "build:cf": "AHANU_CF=1 vite build",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test --import ./tests/register-alias.ts tests/*.test.ts",
     "lint": "eslint .",
@@ -73,6 +75,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.53.0",
     "@eslint/js": "^9.20.0",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^22.16.5",
@@ -92,6 +95,7 @@
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "wrangler": "^4.124.0"
   }
 }

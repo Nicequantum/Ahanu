@@ -229,7 +229,22 @@ export function ensureDbReady(): Promise<void> {
 const globalBoot = globalThis as typeof globalThis & {
   __pgBootstrapPromise__?: Promise<void>;
 };
-if (typeof window === "undefined" && dbSource === "pglite") {
+function runningOnCloudflareWorker() {
+  try {
+    return globalThis.navigator?.userAgent === "Cloudflare-Workers";
+  } catch {
+    return false;
+  }
+}
+
+if (
+  typeof window === "undefined" &&
+  dbSource === "pglite" &&
+  !runningOnCloudflareWorker() &&
+  process.env.WORKERS_CI !== "1" &&
+  process.env.CF_PAGES !== "1" &&
+  process.env.AHANU_CF !== "1"
+) {
   globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
     globalBoot.__pgBootstrapPromise__ = undefined;
     console.error("[db] PGLite bootstrap failed:", err);

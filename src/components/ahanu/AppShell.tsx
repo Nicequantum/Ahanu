@@ -1,4 +1,4 @@
-import { ChartMap } from "@/components/chartplotter/ChartMap";
+import { ChartIsland } from "@/components/ahanu/ChartIsland";
 import { PanelBody } from "@/components/ahanu/Panels";
 import { CompassTape } from "@/components/ahanu/CompassTape";
 import { MarkBurst } from "@/components/ahanu/MarkBurst";
@@ -87,7 +87,7 @@ export function AppShell() {
 
   return (
     <div className="relative h-svh w-full overflow-hidden bg-abyss text-foam">
-      <ChartMap />
+      <ChartIsland />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-abyss/20 via-transparent to-abyss/25" />
       <TopBar />
       <MarkBurst />
