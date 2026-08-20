@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { REGION } from "@/lib/ahanu/constants";
-import { contourLines, landPolygon } from "@/lib/ahanu/bathymetry";
+import { landPolygon } from "@/lib/ahanu/bathymetry";
 import {
   EMPTY_RASTER_URL,
   fieldImage,
@@ -10,10 +10,15 @@ import {
   type OverlayBounds,
 } from "@/lib/ahanu/rasters";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
+import {
+  buoyPointsGeo,
+  buoysForChart,
+  canyonHeadsForLabels,
+  canyonsForChart,
+  contoursForChart,
+  hmsForChart,
+} from "@/lib/ahanu/packed-chart";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
-import { CANYONS } from "@/lib/data/canyons";
-import { BUOYS } from "@/lib/data/buoys";
-import { CLOSED_AREAS } from "@/lib/data/regs";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
 import { aisGeo, aisTargets } from "@/lib/data/ais";
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
@@ -21,40 +26,6 @@ import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
 import { useAhanu } from "@/lib/ahanu/store";
 
-function canyonGeo(): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: CANYONS.flatMap((c) => [
-      {
-        type: "Feature" as const,
-        properties: { name: c.name, kind: "axis" },
-        geometry: {
-          type: "LineString" as const,
-          coordinates: c.axis.map((p) => [p.lon, p.lat] as [number, number]),
-        },
-      },
-      {
-        type: "Feature" as const,
-        properties: { name: c.name, kind: "head" },
-        geometry: { type: "Point" as const, coordinates: [c.head.lon, c.head.lat] },
-      },
-    ]),
-  };
-}
-
-function closedGeo(): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: CLOSED_AREAS.map((a) => ({
-      type: "Feature" as const,
-      properties: { name: a.name },
-      geometry: {
-        type: "Polygon" as const,
-        coordinates: [a.ring.map((p) => [p.lon, p.lat] as [number, number])],
-      },
-    })),
-  };
-}
 
 function emptyFc(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
@@ -250,10 +221,9 @@ export function ChartMap() {
           });
         }
 
-        const contours = contourLines(183, 2);
-        const c200 = contourLines(366, 3);
-        map.addSource("c100", { type: "geojson", data: contours });
-        map.addSource("c200", { type: "geojson", data: c200 });
+        const packedContours = contoursForChart();
+        map.addSource("c100", { type: "geojson", data: packedContours.c100 });
+        map.addSource("c200", { type: "geojson", data: packedContours.c200 });
         map.addLayer({
           id: "c100",
           type: "line",
@@ -267,7 +237,7 @@ export function ChartMap() {
           paint: { "line-color": "#e4b56a", "line-width": 0.8, "line-opacity": 0.4 },
         });
 
-        map.addSource("canyons", { type: "geojson", data: canyonGeo() });
+        map.addSource("canyons", { type: "geojson", data: canyonsForChart() });
         map.addLayer({
           id: "canyon-axis",
           type: "line",
@@ -288,12 +258,26 @@ export function ChartMap() {
           },
         });
 
-        map.addSource("hms", { type: "geojson", data: closedGeo() });
+        map.addSource("hms", { type: "geojson", data: hmsForChart() });
         map.addLayer({
           id: "hms",
           type: "fill",
           source: "hms",
           paint: { "fill-color": "#e06b5a", "fill-opacity": 0 },
+        });
+
+        map.addSource("buoys", { type: "geojson", data: buoyPointsGeo(buoysForChart()) });
+        map.addLayer({
+          id: "buoys",
+          type: "circle",
+          source: "buoys",
+          paint: {
+            "circle-radius": 4,
+            "circle-color": "#8aa0ab",
+            "circle-opacity": 0.9,
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#071016",
+          },
         });
 
         map.addSource("breaks", { type: "geojson", data: breaksGeo(hour, sens) });
@@ -489,37 +473,15 @@ export function ChartMap() {
           .setLngLat([vessel.lon, vessel.lat])
           .addTo(map);
 
-        const MAJOR = new Set([
-          "hudson",
-          "block",
-          "atlantis",
-          "veatch",
-          "hydro",
-          "hydrographer",
-          "wilmington",
-          "baltimore",
-          "norfolk",
-        ]);
         labelRefs.current.forEach((m) => m.remove());
-        labelRefs.current = CANYONS.filter((c) => MAJOR.has(c.id) || MAJOR.has(c.name.toLowerCase().split(" ")[0]!)).map(
-          (c) => {
-            const el = document.createElement("div");
-            el.style.cssText =
-              "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
-            el.textContent = c.name.replace(" Canyon", "");
-            return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
-              .setLngLat([c.head.lon, c.head.lat])
-              .addTo(map!);
-          },
-        );
-        BUOYS.forEach((b) => {
+        labelRefs.current = canyonHeadsForLabels().map((c) => {
           const el = document.createElement("div");
-          el.title = `${b.id} ${b.name}`;
           el.style.cssText =
-            "width:7px;height:7px;border-radius:1px;background:#8aa0ab;box-shadow:0 0 0 1px #071016;transform:rotate(45deg);";
-          labelRefs.current.push(
-            new maplibregl.Marker({ element: el }).setLngLat([b.lon, b.lat]).addTo(map!),
-          );
+            "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
+          el.textContent = c.name.replace(" Canyon", "");
+          return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
+            .setLngLat([c.lon, c.lat])
+            .addTo(map!);
         });
       });
 
@@ -576,6 +538,7 @@ export function ChartMap() {
     vis("breaks", layers.temp_breaks.visible, 0.85);
     vis("chl-edges", layers.chl_edges.visible, 0.8);
     vis("hms", layers.hms_zones.visible, layers.hms_zones.opacity);
+    vis("buoys", layers.buoys.visible, 0.9);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
     vis("route", layers.routes.visible, 0.85);
@@ -606,15 +569,35 @@ export function ChartMap() {
     applyRaster(map, "sst", fieldImage("sst", hour, 220, 150));
     applyRaster(map, "chl", fieldImage("chl", hour, 220, 150));
     applyRaster(map, "ssh", fieldImage("ssh", hour, 180, 120));
+    applyRaster(map, "bathy", fieldImage("depth", 0, 280, 192));
     applyRaster(map, "habitat", habitatImage(species, hour, new Date(useAhanu.getState().clockMs), 120, 82));
-    const br = map.getSource("breaks") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    br?.setData?.(breaksGeo(hour, sens));
-    const ce = map.getSource("chl-edges") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    ce?.setData?.(colorEdgeGeo(hour, sens));
-    const wind = map.getSource("wind") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    wind?.setData?.(windLines(hour));
-    const waves = map.getSource("waves") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    waves?.setData?.(waveFieldGeo(hour));
+    const set = (id: string, data: GeoJSON.GeoJSON) => {
+      const src = map.getSource(id) as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+      src?.setData?.(data);
+    };
+    set("breaks", breaksGeo(hour, sens));
+    set("chl-edges", colorEdgeGeo(hour, sens));
+    set("wind", windLines(hour));
+    set("waves", waveFieldGeo(hour));
+    const packedContours = contoursForChart();
+    set("c100", packedContours.c100);
+    set("c200", packedContours.c200);
+    set("canyons", canyonsForChart());
+    set("hms", hmsForChart());
+    set("buoys", buoyPointsGeo(buoysForChart()));
+    void import("maplibre-gl").then((maplibregl) => {
+      if (mapRef.current !== map) return;
+      labelRefs.current.forEach((m) => m.remove());
+      labelRefs.current = canyonHeadsForLabels().map((c) => {
+        const el = document.createElement("div");
+        el.style.cssText =
+          "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
+        el.textContent = c.name.replace(" Canyon", "");
+        return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
+          .setLngLat([c.lon, c.lat])
+          .addTo(map);
+      });
+    });
   }, [hour, species, sens, packEpoch]);
 
   useEffect(() => {

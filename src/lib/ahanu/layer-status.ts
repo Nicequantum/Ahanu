@@ -1,6 +1,6 @@
 /**
  * Honest helm layer provenance.
- * packed / fixture = trip-pack grid. missing = pack loaded without that layer.
+ * packed / fixture = trip-pack grid or vector. missing = pack loaded without that layer.
  * synthetic = demo field (no pack). derived = on-device from packed/synthetic.
  * local = chart/ops data that is not a downloaded ocean field.
  */
@@ -16,10 +16,12 @@ const FIELD: Partial<Record<LayerId, PackFieldId>> = {
   altimetry: "ssh",
   wind: "windKt",
   waves: "waveFt",
+  bathymetry: "depth",
 };
 
-function packLabel(ocean: PackedOcean): "packed" | "fixture" {
-  return ocean.source === "r2" ? "packed" : "fixture";
+function packLabel(ocean: PackedOcean, layerSource?: PackedOcean["source"]): "packed" | "fixture" {
+  const src = layerSource ?? ocean.source;
+  return src === "r2" || src === "noaa" ? "packed" : "fixture";
 }
 
 export function layerPaintSource(id: LayerId): LayerPaintSource {
@@ -28,7 +30,7 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
   if (field) {
     if (ocean?.[field]) return packLabel(ocean);
     if (ocean) return "missing";
-    return "synthetic";
+    return id === "bathymetry" ? "local" : "synthetic";
   }
   if (id === "temp_breaks") {
     if (ocean?.sst) return "derived";
@@ -43,6 +45,26 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
   if (id === "habitat") {
     if (ocean?.sst || ocean?.chl || ocean?.ssh) return "derived";
     return "synthetic";
+  }
+  if (id === "canyons") {
+    if (ocean?.canyons) return packLabel(ocean);
+    if (ocean) return "missing";
+    return "local";
+  }
+  if (id === "contours") {
+    if (ocean?.contours) return packLabel(ocean);
+    if (ocean) return "missing";
+    return "local";
+  }
+  if (id === "hms_zones") {
+    if (ocean?.hms) return packLabel(ocean);
+    if (ocean) return "missing";
+    return "local";
+  }
+  if (id === "buoys") {
+    if (ocean?.buoys) return packLabel(ocean, ocean.buoySource);
+    if (ocean) return "missing";
+    return "local";
   }
   return "local";
 }

@@ -10,11 +10,12 @@
  *   4. Durable Object CommunityHub can hold a pack-build lease so two crons
  *      do not write the same prefix.
  *
- * Until that cron exists, this function writes *fixture* bodies (hashed) when
+ * Until that cron exists, this function tries public NDBC/CO-OPS (no keys),
+ * then writes fixture bodies for anything the network did not return, when
  * an R2 binding is present, and is a no-op otherwise. Do not pretend live
  * ENC / GRIB / SST objects exist in the bucket.
  */
-import { buildFixturePack } from "../../../src/lib/ahanu/pack";
+import { buildTripPack } from "../../../src/lib/ahanu/pack";
 import { POINT_JUDITH_CANYON_BBOX } from "./fixtures";
 import { NORTHEAST_BBOX } from "../../../src/lib/ahanu/pack-fixtures";
 
@@ -31,7 +32,7 @@ export async function ingestFixturePack(
   start = new Date().toISOString(),
   hours = 72,
 ): Promise<{ packId: string; wrote: number; source: "r2" | "memory" }> {
-  const { manifest, bodies } = await buildFixturePack({ bbox, start, hours });
+  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true });
   const bucket = env.PACKS;
   let wrote = 0;
   if (bucket && typeof bucket.put === "function") {

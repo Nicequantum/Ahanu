@@ -5,6 +5,7 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
+import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -24,6 +25,7 @@ export function PacksPanel() {
   const downloading = useAhanu((s) => s.packDownloading);
   const error = useAhanu((s) => s.packError);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
+  useAhanu((s) => s.packEpoch);
   const total = packs.length;
   const ok = packs.filter((p) => p.status === "ready").length;
   const pct = total ? (ok / total) * 100 : 0;
@@ -168,8 +170,22 @@ export function PacksPanel() {
       {packs.length === 0 ? (
         <p className="text-xs text-muted">No objects stored. Download on marina Wi-Fi before you leave Galilee.</p>
       ) : null}
+      {packedEncCells().length ? (
+        <div className="mt-4">
+          <h3 className="mb-1 text-sm font-medium">ENC clip (fixture)</h3>
+          <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
+            {packedEncCells().map((c) => (
+              <li key={c.id}>
+                {c.id} · {c.name}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted">{ENC_AID_DISCLAIMER}</p>
+        </div>
+      ) : null}
       <p className="mt-4 text-xs text-muted">
         AIS is a gateway, not a file. Chlorophyll and altimetry improve the pack; they do not block Ready.
+        ENC is a cell list, not a legal chart.
       </p>
     </Pane>
   );

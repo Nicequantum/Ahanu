@@ -1,6 +1,6 @@
 import "./register-alias.ts";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 
 const { tideAt, currentAt, TIDE_STATIONS } = await import("../src/lib/ahanu/tides.ts");
 const { POINT_JUDITH, VEATCH_HEAD } = await import("../src/lib/ahanu/constants.ts");
@@ -55,5 +55,30 @@ describe("TIDE_STATIONS", () => {
     const names = TIDE_STATIONS.map((s) => s.name);
     assert.ok(names.includes("Point Judith"));
     assert.ok(names.includes("Newport"));
+  });
+});
+
+const { buildFixturePack, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
+const { packedOceanFromBodies, setPackedOcean, clearPackedOcean } = await import(
+  "../src/lib/ahanu/packed-fields.ts"
+);
+
+describe("packed tides", () => {
+  afterEach(() => {
+    clearPackedOcean();
+  });
+
+  it("samples the packed station series when a pack is loaded", async () => {
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: "2026-08-20T12:00:00.000Z",
+      hours: 72,
+      createdAt: "2026-08-20T12:00:00.000Z",
+    });
+    setPackedOcean(packedOceanFromBodies(bodies));
+    const t = tideAt(41.49, -71.327, new Date("2026-08-20T12:00:00.000Z"));
+    assert.ok(Number.isFinite(t.heightFt));
+    assert.ok(t.nextSlack instanceof Date);
+    clearPackedOcean();
   });
 });

@@ -2,6 +2,7 @@ import { CANYONS } from "@/lib/data/canyons";
 import { GRID_NX, GRID_NY, REGION } from "./constants";
 import { haversineNm, initialBearing, toRad } from "./geo";
 import type { LatLon } from "./types";
+import { samplePackedKind } from "./packed-fields";
 
 /** Mainland Atlantic shoreline, south → north. Land is west of this longitude. */
 const COAST: readonly (readonly [number, number])[] = [
@@ -220,6 +221,8 @@ function slopeAbyss(lat: number, lon: number, brk: number): number {
  * Shelf 20–180 m seaward, canyon trenches 400–2500 m, abyss 2500–4200 m.
  */
 export function depthM(lat: number, lon: number): number {
+  const packed = samplePackedKind("depth", lat, lon, 0);
+  if (packed != null) return packed;
   if (isLand(lat, lon)) return -5;
   const coast = coastLon(lat);
   const brk = shelfBreakLon(lat);

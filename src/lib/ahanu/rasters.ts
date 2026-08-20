@@ -48,10 +48,11 @@ export interface FieldImage {
   bbox: PackBBox;
 }
 
-const RASTER_FIELD: Record<Exclude<RasterKind, "depth">, "sst" | "chl" | "ssh"> = {
+const RASTER_FIELD: Record<RasterKind, "sst" | "chl" | "ssh" | "depth"> = {
   sst: "sst",
   chl: "chl",
   ssh: "ssh",
+  depth: "depth",
 };
 
 /** Colorized packed grid. Transparent over land. Does not fill outside the bbox. */
@@ -93,15 +94,6 @@ export function buildPackedRaster(
 }
 
 export function fieldImage(kind: RasterKind, hour: number, w: number, h: number): FieldImage | null {
-  if (kind === "depth") {
-    const r = buildRaster(kind, hour, w, h);
-    return {
-      url: rasterToDataUrl(r.data, r.width, r.height),
-      bounds: overlayBounds(REGION),
-      source: "local",
-      bbox: { ...REGION },
-    };
-  }
   const ocean = getPackedOcean();
   const grid = ocean?.[RASTER_FIELD[kind]];
   if (grid) {
@@ -109,7 +101,7 @@ export function fieldImage(kind: RasterKind, hour: number, w: number, h: number)
     return {
       url: rasterToDataUrl(r.data, r.width, r.height),
       bounds: overlayBounds(grid.bbox),
-      source: ocean.source === "r2" ? "packed" : "fixture",
+      source: ocean.source === "r2" || ocean.source === "noaa" ? "packed" : "fixture",
       bbox: grid.bbox,
     };
   }
@@ -118,7 +110,7 @@ export function fieldImage(kind: RasterKind, hour: number, w: number, h: number)
   return {
     url: rasterToDataUrl(r.data, r.width, r.height),
     bounds: overlayBounds(REGION),
-    source: "synthetic",
+    source: kind === "depth" ? "local" : "synthetic",
     bbox: { ...REGION },
   };
 }

@@ -54,7 +54,7 @@ export interface PackLayerRecord {
   r2Key: string;
   contentType: string;
   format: string;
-  source: "fixture" | "r2";
+  source: "fixture" | "r2" | "noaa";
 }
 
 export interface TripPackManifestV1 {
@@ -215,6 +215,8 @@ export async function buildFixturePack(options: {
   start?: string;
   hours?: number;
   createdAt?: string;
+  /** Encoded layer bodies that replace fixtures (live NOAA, tests). */
+  overlays?: Partial<Record<string, string>>;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -226,10 +228,15 @@ export async function buildFixturePack(options: {
   const r2Prefix = `packs/${packId}`;
   const bodies: Record<string, string> = {};
   const layers: PackLayerRecord[] = [];
+  const overlays = options.overlays ?? {};
+  const liveIds: string[] = [];
 
   for (const spec of PACK_LAYER_SPECS) {
     const layerHours = spec.hours === 0 ? 0 : Math.max(spec.hours, hours);
-    const body = generateLayerBody(spec.id, bbox, start, hours);
+    const overlay = overlays[spec.id];
+    const body = overlay ?? generateLayerBody(spec.id, bbox, start, hours);
+    const source: PackLayerRecord["source"] = overlay ? "noaa" : "fixture";
+    if (overlay) liveIds.push(spec.id);
     const hash = await sha256Hex(body);
     const bytes = utf8Bytes(body).byteLength;
     const r2Key = `${r2Prefix}/${spec.id}/${hash.slice(0, 12)}.${spec.ext}`;
@@ -246,7 +253,7 @@ export async function buildFixturePack(options: {
       r2Key,
       contentType: spec.contentType,
       format: spec.format,
-      source: "fixture",
+      source,
     });
   }
 
@@ -274,13 +281,50 @@ export async function buildFixturePack(options: {
     totalBytes,
     totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
     r2Prefix,
-    sources: [
-      { id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" },
-    ],
-    notes:
-      "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. " +
-      "Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
+    sources: liveIds.length
+      ? [
+          { id: "fixture", name: "Hashed fixture objects (not live ENC/GRIB/SST)" },
+          { id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` },
+        ]
+      : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }],
+    notes: liveIds.length
+      ? "Fixture grids plus live NDBC/CO-OPS where fetch succeeded. ENC is still a fixture cell list, not S-57. Client must re-hash. Worker readyForOffshore is a hint."
+      : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
   return { manifest, bodies };
+}
+
+export async function buildTripPack(options: {
+  bbox: PackBBox;
+  start?: string;
+  hours?: number;
+  createdAt?: string;
+  tryLive?: boolean;
+  fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+  timeoutMs?: number;
+}): Promise<BuiltPack> {
+  const bbox = clampBbox(options.bbox);
+  const hours = options.hours ?? DEFAULT_PACK_HOURS;
+  const start = options.start ?? new Date().toISOString();
+  const overlays: Record<string, string> = {};
+  if (options.tryLive) {
+    const { tryLiveNoaa, encodeLiveLayer } = await import("./noaa-live");
+    const live = await tryLiveNoaa({
+      bbox,
+      start,
+      hours,
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+    });
+    if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
+    if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
+  }
+  return buildFixturePack({
+    bbox,
+    start,
+    hours,
+    createdAt: options.createdAt,
+    overlays: Object.keys(overlays).length ? overlays : undefined,
+  });
 }

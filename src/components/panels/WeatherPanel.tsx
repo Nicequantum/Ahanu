@@ -8,6 +8,8 @@ import { compass, hoursToHm } from "@/lib/ahanu/geo";
 import { forecastSeries, gribAt, routeWeather, scoreGoNoGo } from "@/lib/ahanu/grib";
 import { useAhanu } from "@/lib/ahanu/store";
 import { buoyAtHour, BUOYS } from "@/lib/data/buoys";
+import { buoysForChart } from "@/lib/ahanu/packed-chart";
+import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
 
@@ -15,6 +17,7 @@ export function WeatherPanel() {
   const v = useAhanu((s) => s.vessel);
   const boat = useAhanu((s) => s.boat);
   const hour = useAhanu((s) => s.forecastHour);
+  useAhanu((s) => s.packEpoch);
   const setHour = useAhanu((s) => s.setHour);
   const series = useMemo(() => forecastSeries(v.lat, v.lon), [v.lat, v.lon]);
   const now = gribAt(v.lat, v.lon, hour);
@@ -76,8 +79,8 @@ export function WeatherPanel() {
       <Separator className="my-4" />
       <h3 className="mb-2 text-sm font-medium">NDBC snapshot</h3>
       <div className="space-y-2">
-        {BUOYS.slice(0, 8).map((b) => {
-          const live = buoyAtHour(b.id, hour);
+        {(getPackedOcean() ? buoysForChart() : BUOYS.slice(0, 8)).map((b) => {
+          const live = getPackedOcean() ? b : buoyAtHour(b.id, hour);
           return (
             <div key={b.id} className="flex items-baseline justify-between text-xs">
               <span className="text-muted">

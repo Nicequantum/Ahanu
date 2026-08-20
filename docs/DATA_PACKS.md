@@ -140,7 +140,7 @@ Never block logging a catch on the network. The logbook is user data; it belongs
 
 ## Production ingest ops (not claimed done)
 
-Live NOAA ENC / GFS-Wave / NDFD / GHRSST / CMEMS / CO-OPS / NDBC ingest **does not run in this repository environment**. `/api/packs` and `/api/objects` serve **hashed fixture bodies** so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
+Live NOAA ENC / GFS-Wave / NDFD / GHRSST / CMEMS ingest **does not run here** (those need keys or S-57 bytes we do not have). NDBC latest_obs and CO-OPS predictions **are** fetched when the network allows; failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures. ENC remains a fixture cell list, not official S-57. `/api/packs` and `/api/objects` serve **hashed fixture bodies** so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
 
 Until a scheduled Worker writes R2:
 

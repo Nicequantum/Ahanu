@@ -20,7 +20,9 @@ import {
   specForLayer,
   type BBox,
 } from "./ingest/pack";
-import { buildFixturePack } from "../../src/lib/ahanu/pack";
+import { buildTripPack } from "../../src/lib/ahanu/pack";
+import { tryLiveNoaa } from "../../src/lib/ahanu/noaa-live";
+import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack } from "./ingest/run";
 
 export type { BBox } from "./ingest/pack";
@@ -257,7 +259,7 @@ function parseIso(raw: string | null): string {
 }
 
 async function buildManifest(bbox: BBox, start: string, hours: number): Promise<TripPackManifest> {
-  const { manifest } = await buildFixturePack({ bbox, start, hours });
+  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500 });
   const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
     id: layer.id,
     label: layer.label,
@@ -285,8 +287,8 @@ async function buildManifest(bbox: BBox, start: string, hours: number): Promise<
     r2Prefix: manifest.r2Prefix,
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
-      "SHA-256 of fixture object bytes (not live NOAA/CMEMS). Client must re-hash after download. " +
-      "On-device scoring does not run here. Production cron writes R2; those objects do not exist yet.",
+      "SHA-256 of pack object bytes. Buoys/tides may be live NDBC/CO-OPS; ENC/GRIB/SST remain fixtures. " +
+      "Client must re-hash after download. On-device scoring does not run here.",
   };
 }
 
@@ -294,9 +296,9 @@ async function layerBody(env: Env, bbox: BBox, start: string, hours: number, lay
   body: string;
   hash: string;
   contentType: string;
-  source: "r2" | "fixture";
+  source: "r2" | "fixture" | "noaa";
 } | null> {
-  const { manifest, bodies } = await buildFixturePack({ bbox, start, hours });
+  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500 });
   const rec = manifest.layers.find((l) => l.id === layerId);
   if (!rec) return null;
   const bucket = env.PACKS;
@@ -312,7 +314,7 @@ async function layerBody(env: Env, bbox: BBox, start: string, hours: number, lay
   }
   const body = bodies[layerId];
   if (!body) return null;
-  return { body, hash: rec.hash, contentType: rec.contentType, source: "fixture" };
+  return { body, hash: rec.hash, contentType: rec.contentType, source: rec.source === "noaa" ? "noaa" : "fixture" };
 }
 
 // ---------------------------------------------------------------------------
@@ -642,6 +644,21 @@ export default {
       }
 
       if (request.method === "GET" && path === "/api/buoys") {
+        const live = await tryLiveNoaa({
+          bbox: POINT_JUDITH_CANYON_BBOX,
+          start: new Date().toISOString(),
+          hours: 3,
+          timeoutMs: 3500,
+        });
+        const payload = live.buoys?.payload as { buoys?: Buoy[]; updatedAt?: string } | undefined;
+        if (payload?.buoys?.length) {
+          return json({
+            updatedAt: payload.updatedAt,
+            count: payload.buoys.length,
+            source: "ndbc-live",
+            buoys: payload.buoys,
+          });
+        }
         const snap = buoySnapshot(new Date());
         return json({
           updatedAt: snap[0]?.updatedAt,

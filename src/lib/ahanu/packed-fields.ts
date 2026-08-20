@@ -1,10 +1,11 @@
 /**
- * On-device sample of packed rasters / GRIB grids.
- * When a trip pack is loaded, ocean.ts, grib.ts, and the helm prefer these fields.
+ * On-device sample of packed rasters / GRIB grids / chart vectors.
+ * When a trip pack is loaded, the helm prefers these fields.
  */
 
 import type { PackedBody, PackedGrid, PackedJson, PackBBox } from "./pack-fixtures";
 import { parseLayerBody } from "./pack-fixtures";
+import type { PackedBuoyRow, PackedTideStation } from "./noaa-live";
 
 export interface SampleGrid {
   bbox: PackBBox;
@@ -17,7 +18,25 @@ export interface SampleGrid {
 export type PackFieldId = "sst" | "chl" | "ssh" | "depth" | "windKt" | "waveFt";
 
 /** fixture = hashed demo bodies. r2 = production ingest bytes. */
-export type PackFieldSource = "fixture" | "r2";
+export type PackFieldSource = "fixture" | "r2" | "noaa";
+
+export interface EncClip {
+  fixture: boolean;
+  note: string;
+  bbox?: PackBBox;
+  coverage?: { harborApproach: string[]; coastalTo100fm: boolean };
+  cells: { id: string; usage: number; name: string }[];
+}
+
+export interface PackedTideWindow {
+  fixture?: boolean;
+  live?: boolean;
+  source?: string;
+  start: string;
+  hours: number;
+  harbor?: string;
+  stations: PackedTideStation[];
+}
 
 export interface PackedOcean {
   sst?: SampleGrid;
@@ -26,6 +45,14 @@ export interface PackedOcean {
   depth?: SampleGrid;
   windKt?: SampleGrid;
   waveFt?: SampleGrid;
+  canyons?: GeoJSON.FeatureCollection;
+  contours?: GeoJSON.FeatureCollection;
+  hms?: GeoJSON.FeatureCollection;
+  buoys?: PackedBuoyRow[];
+  tides?: PackedTideWindow;
+  enc?: EncClip;
+  buoySource?: PackFieldSource;
+  tideSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -90,6 +117,15 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
   };
 }
 
+function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSource {
+  if (payload && typeof payload === "object") {
+    const p = payload as { live?: boolean; source?: string; fixture?: boolean };
+    if (p.source === "ndbc" || p.source === "coops" || p.live) return "noaa";
+    if (p.fixture) return "fixture";
+  }
+  return fallback;
+}
+
 function detectSource(bodies: Record<string, string>): PackFieldSource {
   for (const raw of Object.values(bodies)) {
     const parsed = parseLayerBody(raw);
@@ -103,12 +139,41 @@ function detectSource(bodies: Record<string, string>): PackFieldSource {
   return "fixture";
 }
 
+function asFeatureCollection(payload: unknown): GeoJSON.FeatureCollection | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as GeoJSON.FeatureCollection;
+  if (p.type !== "FeatureCollection" || !Array.isArray(p.features)) return null;
+  return p;
+}
+
+function asBuoys(payload: unknown): PackedBuoyRow[] | null {
+  if (!payload || typeof payload !== "object") return null;
+  const buoys = (payload as { buoys?: PackedBuoyRow[] }).buoys;
+  if (!Array.isArray(buoys)) return null;
+  return buoys.filter((b) => b && typeof b.id === "string" && Number.isFinite(b.lat) && Number.isFinite(b.lon));
+}
+
+function asTides(payload: unknown): PackedTideWindow | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as PackedTideWindow;
+  if (!Array.isArray(p.stations)) return null;
+  return p;
+}
+
+function asEnc(payload: unknown): EncClip | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as EncClip;
+  if (!Array.isArray(p.cells)) return null;
+  return p;
+}
+
 export function packedOceanFromBodies(
   bodies: Record<string, string>,
   source?: PackFieldSource,
 ): PackedOcean {
-  const out: PackedOcean = { source: source ?? detectSource(bodies) };
-  const take = (id: string, key: PackFieldId) => {
+  const packSource = source ?? detectSource(bodies);
+  const out: PackedOcean = { source: packSource };
+  const takeGrid = (id: string, key: PackFieldId) => {
     const raw = bodies[id];
     if (!raw) return;
     const parsed = parseLayerBody(raw);
@@ -116,13 +181,58 @@ export function packedOceanFromBodies(
     const g = gridFromBody(parsed);
     if (g) out[key] = g;
   };
-  take("sst", "sst");
-  take("chlorophyll", "chl");
-  take("altimetry", "ssh");
-  take("bathymetry", "depth");
-  take("wind", "windKt");
-  take("waves", "waveFt");
+  takeGrid("sst", "sst");
+  takeGrid("chlorophyll", "chl");
+  takeGrid("altimetry", "ssh");
+  takeGrid("bathymetry", "depth");
+  takeGrid("wind", "windKt");
+  takeGrid("waves", "waveFt");
+
+  const takeJson = (id: string, apply: (payload: unknown) => void) => {
+    const raw = bodies[id];
+    if (!raw) return;
+    const parsed = parseLayerBody(raw);
+    if (!parsed || !("payload" in parsed)) return;
+    apply((parsed as PackedJson).payload);
+  };
+  takeJson("canyons", (payload) => {
+    const fc = asFeatureCollection(payload);
+    if (fc) out.canyons = fc;
+  });
+  takeJson("contours", (payload) => {
+    const fc = asFeatureCollection(payload);
+    if (fc) out.contours = fc;
+  });
+  takeJson("hms_zones", (payload) => {
+    const fc = asFeatureCollection(payload);
+    if (fc) out.hms = fc;
+  });
+  takeJson("buoys", (payload) => {
+    const rows = asBuoys(payload);
+    if (rows) {
+      out.buoys = rows;
+      out.buoySource = payloadSource(payload, packSource);
+    }
+  });
+  takeJson("tides", (payload) => {
+    const tides = asTides(payload);
+    if (tides) {
+      out.tides = tides;
+      out.tideSource = payloadSource(payload, packSource);
+    }
+  });
+  takeJson("enc", (payload) => {
+    const enc = asEnc(payload);
+    if (enc) out.enc = enc;
+  });
   return out;
+}
+
+export function packedHasChart(kind: "canyons" | "contours" | "hms" | "buoys" | "tides" | "enc" | "depth"): boolean {
+  if (!packed) return false;
+  if (kind === "hms") return Boolean(packed.hms);
+  if (kind === "depth") return Boolean(packed.depth);
+  return Boolean(packed[kind]);
 }
 
 function hourIndex(grid: SampleGrid, hour: number): number {

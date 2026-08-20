@@ -47,7 +47,10 @@ describe("layerPaintSource — no pack", () => {
     assert.equal(layerPaintSource("chl_edges"), "synthetic");
     assert.equal(layerPaintSource("habitat"), "synthetic");
     assert.equal(layerPaintSource("bathymetry"), "local");
+    assert.equal(layerPaintSource("contours"), "local");
     assert.equal(layerPaintSource("canyons"), "local");
+    assert.equal(layerPaintSource("hms_zones"), "local");
+    assert.equal(layerPaintSource("buoys"), "local");
     assert.equal(layerPaintSource("ais"), "local");
   });
 });
@@ -63,7 +66,11 @@ describe("layerPaintSource — fixture pack", () => {
     assert.equal(layerPaintSource("temp_breaks"), "derived");
     assert.equal(layerPaintSource("chl_edges"), "derived");
     assert.equal(layerPaintSource("habitat"), "derived");
-    assert.equal(layerPaintSource("bathymetry"), "local");
+    assert.equal(layerPaintSource("bathymetry"), "fixture");
+    assert.equal(layerPaintSource("contours"), "fixture");
+    assert.equal(layerPaintSource("canyons"), "fixture");
+    assert.equal(layerPaintSource("hms_zones"), "fixture");
+    assert.equal(layerPaintSource("buoys"), "fixture");
   });
 
   it("missing chlorophyll stays missing — no synthetic fallback", async () => {
@@ -182,5 +189,52 @@ describe("packedGridFeatures", () => {
     assert.ok(ocean?.sst);
     const geo = packedGridFeatures(ocean.sst, 0, (v) => ({ v }));
     assert.equal(geo.features.length, ocean.sst.nx * ocean.sst.ny);
+  });
+});
+
+const { canyonsForChart, contoursForChart, hmsForChart, buoysForChart, packedEncCells } = await import(
+  "../src/lib/ahanu/packed-chart.ts"
+);
+
+describe("packed chart layers", () => {
+  it("uses packed canyons / contours / HMS / buoys when present", async () => {
+    await loadFixture();
+    const canyons = canyonsForChart();
+    assert.ok(canyons.features.length > 0);
+    assert.ok(canyons.features.some((f) => (f.properties as { name?: string })?.name === "Veatch"));
+    const contours = contoursForChart();
+    assert.ok(contours.c100.features.length >= 1);
+    assert.equal(contours.c200.features.length, 0, "packed fixture has 100fm only — do not invent 200fm");
+    assert.ok(hmsForChart().features.length >= 1);
+    const buoys = buoysForChart();
+    assert.ok(buoys.some((b) => b.id === "44097"));
+    assert.ok(packedEncCells().some((c) => c.id === "US5RI10M"));
+  });
+
+  it("missing canyons/contours/HMS/buoys stay empty — no seed fallback", async () => {
+    await loadFixture(["canyons", "contours", "hms_zones", "buoys"]);
+    assert.equal(layerPaintSource("canyons"), "missing");
+    assert.equal(layerPaintSource("contours"), "missing");
+    assert.equal(layerPaintSource("hms_zones"), "missing");
+    assert.equal(layerPaintSource("buoys"), "missing");
+    assert.equal(canyonsForChart().features.length, 0);
+    assert.equal(contoursForChart().c100.features.length, 0);
+    assert.equal(hmsForChart().features.length, 0);
+    assert.equal(buoysForChart().length, 0);
+  });
+
+  it("packed bathymetry uses the pack bbox", async () => {
+    await loadFixture();
+    const img = fieldImage("depth", 0, 16, 10);
+    assert.ok(img);
+    assert.equal(img.source, "fixture");
+    assert.equal(img.bbox.west, POINT_JUDITH_CANYON_BBOX.west);
+    assert.equal(img.bbox.east, POINT_JUDITH_CANYON_BBOX.east);
+  });
+
+  it("missing bathymetry does not paint the local model", async () => {
+    await loadFixture(["bathymetry"]);
+    assert.equal(layerPaintSource("bathymetry"), "missing");
+    assert.equal(fieldImage("depth", 0, 8, 6), null);
   });
 });
