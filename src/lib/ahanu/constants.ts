@@ -10,7 +10,11 @@ export const REGION = {
 
 export const POINT_JUDITH = { lat: 41.3615, lon: -71.4814 };
 
-/** Point Judith canyon overnight box — docs/DATA_PACKS.md */
+/** Point Judith canyon overnight box — docs/DATA_PACKS.md.
+ * MarineCadastre heads already inside (2026-08-20): Veatch -69.60/39.87,
+ * Atlantis -70.20/39.87, Hydrographer -69.05/40.20, Alvin -70.50/39.87.
+ * Do not shrink east of -68.8 — a -70.8 east clip drops those four.
+ */
 export const POINT_JUDITH_CANYON_BBOX = {
   west: -72.8,
   south: 39.4,

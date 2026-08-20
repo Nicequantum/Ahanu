@@ -32,9 +32,12 @@ export interface CanyonEndpoint {
 /**
  * Probe order. The NOAA OCM MarineCadastre undersea-names MapServer is the
  * path that returned named heads intersecting the Point Judith box from this
- * network (2026-08-20): Veatch, Atlantis, Hydrographer, Block, Alvin, Hudson.
- * Same service, Esri JSON, is the fallback. Not GEBCO SCUFN (incomplete
- * names here). Not Lautenberg coral polygons (wrong geometry type).
+ * network (2026-08-20) for POINT_JUDITH_CANYON_BBOX (-72.8, 39.4, -68.8, 41.5):
+ * Veatch (-69.60, 39.87), Atlantis (-70.20, 39.87), Hydrographer (-69.05, 40.20),
+ * Alvin (-70.50, 39.87), Block (-71.27, 39.83), Hudson (-72.20, 39.45), plus
+ * McMaster / Ryan / Uchupi. A tighter pack query east=-70.8 drops the first
+ * four (east of the clip). Same service, Esri JSON, is the fallback. Not GEBCO
+ * SCUFN (incomplete names here). Not Lautenberg coral polygons (wrong geometry type).
  */
 export const CANYON_ENDPOINTS: readonly CanyonEndpoint[] = [
   {

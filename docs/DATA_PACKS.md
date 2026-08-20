@@ -20,7 +20,7 @@ Point Judith, Rhode Island (`41.3615 N, 71.4814 W`). Typical canyon run: steam s
    north  41.5
    ```
 
-   That covers the harbor, Block Island Sound, the steam, Veatch, Atlantis, and a margin around Hydrographer if the day goes east. It is smaller than the full Northeast operating box (`-75.4, 36.4, -66.4, 42.6`) and therefore a smaller download.
+   That covers the harbor, Block Island Sound, the steam, Veatch, Atlantis, and a margin around Hydrographer if the day goes east. MarineCadastre heads for those names (plus Alvin) sit inside this box; a tighter east=-70.8 clip drops them. It is smaller than the full Northeast operating box (`-75.4, 36.4, -66.4, 42.6`) and therefore a smaller download.
 
 3. Set the window: `start` = planned departure (ISO UTC), `hours` = **72**. Seventy-two hours is the product default. It covers a weather-hold morning, the steam, a night, and the steam home with a cushion. Do not pack 24 h and hope.
 4. Download. Verify hashes. Wait for **Ready for offshore**.
