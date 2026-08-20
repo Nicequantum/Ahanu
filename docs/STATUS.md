@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (R2 + D1 live, cron on, workers.dev only, 2026-08-20)
+
+R2 bucket `ahanu-trip-packs` and D1 `ahanu-core` (`ed2706b8-7537-400f-88f6-933ac03120dc`) exist in ENAM. wrangler.toml now uses that D1 id (preview same until a separate preview DB exists), turns on the ingest cron (`15 2,8,14,20 * * *`), and keeps `[[routes]]` for `api.ahanu.app` commented — zone is not provisioned, so deploy stays `*.workers.dev`. GFS-Wave 72 h series stays off. Worker `buildManifest` / `layerBody` live timeout is 18 s (`NOAA_GRID_TIMEOUT_MS`) so NOAA overlays can land. R2 does not yet hold live ENC/GRIB/SST. Existing Worker `ahanu` (PWA) was not touched. No wrangler deploy (no CLI auth). No Worker scoring. No Flutter.
+
 ## This pass (SW sea-trial offline fallback, 2026-08-20)
 
 `public/sw-ahanu.js` already caches same-origin GET `/api/packs` and GET `/api/objects` (fixture cache-first; `?live=1` network-first). Sea-trial tests now prove a successful fixture pack GET is served from that cache after the network is gone, and a later `?live=1` fetch may return the last success as a stale fallback (the 30 s stamp is not forever). `skipCache` stays network-first even when that stamp is fresh; a non-ok live response does not overwrite the last success. No NOAA bytes invented. No Worker scoring. No Flutter.
@@ -114,7 +118,7 @@ Env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1 is read only by ingestFixturePa
 
 Complete series can set source noaa and hours 72.
 A failed step keeps hoursCovered as the prefix from hour 0.
-Partial series is never marked as a full 72-hour grid. Tests use mocked fetch. Cron stays commented until R2 exists. No Flutter. No Worker scoring.
+Partial series is never marked as a full 72-hour grid. Tests use mocked fetch. Cron is on (R2 + D1 exist). No Flutter. No Worker scoring.
 
 ## This pass (hour-0 NCEP wind/wave paint, 2026-08-20)
 
@@ -141,7 +145,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.
-- AIS demo gateway. Flutter helm. Commented-out cron until R2 `ahanu-trip-packs` and D1 `ahanu-core` exist. wrangler.toml TODO D1 ids and reserved `api.ahanu.app`.
+- AIS demo gateway. Flutter helm. Custom domain `api.ahanu.app` still reserved (workers.dev only). GFS-Wave 72 h series still off. R2 exists but does not yet hold live ENC/GRIB/SST.
 
 ## What works now (finish-pack-loop)
 

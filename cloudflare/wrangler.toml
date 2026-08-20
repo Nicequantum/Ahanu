@@ -18,13 +18,13 @@ REGION_EAST = "-66.4"
 REGION_NORTH = "42.6"
 
 # ---------------------------------------------------------------------------
-# TODO: reserved custom-domain route — not live, not provisioned.
-# Replace pattern + zone_name after the domain is attached in the Cloudflare
-# dashboard. Until then, traffic is only *.workers.dev (workers_dev = true).
+# Reserved custom-domain route — zone ahanu.app is not provisioned.
+# Traffic is workers.dev only (workers_dev = true). Do not uncomment until
+# the domain is attached in the Cloudflare dashboard.
 # ---------------------------------------------------------------------------
-[[routes]]
-pattern = "api.ahanu.app/*"
-zone_name = "ahanu.app"
+# [[routes]]
+# pattern = "api.ahanu.app/*"
+# zone_name = "ahanu.app"
 
 [[r2_buckets]]
 binding = "PACKS"
@@ -33,11 +33,10 @@ bucket_name = "ahanu-trip-packs"
 [[d1_databases]]
 binding = "DB"
 database_name = "ahanu-core"
-# TODO: placeholder D1 ids — not production, not a live database.
-# `wrangler d1 create ahanu-core` emits the real id. Deploy will fail or
-# no-op against these zeros until they are replaced.
-database_id = "00000000-0000-0000-0000-000000000000"
-preview_database_id = "00000000-0000-0000-0000-000000000000"
+# Live D1 `ahanu-core` (ENAM, uuid below). Same id for preview until a
+# separate preview database exists. R2 `ahanu-trip-packs` is also live (ENAM).
+database_id = "ed2706b8-7537-400f-88f6-933ac03120dc"
+preview_database_id = "ed2706b8-7537-400f-88f6-933ac03120dc"
 
 # Live community presence + pack-build leases. SQLite-backed DO (2024+).
 [[durable_objects.bindings]]
@@ -48,13 +47,13 @@ class_name = "CommunityHub"
 tag = "v1"
 new_sqlite_classes = ["CommunityHub"]
 
-# GFS-Wave 72 h / 3 h series is off. Set to "1" only on the cron worker after
-# R2 exists. ~25 NOMADS files, ~10 s apart (~4 min). GET /api/packs never
-# reads this for the series (hour-0 only).
+# GFS-Wave 72 h / 3 h series stays off. R2 exists; do not set this to "1"
+# unless ingest is ready for ~25 NOMADS files, ~10 s apart (~4 min).
+# GET /api/packs never reads this for the series (hour-0 only).
 # GFS_WAVE_SERIES = "0"
 
-# TODO: production ingest cron — commented out until R2 `ahanu-trip-packs`
-# and D1 `ahanu-core` exist and NOAA/CMEMS access is in place. Until then
-# /api/packs serves hashed fixture bodies. Do not assume R2 holds live ENC/GRIB/SST.
-# [triggers]
-# crons = ["15 2,8,14,20 * * *"]
+# Ingest cron is on: R2 `ahanu-trip-packs` and D1 `ahanu-core` exist (ENAM).
+# Custom domain is still reserved; deploy is workers.dev only. R2 does not
+# yet hold live ENC/GRIB/SST — cron writes fixtures until NOAA ingest lands.
+[triggers]
+crons = ["15 2,8,14,20 * * *"]

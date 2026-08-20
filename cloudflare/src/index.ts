@@ -22,6 +22,7 @@ import {
 } from "./ingest/pack";
 import { buildTripPack } from "../../src/lib/ahanu/pack";
 import { tryLiveNoaa } from "../../src/lib/ahanu/noaa-live";
+import { NOAA_GRID_TIMEOUT_MS } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack } from "./ingest/run";
 
@@ -263,7 +264,7 @@ function parseIso(raw: string | null): string {
 }
 
 async function buildManifest(bbox: BBox, start: string, hours: number, skipCache = false): Promise<TripPackManifest> {
-  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500, skipCache });
+  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS, skipCache });
   const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
     id: layer.id,
     label: layer.label,
@@ -305,7 +306,7 @@ async function layerBody(env: Env, bbox: BBox, start: string, hours: number, lay
   contentType: string;
   source: "r2" | "fixture" | "noaa";
 } | null> {
-  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500 });
+  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS });
   const rec = manifest.layers.find((l) => l.id === layerId);
   if (!rec) return null;
   const bucket = env.PACKS;
