@@ -87,13 +87,15 @@ Endpoints: `GET /health`, `GET /api/packs?west=&south=&east=&north=&hours=72`, `
 
 ### Production helm (Worker `ahanu`)
 
-Root [`wrangler.jsonc`](wrangler.jsonc) is the app shell. In the Cloudflare dashboard set the **deploy command** to:
+Root [`wrangler.jsonc`](wrangler.jsonc) is the app shell.
+
+Cloudflare's setup wizard defaults to `npx wrangler deploy`. **Leave that on the dashboard** — Workers Builds injects `CLOUDFLARE_API_TOKEN` and `WORKERS_CI`, so Vite takes the Worker path by itself. From a laptop, use:
 
 ```bash
 npm run deploy:cf
 ```
 
-That sets `AHANU_CF=1` so Vite uses the Cloudflare plugin instead of the Vercel/Nitro preset the Grok preview needs. A bare `npx wrangler deploy` on a repo without that config makes Wrangler auto-wire TanStack Start, rewrite scripts, and then fail because MapLibre cannot be marked `ssr.external` in a Worker.
+Same upload, plus `AHANU_CF=1`. Do not let Wrangler rewrite the `preview` script; that port is the Grok live helm.
 
 MapLibre stays in the browser. Habitat scoring stays on-device.
 

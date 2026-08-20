@@ -11,14 +11,17 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 /**
  * Cloudflare Workers Builds sets WORKERS_CI. Pages sets CF_PAGES.
  * `AHANU_CF=1` is the explicit switch for `npm run deploy:cf`.
- *
- * Grok preview / Vercel must NOT take this path — they use Nitro `vercel`.
+ * Cloudflare CI also injects CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID,
+ * which is how a dashboard command of `npx wrangler deploy` still takes
+ * this path. Grok/Vercel `npm run build` has none of these — Nitro stays.
  */
 function isCloudflareBuild(): boolean {
   return (
     process.env.AHANU_CF === "1" ||
     process.env.WORKERS_CI === "1" ||
-    process.env.CF_PAGES === "1"
+    process.env.CF_PAGES === "1" ||
+    Boolean(process.env.CLOUDFLARE_API_TOKEN) ||
+    Boolean(process.env.CLOUDFLARE_ACCOUNT_ID)
   );
 }
 

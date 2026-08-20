@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "deploy": "AHANU_CF=1 wrangler deploy",
     "deploy:cf": "AHANU_CF=1 wrangler deploy",
     "build:cf": "AHANU_CF=1 vite build",
     "typecheck": "tsc --noEmit",
