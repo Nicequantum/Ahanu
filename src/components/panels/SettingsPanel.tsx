@@ -8,6 +8,7 @@ import {
   clearDeviceToken,
   deviceToken,
   deviceTokenStatus,
+  lastRetryUnsyncedStatus,
   retryUnsyncedStatus,
   saveDeviceToken,
 } from "@/lib/ahanu/catch-sync";
@@ -30,7 +31,9 @@ function NmeaToggle() {
 
 function DeviceTokenControl() {
   const [draft, setDraft] = useState(() => deviceToken() ?? "");
-  const [status, setStatus] = useState<string>(() => deviceTokenStatus());
+  const [status, setStatus] = useState<string>(
+    () => lastRetryUnsyncedStatus() ?? deviceTokenStatus(),
+  );
 
   function onSave() {
     const next = saveDeviceToken(draft);

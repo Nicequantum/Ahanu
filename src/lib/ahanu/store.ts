@@ -519,6 +519,23 @@ export const useAhanu = create<AhanuState>()(
   ),
 );
 
+/** One persist restore + one leftover-catch retry. Helm boot only — not a loop. */
+let hydrateInflight: Promise<{ attempted: number; synced: number; failed: number }> | null = null;
+
+export async function hydrateAhanuStore() {
+  if (hydrateInflight) return hydrateInflight;
+  hydrateInflight = (async () => {
+    try {
+      await useAhanu.persist?.rehydrate?.();
+      useAhanu.getState().setHydrated();
+      return await useAhanu.getState().retryUnsyncedCatches();
+    } finally {
+      hydrateInflight = null;
+    }
+  })();
+  return hydrateInflight;
+}
+
 export function markFishHere() {
   const s = useAhanu.getState();
   const rec = s.addCatch({

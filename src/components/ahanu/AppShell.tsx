@@ -17,7 +17,7 @@ import { habitatScore, zoneLabel } from "@/lib/ahanu/scoring";
 import { nearestCanyon } from "@/lib/data/canyons";
 import { SPECIES_LABELS } from "@/lib/data/species";
 import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display-mode";
-import { markFishHere, useAhanu } from "@/lib/ahanu/store";
+import { hydrateAhanuStore, markFishHere, useAhanu } from "@/lib/ahanu/store";
 import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { restorePackedSession } from "@/lib/ahanu/pack-client";
 import { capLiveErrors } from "@/lib/ahanu/pack";
@@ -71,8 +71,7 @@ export function AppShell() {
   const { isPending } = useCurrentUserState();
 
   useEffect(() => {
-    void useAhanu.persist.rehydrate();
-    useAhanu.getState().setHydrated();
+    void hydrateAhanuStore();
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw-ahanu.js", { type: "module" }).catch(() => undefined);
     }

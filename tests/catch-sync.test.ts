@@ -7,6 +7,7 @@ const {
   clearDeviceToken,
   deviceToken,
   deviceTokenStatus,
+  lastRetryUnsyncedStatus,
   retryUnsyncedCatches,
   retryUnsyncedStatus,
   saveDeviceToken,
@@ -24,6 +25,34 @@ const rec = {
 };
 
 const originalFetch = globalThis.fetch;
+
+if (typeof globalThis.localStorage === "undefined") {
+  const map = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => {
+      map.set(k, v);
+    },
+    removeItem: (k) => {
+      map.delete(k);
+    },
+    clear: () => {
+      map.clear();
+    },
+    key: (i) => [...map.keys()][i] ?? null,
+    get length() {
+      return map.size;
+    },
+  };
+}
+if (typeof globalThis.window === "undefined") {
+  globalThis.window = globalThis;
+}
+if (!globalThis.window.localStorage) {
+  globalThis.window.localStorage = globalThis.localStorage;
+}
+
+const { hydrateAhanuStore, useAhanu } = await import("../src/lib/ahanu/store.ts");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -187,5 +216,68 @@ describe("retryUnsyncedCatches", () => {
       retryUnsyncedStatus({ attempted: 3, synced: 2, failed: 1 }),
       "Sync on · 2 synced, 1 still local",
     );
+  });
+
+  it("exposes the quiet line after a token retry", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: true, catch: { ...rec, synced: true } }), {
+        status: 201,
+      })) as typeof fetch;
+    const result = await retryUnsyncedCatches([{ ...rec, synced: false }], {
+      token: "dock-token",
+      base: "http://packs.test",
+    });
+    assert.equal(lastRetryUnsyncedStatus(), retryUnsyncedStatus(result));
+    assert.equal(lastRetryUnsyncedStatus(), "Sync on · 1 synced");
+  });
+});
+
+describe("hydrateAhanuStore leftover retry", () => {
+  const leftover = { ...rec, id: "leftover", synced: false };
+  const already = { ...rec, id: "already", synced: true };
+
+  function seedPersist(catches: Array<typeof leftover>) {
+    globalThis.localStorage.setItem(
+      "ahanu-bridge-v1",
+      JSON.stringify({ state: { catches }, version: 0 }),
+    );
+  }
+
+  it("one pass after persist hydrate when ahanu-device-token is already set", async () => {
+    const order: string[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      order.push(body.id);
+      return new Response(JSON.stringify({ ok: true, catch: { ...body, synced: true } }), {
+        status: 201,
+      });
+    }) as typeof fetch;
+    useAhanu.setState({ catches: [], hydrated: false });
+    seedPersist([already, leftover]);
+    globalThis.localStorage.setItem("ahanu-device-token", "dock-token");
+    const result = await hydrateAhanuStore();
+    assert.deepEqual(order, ["leftover"]);
+    assert.equal(result.attempted, 1);
+    assert.equal(result.synced, 1);
+    assert.equal(result.failed, 0);
+    assert.equal(useAhanu.getState().hydrated, true);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover")?.synced, true);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "already")?.synced, true);
+    assert.equal(lastRetryUnsyncedStatus(), "Sync on · 1 synced");
+  });
+
+  it("does nothing when no device token is present", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("no", { status: 500 });
+    }) as typeof fetch;
+    useAhanu.setState({ catches: [], hydrated: false });
+    seedPersist([leftover]);
+    globalThis.localStorage.removeItem("ahanu-device-token");
+    const result = await hydrateAhanuStore();
+    assert.equal(calls, 0);
+    assert.equal(result.attempted, 0);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover")?.synced, false);
   });
 });

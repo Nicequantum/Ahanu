@@ -82,7 +82,16 @@ export async function retryUnsyncedCatches(
     if (next.synced) synced += 1;
     else failed += 1;
   }
-  return { attempted: pending.length, synced, failed, records };
+  const result = { attempted: pending.length, synced, failed, records };
+  lastRetry = result;
+  return result;
+}
+
+let lastRetry: Pick<UnsyncedRetry, "attempted" | "synced" | "failed"> | undefined;
+
+/** Quiet line from the last token retry (Save or hydrate). */
+export function lastRetryUnsyncedStatus(): string | undefined {
+  return lastRetry ? retryUnsyncedStatus(lastRetry) : undefined;
 }
 
 /** One quiet helm line after a Save-token retry. */
