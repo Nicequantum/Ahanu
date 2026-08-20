@@ -57,6 +57,7 @@ const {
   fetchNoaaText,
   NOAA_GRID_TIMEOUT_MS,
   NOAA_RETRY_BACKOFF_MS,
+  NOAA_USER_AGENT,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -1513,6 +1514,22 @@ describe("NOAA fetch timeout + retry", () => {
   it("uses an 18 s ERDDAP grid timeout", () => {
     assert.equal(NOAA_GRID_TIMEOUT_MS, 18_000);
     assert.ok(NOAA_RETRY_BACKOFF_MS >= 1000 && NOAA_RETRY_BACKOFF_MS <= 2000);
+  });
+
+  it("sends a stable identifying User-Agent on every NOAA request", async () => {
+    let seen: string | undefined;
+    const bytes = await fetchNoaaBytes({
+      url: "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt",
+      timeoutMs: 50,
+      maxBytes: 64,
+      fetchImpl: async (_url, init) => {
+        seen = init?.headers?.["User-Agent"];
+        return new Response("ok-ua", { status: 200 });
+      },
+    });
+    assert.equal(new TextDecoder().decode(bytes!), "ok-ua");
+    assert.equal(seen, NOAA_USER_AGENT);
+    assert.match(NOAA_USER_AGENT, /^Ahanu\/1\.0 /);
   });
 
   it("retries once after a timeout and then succeeds", async () => {

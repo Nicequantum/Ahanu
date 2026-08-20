@@ -21,8 +21,8 @@ import {
   type BBox,
 } from "./ingest/pack";
 import { buildTripPack } from "../../src/lib/ahanu/pack";
-import { tryLiveNoaa } from "../../src/lib/ahanu/noaa-live";
-import { NOAA_GRID_TIMEOUT_MS } from "../../src/lib/ahanu/noaa-http";
+import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
+import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack } from "./ingest/run";
 
@@ -575,6 +575,39 @@ async function communityFor(env: Env, bbox: BBox): Promise<CommunityReport[]> {
   return all.filter((r) => inBbox(r.lat, r.lon, bbox));
 }
 
+
+const NDBC_HEALTH_PROBE_MS = 5_000;
+
+export interface NoaaHealthProbe {
+  host: "ndbc";
+  ok: boolean;
+  status?: number;
+  bytes?: number;
+  error?: string;
+}
+
+/** Cheap outbound probe so /health surfaces the real Worker→NOAA error. */
+async function probeNdbc(): Promise<NoaaHealthProbe> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), NDBC_HEALTH_PROBE_MS);
+  try {
+    const res = await defaultNoaaFetch(NDBC_LATEST_OBS_URL, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": NOAA_USER_AGENT },
+    });
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return { host: "ndbc", ok: res.ok, status: res.status, bytes: buf.byteLength };
+  } catch (err) {
+    return {
+      host: "ndbc",
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -594,12 +627,18 @@ export default {
 
     try {
       if (request.method === "GET" && (path === "/health" || path === "/")) {
-        return json({
-          ok: true,
-          service: env.SERVICE ?? "ahanu-packs",
-          ts: new Date().toISOString(),
-          scoring: "on-device-only",
-        });
+        const noaa = await probeNdbc();
+        return json(
+          {
+            ok: true,
+            service: env.SERVICE ?? "ahanu-packs",
+            ts: new Date().toISOString(),
+            scoring: "on-device-only",
+            noaa,
+          },
+          200,
+          { "Cache-Control": "no-store" },
+        );
       }
 
       if (request.method === "GET" && path === "/api/packs") {

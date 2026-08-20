@@ -4,7 +4,22 @@
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type FetchLikeInit = {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+};
+
+export type FetchLike = (input: string, init?: FetchLikeInit) => Promise<Response>;
+
+/**
+ * Bound Worker/browser fetch. Do not pass `globalThis.fetch` as a free
+ * function — nodejs_compat undici throws "Illegal invocation" and NOAA
+ * looks like an instant miss.
+ */
+export const defaultNoaaFetch: FetchLike = (input, init) => fetch(input, init);
+
+/** Identify Ahanu on public NOAA hosts (Apache often rejects empty/CF UA). */
+export const NOAA_USER_AGENT = "Ahanu/1.0 (trip-packs; +https://github.com/Nicequantum/Ahanu)";
 
 /** NDBC / CO-OPS text is small; still long enough for a slow dock link. */
 export const NOAA_QUICK_TIMEOUT_MS = 8_000;
@@ -57,7 +72,10 @@ export async function fetchNoaaBytes(options: FetchNoaaOptions): Promise<Uint8Ar
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await options.fetchImpl(options.url, { signal: ctrl.signal });
+      const res = await options.fetchImpl(options.url, {
+        signal: ctrl.signal,
+        headers: { "User-Agent": NOAA_USER_AGENT },
+      });
       if (!res.ok) {
         if (i < attempts - 1 && noaaStatusRetryable(res.status)) {
           await sleep(backoffMs);

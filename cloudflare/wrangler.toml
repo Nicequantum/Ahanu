@@ -9,6 +9,9 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+[observability]
+enabled = true
+
 [vars]
 SERVICE = "ahanu-packs"
 # Default operating box: Northeast U.S. shelf + canyons (see src/lib/ahanu/constants.ts).

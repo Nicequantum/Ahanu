@@ -48,6 +48,7 @@ import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
 import { fetchLiveBathy, type BathyIngest } from "./noaa-bathy";
 import { fetchLiveCanyons, type CanyonIngest } from "./noaa-canyons";
 import {
+  defaultNoaaFetch,
   fetchNoaaBytes,
   fetchNoaaText,
   NOAA_GRID_TIMEOUT_MS,
@@ -637,7 +638,7 @@ async function liveGfsWaveSeries(
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      return await fetchImpl(input, { signal: init?.signal ?? ctrl.signal });
+      return await fetchImpl(input, { signal: init?.signal ?? ctrl.signal, headers: init?.headers });
     } finally {
       clearTimeout(t);
     }
@@ -702,7 +703,7 @@ export async function tryLiveNoaa(options: {
 }): Promise<LiveNoaaResult> {
   const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const sleep = options.sleep;
-  const fetchImpl = options.fetchImpl ?? (globalThis.fetch as FetchLike | undefined);
+  const fetchImpl = options.fetchImpl ?? defaultNoaaFetch;
   const key = liveCacheKey(options.bbox, options.start, options.hours);
   if (!options.skipCache) {
     const hit = liveCache.get(key);
@@ -819,11 +820,13 @@ export function encodeLiveLayer(body: PackedJson): string {
 }
 
 export {
+  defaultNoaaFetch,
   fetchNoaaBytes,
   fetchNoaaText,
   NOAA_GRID_TIMEOUT_MS,
   NOAA_QUICK_TIMEOUT_MS,
   NOAA_RETRY_BACKOFF_MS,
+  NOAA_USER_AGENT,
   noaaStatusRetryable,
   isNoaaAbortError,
 } from "./noaa-http";
