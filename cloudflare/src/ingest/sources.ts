@@ -563,6 +563,42 @@ export function nceiBathymetry(): IngestMeta {
   });
 }
 
+
+/**
+ * NOAA OCM / MarineCadastre named canyon heads.
+ *
+ * Live no-key path (2026-08-20) is the Undersea Feature Place Names
+ * MapServer GeoJSON query. Heads only — GNS / ACUF names hosted by NOAA.
+ * Do not invent axes. GEBCO SCUFN is incomplete for this box (Hudson plus
+ * four minor lines; no Veatch / Atlantis / Hydrographer / Block / Alvin).
+ *
+ *   Query: https://coast.noaa.gov/arcgis/rest/services/MarineCadastre/UnderseaFeaturePlaceNames/MapServer/0/query
+ *   InPort: https://www.fisheries.noaa.gov/inport/item/48929
+ */
+export function marineCadastreCanyons(): IngestMeta {
+  return meta({
+    id: "noaa-canyons",
+    name: "NOAA MarineCadastre canyon heads",
+    provider: "NOAA OCM / MarineCadastre (GNS / ACUF names)",
+    kind: "vector",
+    cadence: "static",
+    license: "US Government work (public domain) — NOAA OCM; names from GNS / ACUF",
+    layerIds: ["canyons"],
+    endpoints: [
+      {
+        label: "MarineCadastre undersea feature place names (MapServer query)",
+        url: "https://coast.noaa.gov/arcgis/rest/services/MarineCadastre/UnderseaFeaturePlaceNames/MapServer/0/query",
+      },
+      {
+        label: "InPort Undersea Feature Place Names",
+        url: "https://www.fisheries.noaa.gov/inport/item/48929",
+      },
+    ],
+    notes:
+      "The no-key live path that returned Point Judith named heads is MarineCadastre UnderseaFeaturePlaceNames GeoJSON (Veatch, Atlantis, Hydrographer, Block, Alvin, Hudson). Heads only — no invented axes. GEBCO SCUFN stays documented as incomplete for this box. Miss keeps the hashed fixture. Canyons do not block Ready.",
+  });
+}
+
 export const ADAPTERS = {
   noaaEnc,
   nceiBathymetry,
@@ -574,6 +610,7 @@ export const ADAPTERS = {
   coOpsTides,
   ndbc,
   hmsClosedAreas,
+  marineCadastreCanyons,
 } as const;
 
 export function listIngestSources(): IngestMeta[] {

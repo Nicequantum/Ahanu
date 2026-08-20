@@ -3,8 +3,9 @@
  * catalog, a small GFS-Wave NOMADS subset, a public CoastWatch/ERDDAP
  * SST probe, a public CoastWatch/ERDDAP chlorophyll probe, a public
  * CoastWatch/ERDDAP SSH / SLA probe, a public NMFS/NOAA HMS closed-area
- * KMZ / shapefile probe, and a public CoastWatch/ERDDAP bathymetry
- * (NCEI ETOPO / GEBCO) probe. Writes fixture-shaped pack objects.
+ * KMZ / shapefile probe, a public CoastWatch/ERDDAP bathymetry
+ * (NCEI ETOPO / GEBCO) probe, and a public NOAA MarineCadastre
+ * undersea-names canyon-head probe. Writes fixture-shaped pack objects.
  * Fetch failure omits that overlay so the caller keeps the hashed fixture.
  * Do not invent 1 km MUR / GHRSST, 1 km VIIRS / CMEMS L4, or AVISO DUACS
  * if a coarser public grid is what arrived. Bathymetry is the public
@@ -45,6 +46,7 @@ import { fetchLiveChl, type ChlIngest } from "./noaa-chl";
 import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
 import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
 import { fetchLiveBathy, type BathyIngest } from "./noaa-bathy";
+import { fetchLiveCanyons, type CanyonIngest } from "./noaa-canyons";
 import {
   fetchNoaaBytes,
   fetchNoaaText,
@@ -310,6 +312,7 @@ export interface LiveNoaaResult {
   altimetry?: SshIngest;
   hms?: HmsIngest;
   bathymetry?: BathyIngest;
+  canyons?: CanyonIngest;
   errors: string[];
 }
 
@@ -343,6 +346,7 @@ const LIVE_PROBE_GATES: {
   { landed: (v) => Boolean(v.altimetry), prefix: "ssh", miss: "ssh: live miss — fixture kept" },
   { landed: (v) => Boolean(v.hms), prefix: "hms", miss: "hms: live miss — fixture kept" },
   { landed: (v) => Boolean(v.bathymetry), prefix: "bathy", miss: "bathy: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.canyons), prefix: "canyons", miss: "canyons: live miss — fixture kept" },
 ];
 
 /** Every live-capable overlay landed. Used to decide if empty errors are honest. */
@@ -731,7 +735,7 @@ export async function tryLiveNoaa(options: {
           ingest,
         }),
       );
-  const [buoys, tides, enc, gfs, sst, chl, ssh, hms, bathy] = await Promise.all([
+  const [buoys, tides, enc, gfs, sst, chl, ssh, hms, bathy, canyons] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
@@ -771,6 +775,13 @@ export async function tryLiveNoaa(options: {
       errors,
       sleep,
     }),
+    fetchLiveCanyons({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
   ]);
   if (buoys) out.buoys = buoys;
   if (tides) out.tides = tides;
@@ -780,6 +791,7 @@ export async function tryLiveNoaa(options: {
   if (ssh) out.altimetry = ssh;
   if (hms) out.hms = hms;
   if (bathy) out.bathymetry = bathy;
+  if (canyons) out.canyons = canyons;
   if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
     out.gfsWaveSeries = gfs.series;
     if (gfs.ingest) out.gfsWave = gfs.ingest;
@@ -873,3 +885,14 @@ export {
   fetchLiveBathy,
   sampleBathyCsvForTests,
 } from "./noaa-bathy";
+export {
+  CANYON_ENDPOINTS,
+  CANYON_AID_NOTE,
+  canyonQueryUrl,
+  parseCanyonGazetteer,
+  clipCanyonFeatures,
+  canyonsToPackedJson,
+  fetchLiveCanyons,
+  sampleCanyonsGeojsonForTests,
+  shortCanyonName,
+} from "./noaa-canyons";

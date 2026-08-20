@@ -2,13 +2,17 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (MarineCadastre canyon heads, 2026-08-20)
+
+`tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key NOAA OCM / MarineCadastre undersea feature place names for the Point Judith box. First parseable FeatureCollection of named canyon heads that intersects the box paints pack layer `canyons` as `source: "noaa"`. The path that returned named heads from this network is **MarineCadastre Undersea Feature Place Names** (`https://coast.noaa.gov/arcgis/rest/services/MarineCadastre/UnderseaFeaturePlaceNames/MapServer/0/query`, GeoJSON). Heads in this box include Veatch, Atlantis, Hydrographer, Block, Alvin, and Hudson (GNS / ACUF names hosted by NOAA OCM). That is **heads only** — no axes, and none were invented. GEBCO SCUFN on NCEI (Hudson + McMaster / Uchupi / Emery / Ryan lines; no Veatch / Atlantis / Hydrographer / Block / Alvin) is documented as incomplete, not a first-success fallback. Lautenberg coral polygons are closed areas, not axes. Marine Regions / ACUF JSON is not NOAA-hosted so it is not `source: "noaa"`. A 429 / 403 / parse / no-intersection miss keeps the hashed fixture (which still has synthetic axes). Canyons do not block Ready. Tests mock fetch; one live probe skips if blocked. `PACK_BUILDER_REV` is `canyons-live-heads-2026-08-20` because live overlay IDs now include `canyons`. No Worker scoring. No Flutter. 72 h series stays off.
+
 ## This pass (PFEG MODIS 8-day chlorophyll, 2026-08-20)
 
 `tryLiveNoaa` / `buildTripPack({ tryLive })` still probe public no-key ERDDAP chlorophyll for the Point Judith box. First parseable grid paints pack layer `chlorophyll` as `source: "noaa"`. The path that returned a usable, still-updating grid from this network is PFEG **Aqua MODIS L3SMI 8-day NRT 4 km / 0.0417°** (`erdMH1chla8day_R2022NRT`, analysis 2026-08-09). That is not 1 km VIIRS and not CMEMS L4. CoastWatch S-NPP / NOAA-20 L3 dailies and S-NPP SQ weekly stay as fallbacks (they cover this box; last times here were 2026-07-09 / 2026-06-20). NOAA-21 US-sector daily also covers the box (2026-08-15) but is not first. PFEG `erdVHNchla8day` is North Pacific only. `oc_3p0_chla` is not on CoastWatch / PFEG / PolarWatch. A 429 / 403 / parse miss keeps the hashed fixture. Chlorophyll does not block Ready-for-offshore. Tests mock fetch. No Worker scoring. No Flutter. 72 h series stays off.
 
 ## This pass (pack builder revision, 2026-08-20)
 
-Every trip-pack manifest stamps `builder.rev` from a hand-bumped constant (`gfs-hour0-merge-2026-08-20`) so Helm / preview can tell which pack.ts produced the bytes; Packs shows it under the hashed count. Not a live git hash. No Worker scoring. No Flutter. 72 h series stays off.
+Every trip-pack manifest stamps `builder.rev` from a hand-bumped constant (`canyons-live-heads-2026-08-20`) so Helm / preview can tell which pack.ts produced the bytes; Packs shows it under the hashed count. Not a live git hash. No Worker scoring. No Flutter. 72 h series stays off.
 
 ## This pass (hour-0 GFS merge, 2026-08-20)
 
@@ -32,11 +36,11 @@ Live packed ENC cells keep catalog west/south/east/north so Helm can paint the a
 
 ## This pass (ERDDAP timeout + retry, 2026-08-20)
 
-Live NOAA ERDDAP grids (SST / chl / SSH / bathy), HMS, and hour-0 GFS now share an 18 s fetch with one retry on timeout / 429 / 5xx (1.5 s backoff). 404 is not retried. Two failures still keep the fixture. 72 h GFS series stays off. Tests mock fetch and sleep. No Worker scoring. No Flutter.
+Live NOAA ERDDAP grids (SST / chl / SSH / bathy), HMS, canyon heads, and hour-0 GFS now share an 18 s fetch with one retry on timeout / 429 / 5xx (1.5 s backoff). 404 is not retried. Two failures still keep the fixture. 72 h GFS series stays off. Tests mock fetch and sleep. No Worker scoring. No Flutter.
 
 ## This pass (preview live overlays, 2026-08-20)
 
-Preview `GET /api/packs?live=1` and matching `/api/objects` already called `buildTripPack({ tryLive })`, but the pack-http test only mocked NDBC so only buoys looked live. Tests now mock SST, ETOPO bathymetry + contours, chlorophyll, SSH, HMS, and hour-0 GFS-Wave and mark those layers `source: "noaa"`. A failed fetch keeps that layer fixture. No live=1 stays fixture. 72 h series stays off. No Worker scoring. No Flutter.
+Preview `GET /api/packs?live=1` and matching `/api/objects` already called `buildTripPack({ tryLive })`, but the pack-http test only mocked NDBC so only buoys looked live. Tests now mock SST, ETOPO bathymetry + contours, chlorophyll, SSH, HMS, canyon heads, and hour-0 GFS-Wave and mark those layers `source: "noaa"`. A failed fetch keeps that layer fixture. No live=1 stays fixture. 72 h series stays off. No Worker scoring. No Flutter.
 
 ## This pass (NCEI / GEBCO bathymetry probe, 2026-08-20)
 
@@ -104,10 +108,11 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - CoastWatch ERDDAP SSH / SLA (blended daily 0.25°) for the Point Judith box when that URL returns CSV. Layer `altimetry` is `source: "noaa"` only then. Resolution is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS. Values stored in cm. Fetch/parse miss keeps the fixture. Altimetry does not block Ready.
 - NMFS/NOAA HMS closed-area KMZ (Northeastern US pelagic longline closed area) for the Point Judith box when that URL returns a parseable polygon that intersects the box. Layer `hms_zones` is `source: "noaa"` only then. Reminder overlay — not a legal determination. Amendment 15 shapefiles stay in the probe list (south of this box). Fetch/parse/no-intersection miss keeps the fixture. The HMS file must exist for Ready even if empty.
 - CoastWatch PFEG ERDDAP bathymetry (NCEI ETOPO 2022 15″, stride 8 → ~0.033°) for the Point Judith box when that URL returns CSV. Layer `bathymetry` is `source: "noaa"` only then. Resolution is ~0.033° — not native 15″, not official ENC. Cheap 100/200-fm contours replace the fixture when the grid paints. Fetch/parse miss keeps the fixture. Bathymetry is required for Ready (fixture still counts).
+- NOAA OCM / MarineCadastre undersea feature place names (GeoJSON query) for the Point Judith box when that URL returns named canyon heads. Layer `canyons` is `source: "noaa"` only then. Heads only (Veatch, Atlantis, Hydrographer, Block, Alvin, Hudson here) — no axes, none invented. GEBCO SCUFN stays documented as incomplete for this box. Fetch/parse/no-intersection miss keeps the fixture. Canyons do not block Ready.
 
 ### Still fixture / not done
 
-- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the PFEG ERDDAP probe parsed a grid (Aqua MODIS L3SMI 8-day NRT 4 km, not 1 km VIIRS / CMEMS). Altimetry is fixture unless the CoastWatch ERDDAP probe parsed a grid (blended SLA daily 0.25°, not CMEMS / AVISO). Bathymetry is fixture unless the CoastWatch PFEG ERDDAP probe parsed a relief grid (NCEI ETOPO 2022 15″ subsampled to ~0.033° here — not native 15″, not official ENC). Contours follow that grid when it paints; otherwise they stay fixture. Canyons stay fixture. HMS is fixture unless the NMFS/NOAA closed-area probe parsed a polygon that intersects the box (NE PLL KMZ here — reminder only, not a legal determination).
+- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the PFEG ERDDAP probe parsed a grid (Aqua MODIS L3SMI 8-day NRT 4 km, not 1 km VIIRS / CMEMS). Altimetry is fixture unless the CoastWatch ERDDAP probe parsed a grid (blended SLA daily 0.25°, not CMEMS / AVISO). Bathymetry is fixture unless the CoastWatch PFEG ERDDAP probe parsed a relief grid (NCEI ETOPO 2022 15″ subsampled to ~0.033° here — not native 15″, not official ENC). Contours follow that grid when it paints; otherwise they stay fixture. Canyons are fixture unless the MarineCadastre undersea-names probe parsed named heads that intersect the box (heads only — no invented axes). HMS is fixture unless the NMFS/NOAA closed-area probe parsed a polygon that intersects the box (NE PLL KMZ here — reminder only, not a legal determination).
 - 72 h wind and wave **grids** unless the paced series is explicitly enabled and every f000-f072 step decodes (hour 0 may be live; hours 3-72 stay fixture or empty otherwise. NDFD not fetched. Full series is not downloaded in CI).
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.

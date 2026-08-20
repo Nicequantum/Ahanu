@@ -34,7 +34,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "gfs-hour0-merge-2026-08-20");
+    assert.equal(PACK_BUILDER_REV, "canyons-live-heads-2026-08-20");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -548,6 +548,15 @@ describe("live ingest errors on pack session", () => {
         live: true,
         downloading: false,
         layers: [{ id: "canyons", source: "fixture" }, { id: "sst", source: "noaa" }],
+        liveErrors: [],
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "not-a-layer", source: "fixture" }, { id: "sst", source: "noaa" }],
         liveErrors: [],
       }),
       false,

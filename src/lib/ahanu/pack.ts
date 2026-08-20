@@ -52,7 +52,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "gfs-hour0-merge-2026-08-20";
+export const PACK_BUILDER_REV = "canyons-live-heads-2026-08-20";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -92,11 +92,12 @@ export interface TripPackManifestV1 {
 
 export const LIVE_ERROR_CAP = 8;
 
-/** Layers Live NOAA can paint. Canyons stay fixture. */
+/** Layers Live NOAA can paint. Canyon live paint is named heads only. */
 export const LIVE_OVERLAY_LAYER_IDS = [
   "enc",
   "bathymetry",
   "contours",
+  "canyons",
   "sst",
   "chlorophyll",
   "altimetry",
@@ -126,6 +127,7 @@ const LIVE_MISS_PREFIX: Record<string, string> = {
   altimetry: "ssh",
   bathymetry: "bathy",
   contours: "bathy",
+  canyons: "canyons",
   hms_zones: "hms",
   enc: "enc",
   wind: "gfs-wave",
@@ -591,6 +593,10 @@ export async function buildTripPack(options: {
     if (live.hms?.body) {
       overlays.hms_zones = encodeLiveLayer(live.hms.body);
       extraSources.push({ id: "noaa-hms", name: live.hms.note });
+    }
+    if (live.canyons?.body) {
+      overlays.canyons = encodeLiveLayer(live.canyons.body);
+      extraSources.push({ id: "noaa-canyons", name: live.canyons.note });
     }
     if (live.bathymetry?.grid) {
       overlays.bathymetry = encodeLayerBody(live.bathymetry.grid);

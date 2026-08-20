@@ -96,7 +96,7 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, hour-0 wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not fetch a 72 h
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, hour-0 wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not fetch a 72 h
         series and does not claim official ENC. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.

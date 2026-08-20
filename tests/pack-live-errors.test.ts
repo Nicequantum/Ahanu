@@ -35,6 +35,7 @@ const {
   sampleSshCsvForTests,
   sampleBathyCsvForTests,
   sampleHmsKmzForTests,
+  sampleCanyonsGeojsonForTests,
   tryLiveNoaa,
   buoysToPackedJson,
   tidesToPackedJson,
@@ -81,6 +82,7 @@ function mockNoaa(sstOk: boolean) {
   const ssh = sampleSshCsvForTests();
   const bathy = sampleBathyCsvForTests();
   const kmz = sampleHmsKmzForTests();
+  const canyons = sampleCanyonsGeojsonForTests();
   const grib = encodeHour0Sample();
   return async (url: string) => {
     if (url.includes("analysed_sst") || url.includes("noaacrwsst") || url.includes("MURSST") || url.includes("GEOHIRR")) {
@@ -101,6 +103,9 @@ function mockNoaa(sstOk: boolean) {
     }
     if (url.includes("pelagicll_ne") || url.includes("HMS-A15")) {
       return new Response(kmz, { status: 200 });
+    }
+    if (url.includes("UnderseaFeaturePlaceNames")) {
+      return new Response(canyons, { status: 200, headers: { "Content-Type": "application/geo+json" } });
     }
     if (url.includes("ETOPO_2022") || url.includes("GEBCO") || url.includes("etopo180")) {
       return new Response(bathy, { status: 200, headers: { "Content-Type": "text/csv" } });

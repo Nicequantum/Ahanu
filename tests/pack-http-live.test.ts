@@ -11,6 +11,7 @@ const {
   sampleSshCsvForTests,
   sampleBathyCsvForTests,
   sampleHmsKmzForTests,
+  sampleCanyonsGeojsonForTests,
   SST_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { encodeHour0Sample } = await import("../src/lib/ahanu/grid-io.ts");
@@ -61,6 +62,7 @@ const LIVE_LAYERS = [
   "sst",
   "bathymetry",
   "contours",
+  "canyons",
   "chlorophyll",
   "altimetry",
   "hms_zones",
@@ -76,6 +78,7 @@ function mockNoaaSuccess(): (url: string) => Promise<Response> {
   const ssh = sampleSshCsvForTests();
   const bathy = sampleBathyCsvForTests();
   const kmz = sampleHmsKmzForTests();
+  const canyons = sampleCanyonsGeojsonForTests();
   const grib = encodeHour0Sample();
   return async (url: string) => {
     if (url.includes("latest_obs")) return new Response(NDBC_SAMPLE, { status: 200 });
@@ -96,6 +99,9 @@ function mockNoaaSuccess(): (url: string) => Promise<Response> {
     if (url.includes("pelagicll_ne") || url.includes("HMS-A15")) {
       return new Response(kmz, { status: 200 });
     }
+    if (url.includes("UnderseaFeaturePlaceNames")) {
+      return new Response(canyons, { status: 200, headers: { "Content-Type": "application/geo+json" } });
+    }
     if (url.includes("ETOPO_2022") || url.includes("GEBCO") || url.includes("etopo180")) {
       return new Response(bathy, { status: 200, headers: { "Content-Type": "text/csv" } });
     }
@@ -110,7 +116,7 @@ function mockNoaaSuccess(): (url: string) => Promise<Response> {
 }
 
 describe("preview pack HTTP live overlays", () => {
-  it("GET /api/packs?live=1 with mocked NOAA marks SST bathy contours chl SSH HMS hour-0 GFS noaa", async () => {
+  it("GET /api/packs?live=1 with mocked NOAA marks SST bathy contours chl SSH HMS canyons hour-0 GFS noaa", async () => {
     const fixture = await buildFixturePack({
       bbox: POINT_JUDITH_CANYON_BBOX,
       start: START,
@@ -377,6 +383,7 @@ describe("preview pack HTTP liveErrors", () => {
       "buoys",
       "tides",
       "hms_zones",
+      "canyons",
     ];
     for (const id of overlayIds) {
       assert.equal(man.layers.find((l) => l.id === id)?.source, "noaa", id);

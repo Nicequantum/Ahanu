@@ -46,6 +46,13 @@ const {
   fetchLiveBathy,
   sampleBathyCsvForTests,
   BATHY_ENDPOINTS,
+  parseCanyonGazetteer,
+  clipCanyonFeatures,
+  fetchLiveCanyons,
+  canyonsToPackedJson,
+  sampleCanyonsGeojsonForTests,
+  CANYON_ENDPOINTS,
+  CANYON_AID_NOTE,
   fetchNoaaBytes,
   fetchNoaaText,
   NOAA_GRID_TIMEOUT_MS,
@@ -1664,5 +1671,163 @@ describe("NOAA fetch timeout + retry", () => {
       live.manifest.layers.find((l) => l.id === "sst")!.hash,
       fixture.manifest.layers.find((l) => l.id === "sst")!.hash,
     );
+  });
+});
+
+describe("canyon gazetteer parse", () => {
+  it("keeps named canyon heads and drops banks plus out-of-box canyons", () => {
+    const feats = parseCanyonGazetteer(sampleCanyonsGeojsonForTests());
+    const names = feats.map((f) => (f.properties as { name?: string }).name);
+    assert.ok(names.includes("Veatch"));
+    assert.ok(names.includes("Atlantis"));
+    assert.ok(names.includes("Hydrographer"));
+    assert.ok(names.includes("Hudson"));
+    assert.ok(!names.includes("Phelps Bank"));
+    assert.equal((feats[0]!.properties as { kind?: string }).kind, "head");
+    const clipped = clipCanyonFeatures(feats, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(clipped.some((f) => (f.properties as { name?: string }).name === "Veatch"));
+    assert.ok(!clipped.some((f) => (f.properties as { name?: string }).name === "Norfolk"));
+  });
+
+  it("rejects HTML and empty JSON", () => {
+    assert.equal(parseCanyonGazetteer("<html>nope</html>").length, 0);
+    assert.equal(parseCanyonGazetteer("{}").length, 0);
+  });
+});
+
+describe("tryLiveNoaa canyon overlay", () => {
+  it("paints canyons source noaa when MarineCadastre GeoJSON parses", async () => {
+    const body = sampleCanyonsGeojsonForTests();
+    const fetchImpl = async (url: string) => {
+      if (url.includes("UnderseaFeaturePlaceNames")) {
+        return new Response(body, { status: 200, headers: { "Content-Type": "application/geo+json" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.canyons);
+    assert.equal(live.canyons.source, "noaa");
+    assert.equal(live.canyons.dataset, "mc-undersea-geojson");
+    assert.ok(live.canyons.featureCount >= 4);
+    assert.match(live.canyons.note, /no invented axes/i);
+    const payload = live.canyons.body.payload as { source?: string; features?: { properties?: { name?: string; kind?: string } }[] };
+    assert.equal(payload.source, "noaa");
+    const names = (payload.features ?? []).map((f) => f.properties?.name);
+    assert.ok(names.includes("Veatch"));
+    assert.ok(names.includes("Atlantis"));
+    assert.ok((payload.features ?? []).every((f) => f.properties?.kind === "head"));
+  });
+
+  it("omits canyons on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.canyons, undefined);
+    assert.ok(live.errors.some((e) => e.includes("canyons")));
+  });
+});
+
+describe("buildTripPack canyon overlay", () => {
+  it("hashes live canyon heads and marks source noaa without inventing axes", async () => {
+    const body = sampleCanyonsGeojsonForTests();
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("UnderseaFeaturePlaceNames")) {
+          return new Response(body, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const row = live.manifest.layers.find((l) => l.id === "canyons")!;
+    assert.equal(row.source, "noaa");
+    assert.notEqual(row.hash, fixture.manifest.layers.find((l) => l.id === "canyons")!.hash);
+    assert.equal(await sha256Hex(live.bodies.canyons!), row.hash);
+    const parsed = parseLayerBody(live.bodies.canyons!) as {
+      payload?: { source?: string; note?: string; features?: { geometry?: { type?: string } }[] };
+    };
+    assert.equal(parsed.payload?.source, "noaa");
+    assert.match(parsed.payload?.note ?? "", /no invented axes/i);
+    assert.ok((parsed.payload?.features ?? []).every((f) => f.geometry?.type === "Point"));
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-canyons"));
+    assert.equal(live.manifest.readyForOffshore, true);
+    assert.ok(canyonsToPackedJson([], CANYON_AID_NOTE));
+    assert.equal(CANYON_ENDPOINTS[0]!.format, "geojson");
+  });
+
+  it("keeps fixture canyons when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "canyons")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "canyons")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "canyons")!.source, "fixture");
+  });
+});
+
+describe("optional live canyon probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let canyons;
+    try {
+      canyons = await fetchLiveCanyons({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live canyon fetch threw");
+      return;
+    }
+    if (!canyons) {
+      t.skip(errors.join("; ") || "live canyons blocked");
+      return;
+    }
+    assert.equal(canyons.source, "noaa");
+    assert.ok(canyons.featureCount >= 1);
+    assert.match(canyons.note, /no invented axes/i);
+    const payload = canyons.body.payload as { features?: { properties?: { name?: string; kind?: string } }[] };
+    const names = (payload.features ?? []).map((f) => f.properties?.name ?? "");
+    assert.ok(names.some((n) => /veatch|atlantis|hydrographer|hudson|block|alvin/i.test(n)));
+    assert.ok((payload.features ?? []).every((f) => f.properties?.kind === "head"));
   });
 });
