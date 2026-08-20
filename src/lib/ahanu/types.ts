@@ -171,6 +171,11 @@ export interface TripPackLayer {
   status: "ready" | "stale" | "missing" | "downloading";
   updatedAt: string;
   hours: number;
+  hash?: string;
+  r2Key?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  verified?: boolean;
 }
 
 export interface FloatPlan {

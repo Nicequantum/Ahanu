@@ -152,6 +152,7 @@ export function ChartMap() {
   const aisTick = Math.floor(clock / 20000);
   const replayT = useAhanu((s) => s.replayT);
   const catches = useAhanu((s) => s.catches);
+  const packEpoch = useAhanu((s) => s.packEpoch);
 
   useEffect(() => {
     let dead = false;
@@ -586,7 +587,7 @@ export function ChartMap() {
     wind?.setData?.(windLines(hour));
     const waves = map.getSource("waves") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
     waves?.setData?.(waveFieldGeo(hour));
-  }, [hour, species, sens]);
+  }, [hour, species, sens, packEpoch]);
 
   useEffect(() => {
     const map = mapRef.current;

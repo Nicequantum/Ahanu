@@ -44,3 +44,9 @@ class_name = "CommunityHub"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CommunityHub"]
+
+# Production ingest cron — enable after R2 `ahanu-trip-packs` and D1 `ahanu-core`
+# are provisioned and NOAA/CMEMS access is in place. Until then /api/packs
+# serves hashed fixture bodies. Do not assume R2 holds live ENC/GRIB/SST.
+# [triggers]
+# crons = ["15 2,8,14,20 * * *"]

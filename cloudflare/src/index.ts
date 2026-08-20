@@ -8,20 +8,20 @@
  * whole point of the offline-first design.
  *
  * Production bindings: R2 `ahanu-trip-packs`, D1 `ahanu-core`, DO CommunityHub.
- * Manifests are generated coherently even when R2 objects have not been
- * ingested yet — hashes are identity hashes of (bbox, layer, cycle), not
- * body hashes. Ingest replaces them with SHA-256 of the object bytes.
+ * When R2 is empty, fixture bodies are generated and hashed (SHA-256 of
+ * the object bytes). Production ingest replaces fixtures with NOAA/CMEMS
+ * clips. The Worker never scores habitat or go/no-go.
  */
 
 import { listIngestSources } from "./ingest/sources";
 import {
-  buildTripPack,
   clampBbox,
   NORTHEAST,
-  REQUIRED_OFFSHORE_LAYERS,
   specForLayer,
   type BBox,
 } from "./ingest/pack";
+import { buildFixturePack } from "../../src/lib/ahanu/pack";
+import { ingestFixturePack } from "./ingest/run";
 
 export type { BBox } from "./ingest/pack";
 
@@ -51,8 +51,13 @@ interface DoState {
   storage: DoStorage;
 }
 
+interface R2Like {
+  get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+  put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
+}
+
 export interface Env {
-  PACKS?: unknown;
+  PACKS?: R2Like;
   DB?: D1Binding;
   COMMUNITY?: DoNamespace;
   SERVICE?: string;
@@ -252,44 +257,62 @@ function parseIso(raw: string | null): string {
 }
 
 async function buildManifest(bbox: BBox, start: string, hours: number): Promise<TripPackManifest> {
-  const built = await buildTripPack({ bbox, start, hours });
-  const layers: TripPackLayer[] = built.layers.map((layer) => {
-    const spec = specForLayer(layer.id);
-    return {
-      id: layer.id,
-      label: spec?.label ?? layer.id,
-      sizeMb: Math.round((layer.bytes / (1024 * 1024)) * 100) / 100,
-      sizeBytes: layer.bytes,
-      status: "ready",
-      updatedAt: built.createdAt,
-      hours: layer.hours,
-      hash: layer.sha256,
-      r2Key: layer.r2Key,
-      contentType: spec?.contentType ?? "application/octet-stream",
-      format: spec?.format ?? "bin",
-    };
-  });
-
-  const required = new Set(REQUIRED_OFFSHORE_LAYERS);
-  const readyForOffshore = layers.filter((l) => required.has(l.id)).every((l) => l.status === "ready");
-
+  const { manifest } = await buildFixturePack({ bbox, start, hours });
+  const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
+    id: layer.id,
+    label: layer.label,
+    sizeMb: layer.sizeMb,
+    sizeBytes: layer.sizeBytes,
+    status: layer.status,
+    updatedAt: layer.updatedAt,
+    hours: layer.hours,
+    hash: layer.hash,
+    r2Key: layer.r2Key,
+    contentType: layer.contentType,
+    format: layer.format,
+  }));
   return {
-    packId: built.packId,
+    packId: manifest.packId,
     version: 1,
-    bbox: built.bbox,
-    start: built.start,
-    hours: built.hours,
-    generatedAt: built.createdAt,
-    readyForOffshore,
+    bbox: manifest.bbox,
+    start: manifest.start,
+    hours: manifest.hours,
+    generatedAt: manifest.generatedAt,
+    readyForOffshore: manifest.readyForOffshore,
     layers,
-    totalBytes: built.totalBytes,
-    totalMb: Math.round((built.totalBytes / (1024 * 1024)) * 10) / 10,
-    r2Prefix: built.r2Prefix,
+    totalBytes: manifest.totalBytes,
+    totalMb: manifest.totalMb,
+    r2Prefix: manifest.r2Prefix,
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
-      "Identity hashes (bbox + cycle + layer). On-device scoring does not run here. " +
-      "Ready for offshore requires ENC, bathy, SST, 72 h wind/wave GRIB, tides, and HMS zones.",
+      "SHA-256 of fixture object bytes (not live NOAA/CMEMS). Client must re-hash after download. " +
+      "On-device scoring does not run here. Production cron writes R2; those objects do not exist yet.",
   };
+}
+
+async function layerBody(env: Env, bbox: BBox, start: string, hours: number, layerId: string): Promise<{
+  body: string;
+  hash: string;
+  contentType: string;
+  source: "r2" | "fixture";
+} | null> {
+  const { manifest, bodies } = await buildFixturePack({ bbox, start, hours });
+  const rec = manifest.layers.find((l) => l.id === layerId);
+  if (!rec) return null;
+  const bucket = env.PACKS;
+  if (bucket && typeof bucket.get === "function") {
+    try {
+      const obj = await bucket.get(rec.r2Key);
+      if (obj) {
+        return { body: await obj.text(), hash: rec.hash, contentType: rec.contentType, source: "r2" };
+      }
+    } catch {
+      /* fall through to fixture */
+    }
+  }
+  const body = bodies[layerId];
+  if (!body) return null;
+  return { body, hash: rec.hash, contentType: rec.contentType, source: "fixture" };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +570,10 @@ async function communityFor(env: Env, bbox: BBox): Promise<CommunityReport[]> {
 // ---------------------------------------------------------------------------
 
 export default {
+  async scheduled(_event: unknown, env: Env, ctx: { waitUntil: (p: Promise<unknown>) => void }): Promise<void> {
+    // Production: fetch NOAA/CMEMS, clip, hash, put R2. Here: fixture put if R2 is bound.
+    ctx.waitUntil(ingestFixturePack(env));
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -576,6 +603,32 @@ export default {
         }
         const manifest = await buildManifest(bboxOrErr, start, Math.round(hours));
         return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
+      }
+
+      if (request.method === "GET" && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
+        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
+        if (bboxOrErr instanceof Response) return bboxOrErr;
+        const start = parseIso(url.searchParams.get("start"));
+        const hoursRaw = url.searchParams.get("hours");
+        const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
+        if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+          return error(400, "hours must be 1–168");
+        }
+        const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
+        const spec = specForLayer(layer);
+        if (!spec) return error(404, "unknown layer", { layer });
+        const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id);
+        if (!obj) return error(404, "layer body missing", { layer });
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            "Content-Type": obj.contentType,
+            ETag: `"${obj.hash}"`,
+            "X-Ahanu-Hash": obj.hash,
+            "X-Ahanu-Source": obj.source,
+            ...CORS_HEADERS,
+          },
+        });
       }
 
       if (request.method === "GET" && path === "/api/sources") {

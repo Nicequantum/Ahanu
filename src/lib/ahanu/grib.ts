@@ -2,6 +2,7 @@ import { coastLon, isLand, shelfBreakLon } from "./bathymetry";
 import { DEFAULT_BOAT, FORECAST_HOURS } from "./constants";
 import { haversineNm } from "./geo";
 import type { ForecastHour, GoNoGo, LatLon } from "./types";
+import { samplePackedKind } from "./packed-fields";
 
 export interface GribPoint {
   windKt: number;
@@ -78,6 +79,22 @@ function spatial(lat: number, lon: number): number {
  */
 export function gribAt(lat: number, lon: number, hour: number): GribPoint {
   const h = hour;
+  const packedWind = samplePackedKind("windKt", lat, lon, hour);
+  const packedWave = samplePackedKind("waveFt", lat, lon, hour);
+  if (packedWind != null && packedWave != null) {
+    return {
+      windKt: packedWind,
+      windDir: 225,
+      gustKt: packedWind * 1.18,
+      waveFt: packedWave,
+      swellFt: packedWave * 0.7,
+      swellDir: 215,
+      periodS: 7.2,
+      pressureMb: 1016,
+      precipMm: 0,
+      visNm: 8,
+    };
+  }
   const front = frontIntensity(h);
   const exp = isLand(lat, lon) ? 0 : exposure(lat, lon);
   const tex = spatial(lat, lon);

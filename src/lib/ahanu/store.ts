@@ -10,7 +10,6 @@ import { destination, haversineNm, initialBearing } from "./geo";
 import { depthM } from "./bathymetry";
 import { sstC } from "./ocean";
 import { SEED_SPOTS } from "@/lib/data/spots";
-import { DEFAULT_PACK_LAYERS } from "@/lib/data/trip-pack";
 import { uid } from "@/lib/utils";
 import type {
   BoatLimits,
@@ -27,6 +26,11 @@ import type {
   VesselState,
   Waypoint,
 } from "./types";
+import { POINT_JUDITH_CANYON_BBOX } from "./constants";
+import type { PackBBox, ReadyOffshoreResult, TripPackManifestV1 } from "./pack";
+import { downloadTripPack as fetchTripPack } from "./pack-client";
+import { packedEpoch } from "./packed-fields";
+import { deviceToken, syncCatch } from "./catch-sync";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -61,6 +65,14 @@ export interface AhanuState {
   floatPlan: FloatPlan;
   contacts: EmergencyContact[];
   packLayers: TripPackLayer[];
+  packBbox: PackBBox;
+  packHours: number;
+  packStart: string;
+  packManifest: TripPackManifestV1 | null;
+  packReady: ReadyOffshoreResult | null;
+  packDownloading: boolean;
+  packError: string | null;
+  packEpoch: number;
   simT: number;
   followShip: boolean;
   markRipple: { lat: number; lon: number; id: string } | null;
@@ -96,6 +108,10 @@ export interface AhanuState {
   addContact: (c: Omit<EmergencyContact, "id">) => void;
   markPack: (id: string, status: TripPackLayer["status"]) => void;
   downloadAllPacks: () => void;
+  setPackBbox: (b: Partial<PackBBox>) => void;
+  setPackWindow: (start: string, hours: number) => void;
+  downloadTripPack: () => Promise<ReadyOffshoreResult | null>;
+  updateCatch: (id: string, patch: Partial<CatchRecord>) => void;
   setArticle: (id: string | null) => void;
   setRipple: (r: AhanuState["markRipple"]) => void;
   setHydrated: () => void;
@@ -148,7 +164,15 @@ export const useAhanu = create<AhanuState>()(
         { id: "c1", name: "USCG Sector Southeastern New England", role: "Rescue", phone: "401-435-2300" },
         { id: "c2", name: "Dock / home", role: "Float plan", phone: "" },
       ],
-      packLayers: DEFAULT_PACK_LAYERS,
+      packLayers: [],
+      packBbox: { ...POINT_JUDITH_CANYON_BBOX },
+      packHours: 72,
+      packStart: new Date().toISOString(),
+      packManifest: null,
+      packReady: null,
+      packDownloading: false,
+      packError: null,
+      packEpoch: 0,
       simT: 0.12,
       followShip: true,
       markRipple: null,
@@ -198,10 +222,19 @@ export const useAhanu = create<AhanuState>()(
       removeWaypoint: (id) =>
         set((s) => ({ waypoints: s.waypoints.filter((w) => w.id !== id) })),
       addCatch: (c) => {
-        const rec: CatchRecord = { ...c, id: uid("catch") };
+        const rec: CatchRecord = { ...c, id: uid("catch"), synced: c.synced ?? false };
         set((s) => ({ catches: [rec, ...s.catches] }));
+        void syncCatch(rec, { token: deviceToken() }).then((next) => {
+          if (next.synced) {
+            useAhanu.getState().updateCatch(next.id, { synced: true });
+          }
+        });
         return rec;
       },
+      updateCatch: (id, patch) =>
+        set((s) => ({
+          catches: s.catches.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+        })),
       setVessel: (v) => set((s) => ({ vessel: { ...s.vessel, ...v } })),
       tickSim: (dtMs) => {
         const s = get();
@@ -310,14 +343,62 @@ export const useAhanu = create<AhanuState>()(
             p.id === id ? { ...p, status, updatedAt: new Date().toISOString() } : p,
           ),
         })),
-      downloadAllPacks: () =>
-        set((s) => ({
-          packLayers: s.packLayers.map((p) => ({
-            ...p,
-            status: "ready" as const,
-            updatedAt: new Date().toISOString(),
-          })),
-        })),
+      setPackBbox: (b) => set((s) => ({ packBbox: { ...s.packBbox, ...b } })),
+      setPackWindow: (packStart, packHours) => set({ packStart, packHours }),
+      downloadAllPacks: () => {
+        void get().downloadTripPack();
+      },
+      downloadTripPack: async () => {
+        const s = get();
+        set({
+          packDownloading: true,
+          packError: null,
+          packLayers: s.packLayers.map((p) => ({ ...p, status: "downloading" as const })),
+        });
+        try {
+          const result = await fetchTripPack({
+            bbox: s.packBbox,
+            start: s.packStart,
+            hours: s.packHours,
+          });
+          const packLayers: TripPackLayer[] = result.manifest.layers.map((l) => {
+            const ev = result.ready.layers.find((r) => r.id === l.id);
+            const status: TripPackLayer["status"] = !ev?.present
+              ? "missing"
+              : !ev.hashOk
+                ? "missing"
+                : !ev.fresh
+                  ? "stale"
+                  : "ready";
+            return {
+              id: l.id,
+              label: l.label,
+              sizeMb: l.sizeMb,
+              status,
+              updatedAt: l.updatedAt,
+              hours: l.hours,
+              hash: l.hash,
+              r2Key: l.r2Key,
+              contentType: l.contentType,
+              sizeBytes: l.sizeBytes,
+              verified: ev?.hashOk,
+            };
+          });
+          set({
+            packLayers,
+            packManifest: result.manifest,
+            packReady: result.ready,
+            packDownloading: false,
+            packError: result.ready.ready ? null : result.ready.failures.join("; "),
+            packEpoch: packedEpoch(),
+          });
+          return result.ready;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "pack download failed";
+          set({ packDownloading: false, packError: message, packReady: null });
+          return null;
+        }
+      },
       setArticle: (articleId) => set({ articleId, panel: "knowledge" }),
       setRipple: (markRipple) => set({ markRipple }),
       setHydrated: () => set({ hydrated: true }),
@@ -342,6 +423,9 @@ export const useAhanu = create<AhanuState>()(
         species: s.species,
         layers: s.layers,
         packLayers: s.packLayers,
+        packBbox: s.packBbox,
+        packHours: s.packHours,
+        packStart: s.packStart,
         nmeaGateway: s.nmeaGateway,
         safetyDepthM: s.safetyDepthM,
       }),

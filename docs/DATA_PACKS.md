@@ -134,3 +134,19 @@ Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone
 | No network mid-trip | Expected | Freeze last buoy snapshot, keep scoring on packed rasters |
 
 Never block logging a catch on the network. The logbook is user data; it belongs on the boat first.
+
+
+---
+
+## Production ingest ops (not claimed done)
+
+Live NOAA ENC / GFS-Wave / NDFD / GHRSST / CMEMS / CO-OPS / NDBC ingest **does not run in this repository environment**. `/api/packs` and `/api/objects` serve **hashed fixture bodies** so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
+
+Until a scheduled Worker writes R2:
+
+1. Enable the cron in `cloudflare/wrangler.toml` (`15 2,8,14,20 * * *`) after R2 `ahanu-trip-packs` and D1 `ahanu-core` exist.
+2. `cloudflare/src/ingest/run.ts` should fetch the URLs in `sources.ts`, clip to the trip bbox, SHA-256 the bytes, `put` to `packs/{packId}/{layerId}/{hash12}.{ext}`.
+3. Replace fixture hashes with those body hashes. Do not leave identity hashes in production.
+4. The client already verifies whatever digest the manifest carries and **does not trust** `readyForOffshore` on the Worker.
+
+Do not assume those R2 objects exist today.

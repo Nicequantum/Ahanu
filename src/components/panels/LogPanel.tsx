@@ -139,11 +139,14 @@ export function LogPanel() {
               </div>
               <p className="mt-1 text-xs text-muted">{catchMeta(c)}</p>
               {c.notes && <p className="mt-1 text-xs">{c.notes}</p>}
-              {c.released && (
-                <Badge tone="lagoon" className="mt-2">
-                  Released
-                </Badge>
-              )}
+              <div className="mt-2 flex flex-wrap gap-1">
+                {c.released && (
+                  <Badge tone="lagoon">
+                    Released
+                  </Badge>
+                )}
+                <Badge tone={c.synced ? "go" : "muted"}>{c.synced ? "synced" : "local"}</Badge>
+              </div>
               {c.photoDataUrl && (
                 <img
                   src={c.photoDataUrl}

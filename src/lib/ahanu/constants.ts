@@ -9,6 +9,14 @@ export const REGION = {
 } as const;
 
 export const POINT_JUDITH = { lat: 41.3615, lon: -71.4814 };
+
+/** Point Judith canyon overnight box — docs/DATA_PACKS.md */
+export const POINT_JUDITH_CANYON_BBOX = {
+  west: -72.8,
+  south: 39.4,
+  east: -68.8,
+  north: 41.5,
+} as const;
 export const MONTAUK = { lat: 41.048, lon: -71.959 };
 export const NEWPORT = { lat: 41.49, lon: -71.327 };
 export const VEATCH_HEAD = { lat: 39.9, lon: -69.62 };

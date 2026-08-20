@@ -16,7 +16,7 @@
     "deploy:cf": "AHANU_CF=1 vite build && wrangler deploy",
     "build:cf": "AHANU_CF=1 vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test --import ./tests/register-alias.ts tests/*.test.ts",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 --import ./tests/register-alias.ts tests/*.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
