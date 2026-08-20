@@ -49,6 +49,52 @@ export async function syncCatch(
   }
 }
 
+export type UnsyncedRetry = {
+  attempted: number;
+  synced: number;
+  failed: number;
+  records: CatchRecord[];
+};
+
+/** Catches that have not been acknowledged by the worker. */
+export function unsyncedCatches(catches: CatchRecord[]): CatchRecord[] {
+  return catches.filter((c) => c.synced !== true);
+}
+
+/**
+ * POST each unsynced catch through syncCatch, one at a time.
+ * No token → do not fetch (local Vite stays quiet). Failures stay local.
+ */
+export async function retryUnsyncedCatches(
+  catches: CatchRecord[],
+  opts?: { token?: string; base?: string },
+): Promise<UnsyncedRetry> {
+  const pending = unsyncedCatches(catches);
+  if (!opts?.token || pending.length === 0) {
+    return { attempted: 0, synced: 0, failed: 0, records: [] };
+  }
+  const records: CatchRecord[] = [];
+  let synced = 0;
+  let failed = 0;
+  for (const rec of pending) {
+    const next = await syncCatch(rec, opts);
+    records.push(next);
+    if (next.synced) synced += 1;
+    else failed += 1;
+  }
+  return { attempted: pending.length, synced, failed, records };
+}
+
+/** One quiet helm line after a Save-token retry. */
+export function retryUnsyncedStatus(
+  r: Pick<UnsyncedRetry, "attempted" | "synced" | "failed">,
+): string {
+  if (r.attempted === 0) return "Sync on";
+  if (r.failed === 0) return `Sync on · ${r.synced} synced`;
+  if (r.synced === 0) return `Sync on · ${r.failed} still local`;
+  return `Sync on · ${r.synced} synced, ${r.failed} still local`;
+}
+
 export function deviceToken(storage?: Readable | null): string | undefined {
   const store = storageGet(storage);
   if (!store) return undefined;

@@ -30,7 +30,7 @@ import { POINT_JUDITH_CANYON_BBOX } from "./constants";
 import { capLiveErrors, evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type TripPackManifestV1 } from "./pack";
 import { downloadTripPack as fetchTripPack, evidenceFromPackLayers } from "./pack-client";
 import { packedEpoch } from "./packed-fields";
-import { deviceToken, syncCatch } from "./catch-sync";
+import { deviceToken, retryUnsyncedCatches as postUnsyncedCatches, syncCatch } from "./catch-sync";
 import {
   applyDisplayMode,
   applyPersistedDisplayMode,
@@ -131,6 +131,7 @@ export interface AhanuState {
   setSstStaleOverride: (v: boolean) => void;
   downloadTripPack: (opts?: { skipCache?: boolean }) => Promise<ReadyOffshoreResult | null>;
   updateCatch: (id: string, patch: Partial<CatchRecord>) => void;
+  retryUnsyncedCatches: () => Promise<{ attempted: number; synced: number; failed: number }>;
   setArticle: (id: string | null) => void;
   setRipple: (r: AhanuState["markRipple"]) => void;
   setHydrated: () => void;
@@ -269,6 +270,18 @@ export const useAhanu = create<AhanuState>()(
         set((s) => ({
           catches: s.catches.map((c) => (c.id === id ? { ...c, ...patch } : c)),
         })),
+      retryUnsyncedCatches: async () => {
+        const token = deviceToken();
+        if (!token) return { attempted: 0, synced: 0, failed: 0 };
+        const result = await postUnsyncedCatches(get().catches, { token });
+        if (result.synced > 0) {
+          const ok = new Set(result.records.filter((r) => r.synced).map((r) => r.id));
+          set((s) => ({
+            catches: s.catches.map((c) => (ok.has(c.id) ? { ...c, synced: true } : c)),
+          }));
+        }
+        return { attempted: result.attempted, synced: result.synced, failed: result.failed };
+      },
       setVessel: (v) => set((s) => ({ vessel: { ...s.vessel, ...v } })),
       tickSim: (dtMs) => {
         const s = get();

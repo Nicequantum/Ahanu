@@ -8,6 +8,7 @@ import {
   clearDeviceToken,
   deviceToken,
   deviceTokenStatus,
+  retryUnsyncedStatus,
   saveDeviceToken,
 } from "@/lib/ahanu/catch-sync";
 import { metersToFathoms } from "@/lib/ahanu/geo";
@@ -29,12 +30,18 @@ function NmeaToggle() {
 
 function DeviceTokenControl() {
   const [draft, setDraft] = useState(() => deviceToken() ?? "");
-  const [status, setStatus] = useState(() => deviceTokenStatus());
+  const [status, setStatus] = useState<string>(() => deviceTokenStatus());
 
   function onSave() {
     const next = saveDeviceToken(draft);
     setDraft(next);
     setStatus(deviceTokenStatus());
+    void useAhanu
+      .getState()
+      .retryUnsyncedCatches()
+      .then((result) => {
+        setStatus(retryUnsyncedStatus(result));
+      });
   }
 
   function onClear() {

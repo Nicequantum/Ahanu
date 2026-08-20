@@ -7,6 +7,8 @@ const {
   clearDeviceToken,
   deviceToken,
   deviceTokenStatus,
+  retryUnsyncedCatches,
+  retryUnsyncedStatus,
   saveDeviceToken,
   syncCatch,
 } = await import("../src/lib/ahanu/catch-sync.ts");
@@ -98,5 +100,92 @@ describe("device token persist", () => {
     );
     assert.equal(store.getItem(DEVICE_TOKEN_KEY), minted);
     assert.equal(deviceTokenStatus(store), "Sync on");
+  });
+});
+
+describe("retryUnsyncedCatches", () => {
+  it("POSTs only synced !== true records, one at a time", async () => {
+    const order: string[] = [];
+    let inflight = 0;
+    let maxInflight = 0;
+    globalThis.fetch = (async (_input, init) => {
+      inflight += 1;
+      maxInflight = Math.max(maxInflight, inflight);
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      order.push(body.id);
+      await new Promise((r) => setTimeout(r, 8));
+      inflight -= 1;
+      return new Response(JSON.stringify({ ok: true, catch: { ...body, synced: true } }), {
+        status: 201,
+      });
+    }) as typeof fetch;
+
+    const already = { ...rec, id: "already", synced: true };
+    const a = { ...rec, id: "a", synced: false };
+    const b = { ...rec, id: "b" };
+    const result = await retryUnsyncedCatches([already, a, b], {
+      token: "dock-token",
+      base: "http://packs.test",
+    });
+    assert.deepEqual(order, ["a", "b"]);
+    assert.equal(maxInflight, 1);
+    assert.equal(result.attempted, 2);
+    assert.equal(result.synced, 2);
+    assert.equal(result.failed, 0);
+    assert.equal(
+      result.records.every((r) => r.synced === true),
+      true,
+    );
+  });
+
+  it("leaves failures local and continues the queue", async () => {
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      if (body.id === "fail") return new Response("no", { status: 500 });
+      return new Response(JSON.stringify({ ok: true, catch: { ...body, synced: true } }), {
+        status: 201,
+      });
+    }) as typeof fetch;
+    const fail = { ...rec, id: "fail", synced: false };
+    const ok = { ...rec, id: "ok", synced: false };
+    const result = await retryUnsyncedCatches([fail, ok], {
+      token: "dock-token",
+      base: "http://packs.test",
+    });
+    assert.equal(result.attempted, 2);
+    assert.equal(result.synced, 1);
+    assert.equal(result.failed, 1);
+    assert.equal(result.records.find((r) => r.id === "fail")?.synced, false);
+    assert.equal(result.records.find((r) => r.id === "ok")?.synced, true);
+  });
+
+  it("does not fetch without a token or when everything is already synced", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("no", { status: 500 });
+    }) as typeof fetch;
+    const pending = { ...rec, synced: false };
+    const none = await retryUnsyncedCatches([pending], { base: "http://packs.test" });
+    const done = await retryUnsyncedCatches([{ ...rec, synced: true }], {
+      token: "dock-token",
+      base: "http://packs.test",
+    });
+    assert.equal(calls, 0);
+    assert.equal(none.attempted, 0);
+    assert.equal(done.attempted, 0);
+  });
+
+  it("formats one quiet status line", () => {
+    assert.equal(retryUnsyncedStatus({ attempted: 0, synced: 0, failed: 0 }), "Sync on");
+    assert.equal(retryUnsyncedStatus({ attempted: 2, synced: 2, failed: 0 }), "Sync on · 2 synced");
+    assert.equal(
+      retryUnsyncedStatus({ attempted: 2, synced: 0, failed: 2 }),
+      "Sync on · 2 still local",
+    );
+    assert.equal(
+      retryUnsyncedStatus({ attempted: 3, synced: 2, failed: 1 }),
+      "Sync on · 2 synced, 1 still local",
+    );
   });
 });
