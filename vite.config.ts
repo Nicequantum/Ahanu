@@ -32,6 +32,9 @@ function isCloudflareBuild(): boolean {
   );
 }
 
+/** Live ahanu-packs Worker. workers.dev only — api.ahanu.app is not provisioned. */
+const DEFAULT_PACKS_WORKER_URL = "https://ahanu-packs.hombre3536.workers.dev";
+
 /**
  * Finish PGLite bootstrap during dev-server setup (before traffic). Vite awaits
  * async `configureServer` hooks. Production: `src/lib/db` kicks `ensureDbReady`
@@ -232,6 +235,12 @@ function authPopupPlugin(): Plugin {
 // `0.0.0.0:8080` is the Vite/TanStack preview-host contract — don't change host/port.
 export default defineConfig(({ command, isPreview }) => {
   const cf = isCloudflareBuild();
+  // Helm reads import.meta.env.VITE_AHANU_PACKS_URL (pack-client packsApiBase).
+  // Local Vite leaves it unset so Packs hits same-origin /api/packs.
+  // CF / production PWA builds default to the live Worker unless already set.
+  if (cf && !process.env.VITE_AHANU_PACKS_URL) {
+    process.env.VITE_AHANU_PACKS_URL = DEFAULT_PACKS_WORKER_URL;
+  }
 
   return {
     server: {

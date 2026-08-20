@@ -66,12 +66,21 @@ Trip-pack Worker (ahanu-packs):
 
 ```bash
 cd cloudflare
-npx wrangler deploy
+npx wrangler deploy --config wrangler.toml
 ```
+
+`--config wrangler.toml` is required. Wrangler 4 find-up would otherwise pick the parent `wrangler.jsonc` (PWA) and run `AHANU_CF=1 npx vite build`.
+`api.ahanu.app` is not provisioned; this deploys to https://ahanu-packs.hombre3536.workers.dev.
+
+Helm Packs download uses `VITE_AHANU_PACKS_URL` (`packsApiBase()` in `src/lib/ahanu/pack-client.ts`):
+
+- Local Vite: unset env, same-origin packs route.
+- CF/prod PWA: defaults to live ahanu-packs workers.dev. Override with VITE_AHANU_PACKS_URL.
+- Grok/Nitro preview stays same-origin fixture packs. Not the ship path.
 
 Endpoints: GET /health, GET /api/packs, GET /api/objects, GET /api/sources, GET /api/buoys, POST /api/catches.
 
-R2 ahanu-trip-packs and D1 ahanu-core are not assumed to exist in this environment. Preview packs are fixtures.
+R2 ahanu-trip-packs and D1 ahanu-core exist in ENAM. Live PJ pack on workers.dev is 12 NOAA / 0 fixture. Preview packs without live=1 stay fixtures.
 
 ## Pack loop
 

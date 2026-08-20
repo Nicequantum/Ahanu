@@ -22,6 +22,12 @@ function sourceFromManifest(manifest: TripPackManifestV1): PackFieldSource {
     : "fixture";
 }
 
+/**
+ * Pack API origin. Empty = same-origin (local Vite `/api/packs`).
+ * Override with VITE_AHANU_PACKS_URL. Cloudflare / production builds
+ * default that env to https://ahanu-packs.hombre3536.workers.dev
+ * (see vite.config.ts). api.ahanu.app is not provisioned.
+ */
 export function packsApiBase(): string {
   if (typeof window === "undefined") return "";
   const fromEnv = (import.meta as { env?: { VITE_AHANU_PACKS_URL?: string } }).env?.VITE_AHANU_PACKS_URL;

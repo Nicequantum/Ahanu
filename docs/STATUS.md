@@ -2,6 +2,11 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (helm to live Worker, 2026-08-20)
+
+cloudflare deploy is wrangler deploy --config wrangler.toml so Wrangler 4 does not find-up parent wrangler.jsonc and run the PWA Vite build.
+Helm VITE_AHANU_PACKS_URL already existed; CF/prod PWA builds now default it to the live ahanu-packs workers.dev URL. Local Vite stays same-origin. api.ahanu.app is not provisioned. No NOAA bytes invented. No Worker scoring. No Flutter.
+
 ## This pass (R2 + D1 live, cron on, workers.dev only, 2026-08-20)
 
 R2 bucket `ahanu-trip-packs` and D1 `ahanu-core` (`ed2706b8-7537-400f-88f6-933ac03120dc`) exist in ENAM. wrangler.toml now uses that D1 id (preview same until a separate preview DB exists), turns on the ingest cron (`15 2,8,14,20 * * *`), and keeps `[[routes]]` for `api.ahanu.app` commented — zone is not provisioned, so deploy stays `*.workers.dev`. GFS-Wave 72 h series stays off. Worker `buildManifest` / `layerBody` live timeout is 18 s (`NOAA_GRID_TIMEOUT_MS`) so NOAA overlays can land. R2 does not yet hold live ENC/GRIB/SST. Existing Worker `ahanu` (PWA) was not touched. No wrangler deploy (no CLI auth). No Worker scoring. No Flutter.
