@@ -512,8 +512,56 @@ export function hmsClosedAreas(): IngestMeta {
   });
 }
 
+/**
+ * NOAA NCEI / GEBCO relief for canyon-wall paint.
+ *
+ * Production target is a clipped Cloud-Optimized GeoTIFF of the trip box.
+ * The no-key live path (2026-08-20) is CoastWatch PFEG ERDDAP:
+ *   ETOPO_2022_v1_15s  (NCEI DEM, 15″ native, stride 8 → ~0.033°)
+ *   GEBCO_2020         (same host / stride)
+ *   etopo180           (1-minute fallback)
+ * Do not download a global GEBCO netCDF into the repo. Official ENC
+ * remains the legal chart.
+ *
+ *   ETOPO 2022: https://www.ncei.noaa.gov/products/etopo-global-relief-model
+ *   ERDDAP:     https://coastwatch.pfeg.noaa.gov/erddap/griddap/ETOPO_2022_v1_15s
+ *   GEBCO:      https://coastwatch.pfeg.noaa.gov/erddap/griddap/GEBCO_2020
+ */
+export function nceiBathymetry(): IngestMeta {
+  return meta({
+    id: "ncei-bathymetry",
+    name: "NOAA NCEI / GEBCO bathymetry",
+    provider: "NOAA NCEI / GEBCO via CoastWatch ERDDAP",
+    kind: "raster",
+    cadence: "static",
+    license: "US Government work / GEBCO — not for navigation",
+    layerIds: ["bathymetry", "contours"],
+    endpoints: [
+      {
+        label: "NCEI ETOPO 2022 15″ (PFEG ERDDAP, no-key live)",
+        url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ETOPO_2022_v1_15s",
+      },
+      {
+        label: "GEBCO_2020 15″ (PFEG ERDDAP)",
+        url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/GEBCO_2020",
+      },
+      {
+        label: "ETOPO 1-minute (etopo180)",
+        url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo180",
+      },
+      {
+        label: "NCEI ETOPO product page",
+        url: "https://www.ncei.noaa.gov/products/etopo-global-relief-model",
+      },
+    ],
+    notes:
+      "The no-key live path that returned a Point Judith canyon grid is NCEI ETOPO 2022 15″ subsampled to ~0.033° (stride 8) via CoastWatch PFEG ERDDAP — not native 15″, not official ENC. GEBCO_2020 and etopo180 stay in the probe list. Miss keeps the hashed fixture. Bathymetry is required for Ready (fixture still counts). Cheap 100/200-fm contours are derived from the packed grid. Do not fetch a global GEBCO netCDF.",
+  });
+}
+
 export const ADAPTERS = {
   noaaEnc,
+  nceiBathymetry,
   waveWatchIii,
   ndfd,
   ghrsstCoastwatchSst,

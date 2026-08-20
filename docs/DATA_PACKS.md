@@ -37,8 +37,8 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | Layer               | Bytes                                                         | Window                   | Why it is in the pack                                        |
 | ------------------- | ------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
 | NOAA ENC clip       | S-57 cells, Harbor/Approach/Coastal                           | static, weekly refresh   | Legal-adjacent chart. Aid only — see Safety.                 |
-| Bathymetry COG      | raster                                                        | static                   | Canyon walls, 100-fathom curve, heads.                       |
-| Depth contours      | vector                                                        | static                   | Fast drawing, night-readable.                                |
+| Bathymetry COG      | raster (live: NCEI ETOPO 2022 ~0.033° via ERDDAP)             | static                   | Canyon walls, 100-fathom curve, heads. Not official ENC.     |
+| Depth contours      | vector (live: cheap 100/200 fm from the packed grid)          | static                   | Fast drawing, night-readable.                                |
 | Canyon axes & heads | GeoJSON                                                       | static                   | Veatch, Atlantis, Hydrographer, Hudson, …                    |
 | SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
 | Chlorophyll-a L4    | CMEMS (licensed, not fetched) / CoastWatch VIIRS 4 km L3      | last 24–48 h             | Color. Input to on-device edges. Does not block Ready.       |
@@ -104,6 +104,17 @@ Captains read temperature the way they read a canyon wall: not the number, the *
 - Break detection (gradient, threshold in °C/nmi) is on-device. If two skippers disagree on a 0.5 °C cutoff, that is their argument, not a server flag.
 
 Chlorophyll and altimetry follow the same rule: pack the field, derive the edge at the helm.
+
+---
+
+## Bathymetry (not the legal chart)
+
+Canyon walls need a depth field the helm can paint. Official ENC remains the chart of record.
+
+- **No-key live path (2026-08-20):** NOAA NCEI ETOPO 2022 15″ via CoastWatch PFEG ERDDAP, **stride 8 → ~0.033°**. That is not native 15″ and not a COG in the pack — it is a hashed PackedGrid in meters. Helm already shows fathoms.
+- **Fallbacks:** GEBCO_2020 (same host/stride) and etopo180 (1-minute). Do not download a global GEBCO netCDF.
+- **Contours:** 100 fm (183 m) and 200 fm (366 m) marching-squares on the packed plane when that plane is live. Cheap. Fixture contours stay if the grid misses.
+- A miss keeps the hashed fixture. Bathymetry is required for Ready; the fixture body still counts.
 
 ---
 

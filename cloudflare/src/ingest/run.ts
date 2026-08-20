@@ -25,6 +25,9 @@
  * Live HMS is only a public NMFS/NOAA closed-area KMZ or shapefile that
  * parsed and intersected the box (NE PLL KMZ when that path works) —
  * reminder overlay, not a legal determination.
+ * Live bathymetry is only the public ERDDAP relief grid that parsed
+ * (NCEI ETOPO 2022 15″ subsampled to ~0.033° when that path works) —
+ * not official ENC. Contours are cheap 100/200-fm lines from that grid.
  * CMEMS still needs a licence and is not fetched.
  */
 import { buildTripPack } from "../../../src/lib/ahanu/pack";

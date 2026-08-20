@@ -39,6 +39,13 @@ const {
   sampleHmsKmzForTests,
   HMS_ENDPOINTS,
   HMS_REMINDER_NOTE,
+  erddapBathyCsvUrl,
+  parseErddapBathyCsv,
+  bathyTableToPacked,
+  contoursFromDepthGrid,
+  fetchLiveBathy,
+  sampleBathyCsvForTests,
+  BATHY_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -1172,5 +1179,191 @@ describe("optional live HMS probe", () => {
     const payload = hms.body.payload as { legal?: boolean; features?: { properties?: { legal?: boolean } }[] };
     assert.equal(payload.legal, false);
     assert.ok(payload.features?.every((f) => f.properties?.legal === false));
+  });
+});
+
+function bathyCsvAt(): string {
+  return sampleBathyCsvForTests();
+}
+
+describe("ERDDAP bathymetry parse", () => {
+  it("builds a north-up depth-m grid and does not claim official ENC", () => {
+    const table = parseErddapBathyCsv(sampleBathyCsvForTests());
+    assert.ok(table);
+    const ep = BATHY_ENDPOINTS[0]!;
+    const grid = bathyTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.layer, "bathymetry");
+    assert.equal(grid.source, "noaa");
+    assert.equal(grid.live, true);
+    assert.equal(grid.unit, "m");
+    assert.equal(grid.hoursCovered, 0);
+    assert.equal(grid.nx, 4);
+    assert.equal(grid.ny, 4);
+    assert.match(grid.note ?? "", /0\.033|stride 8|15 arc-second/);
+    assert.match(grid.note ?? "", /not official ENC|not a substitute/i);
+    const plane = grid.values[0]!;
+    const hi = Math.max(...plane);
+    const lo = Math.min(...plane);
+    assert.ok(hi > 180, `expected canyon/slope depth, got max ${hi}`);
+    assert.ok(lo < 80, `expected shelf or land, got min ${lo}`);
+    const contours = contoursFromDepthGrid(grid);
+    assert.ok(contours);
+    const fc = contours.payload as GeoJSON.FeatureCollection;
+    assert.ok(fc.features.length >= 1);
+    assert.ok(fc.features.some((f) => (f.properties as { depthM?: number })?.depthM === 183));
+  });
+
+  it("rejects HTML error pages", () => {
+    assert.equal(parseErddapBathyCsv("<html>nope</html>"), null);
+  });
+
+  it("builds the ETOPO 2022 ERDDAP CSV URL", () => {
+    const url = erddapBathyCsvUrl(BATHY_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.match(url, /ETOPO_2022_v1_15s\.csv/);
+    assert.match(url, /\?z\[/);
+    assert.match(url, /39\.4/);
+    assert.match(url, /-72\.8/);
+    assert.match(url, /:8:/);
+  });
+});
+
+describe("tryLiveNoaa bathymetry overlay", () => {
+  it("paints bathymetry source noaa when ETOPO CSV parses", async () => {
+    const csv = bathyCsvAt();
+    const fetchImpl = async (url: string) => {
+      if (url.includes("ETOPO_2022") || url.includes("GEBCO_2020") || url.includes("etopo180")) {
+        return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.bathymetry);
+    assert.equal(live.bathymetry.source, "noaa");
+    assert.equal(live.bathymetry.dataset, "ETOPO_2022_v1_15s");
+    assert.equal(live.bathymetry.grid.source, "noaa");
+    assert.equal(live.bathymetry.grid.unit, "m");
+    assert.match(live.bathymetry.note, /not official ENC/i);
+    assert.ok(live.bathymetry.contours);
+  });
+
+  it("omits bathymetry on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.bathymetry, undefined);
+    assert.ok(live.errors.some((e) => e.includes("bathy")));
+  });
+});
+
+describe("buildTripPack bathymetry overlay", () => {
+  it("hashes live bathymetry and marks source noaa", async () => {
+    const csv = bathyCsvAt();
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("ETOPO_2022") || url.includes("GEBCO") || url.includes("etopo180")) {
+          return new Response(csv, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const bathy = live.manifest.layers.find((l) => l.id === "bathymetry")!;
+    assert.equal(bathy.source, "noaa");
+    assert.notEqual(bathy.hash, fixture.manifest.layers.find((l) => l.id === "bathymetry")!.hash);
+    assert.equal(await sha256Hex(live.bodies.bathymetry!), bathy.hash);
+    const body = parseLayerBody(live.bodies.bathymetry!) as {
+      source?: string;
+      note?: string;
+      live?: boolean;
+      unit?: string;
+    };
+    assert.equal(body.source, "noaa");
+    assert.equal(body.unit, "m");
+    assert.match(body.note ?? "", /not official ENC/i);
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-bathy"));
+    const contours = live.manifest.layers.find((l) => l.id === "contours")!;
+    assert.equal(contours.source, "noaa");
+    assert.notEqual(contours.hash, fixture.manifest.layers.find((l) => l.id === "contours")!.hash);
+    assert.equal(live.manifest.readyForOffshore, true);
+  });
+
+  it("keeps fixture bathymetry when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "bathymetry")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "bathymetry")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "bathymetry")!.source, "fixture");
+    assert.equal(live.manifest.layers.find((l) => l.id === "contours")!.source, "fixture");
+  });
+});
+
+describe("optional live bathymetry probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let bathy;
+    try {
+      bathy = await fetchLiveBathy({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live bathymetry fetch threw");
+      return;
+    }
+    if (!bathy) {
+      t.skip(errors.join("; ") || "live bathymetry blocked");
+      return;
+    }
+    assert.equal(bathy.source, "noaa");
+    assert.ok(bathy.grid.nx >= 2 && bathy.grid.ny >= 2);
+    assert.equal(bathy.grid.unit, "m");
+    assert.match(bathy.note, /not official ENC/i);
+    const plane = bathy.grid.values[0]!;
+    assert.ok(Math.max(...plane) > 180);
+    if (bathy.dataset === "ETOPO_2022_v1_15s") {
+      assert.ok(Math.abs(bathy.effectiveDeg - 0.004166666666666667 * 8) < 1e-6);
+    }
   });
 });

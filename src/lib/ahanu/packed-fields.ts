@@ -75,6 +75,8 @@ export interface PackedOcean {
   chlSource?: PackFieldSource;
   sshSource?: PackFieldSource;
   hmsSource?: PackFieldSource;
+  depthSource?: PackFieldSource;
+  contoursSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -224,6 +226,7 @@ export function packedOceanFromBodies(
       if (key === "sst" && src) out.sstSource = src;
       if (key === "chl" && src) out.chlSource = src;
       if (key === "ssh" && src) out.sshSource = src;
+      if (key === "depth" && src) out.depthSource = src;
     }
   };
   takeGrid("sst", "sst");
@@ -246,7 +249,10 @@ export function packedOceanFromBodies(
   });
   takeJson("contours", (payload) => {
     const fc = asFeatureCollection(payload);
-    if (fc) out.contours = fc;
+    if (fc) {
+      out.contours = fc;
+      out.contoursSource = payloadSource(payload, packSource);
+    }
   });
   takeJson("hms_zones", (payload) => {
     const fc = asFeatureCollection(payload);

@@ -109,7 +109,9 @@ export function fieldImage(
               ? ocean.chlSource
               : kind === "ssh"
                 ? ocean.sshSource
-                : undefined;
+                : kind === "depth"
+                  ? ocean.depthSource
+                  : undefined;
         const src = layerSrc ?? ocean.source;
         return src === "r2" || src === "noaa" ? "packed" : "fixture";
       })(),

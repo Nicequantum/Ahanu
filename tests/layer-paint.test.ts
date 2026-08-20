@@ -343,3 +343,39 @@ describe("live HMS closed-area paint", () => {
     assert.equal((geo as { legal?: boolean }).legal, false);
   });
 });
+
+describe("live bathymetry paint", () => {
+  it("marks packed noaa and paints canyon walls plus 100/200-fm contours", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const {
+      sampleBathyCsvForTests,
+      parseErddapBathyCsv,
+      bathyTableToPacked,
+      contoursFromDepthGrid,
+      BATHY_ENDPOINTS,
+    } = await import("../src/lib/ahanu/noaa-bathy.ts");
+    const { contoursForChart } = await import("../src/lib/ahanu/packed-chart.ts");
+    const table = parseErddapBathyCsv(sampleBathyCsvForTests())!;
+    const grid = bathyTableToPacked(table, BATHY_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX)!;
+    const contours = contoursFromDepthGrid(grid)!;
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.bathymetry = encodeLayerBody(grid);
+    bodies.contours = encodeLayerBody(contours);
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(layerPaintSource("bathymetry"), "packed");
+    assert.equal(layerPaintSource("contours"), "packed");
+    const atVeatch = samplePackedKind("depth", 40.0, -70.4, 0);
+    assert.ok(atVeatch != null && atVeatch > 180, `expected canyon wall, got ${atVeatch}`);
+    const img = fieldImage("depth", 0, 8, 6);
+    assert.ok(img);
+    assert.equal(img.source, "packed");
+    const split = contoursForChart();
+    assert.ok(split.c100.features.length >= 1);
+    assert.ok(split.c200.features.length >= 1, "200 fm should paint when the live grid crosses 366 m");
+  });
+});

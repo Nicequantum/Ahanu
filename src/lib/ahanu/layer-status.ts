@@ -40,7 +40,9 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
                 ? ocean.chlSource
                 : field === "ssh"
                   ? ocean.sshSource
-                  : undefined;
+                  : field === "depth"
+                    ? ocean.depthSource
+                    : undefined;
       return packLabel(ocean, layerSrc);
     }
     if (ocean) return "missing";
@@ -66,7 +68,7 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     return "local";
   }
   if (id === "contours") {
-    if (ocean?.contours) return packLabel(ocean);
+    if (ocean?.contours) return packLabel(ocean, ocean.contoursSource);
     if (ocean) return "missing";
     return "local";
   }

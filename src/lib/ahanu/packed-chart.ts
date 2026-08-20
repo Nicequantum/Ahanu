@@ -63,11 +63,32 @@ export function canyonsForChart(): GeoJSON.FeatureCollection {
   return seedCanyons();
 }
 
+function contourDepthM(f: GeoJSON.Feature): number | null {
+  const props = f.properties as { depthM?: number; depth?: number } | null;
+  const d = props?.depthM ?? props?.depth;
+  return typeof d === "number" && Number.isFinite(d) ? d : null;
+}
+
+function splitPackedContours(fc: GeoJSON.FeatureCollection): {
+  c100: GeoJSON.FeatureCollection;
+  c200: GeoJSON.FeatureCollection;
+} {
+  const c100: GeoJSON.Feature[] = [];
+  const c200: GeoJSON.Feature[] = [];
+  for (const f of fc.features) {
+    const d = contourDepthM(f);
+    if (d != null && d >= 300 && d <= 450) c200.push(f);
+    else c100.push(f);
+  }
+  return {
+    c100: { type: "FeatureCollection", features: c100 },
+    c200: { type: "FeatureCollection", features: c200 },
+  };
+}
+
 export function contoursForChart(): { c100: GeoJSON.FeatureCollection; c200: GeoJSON.FeatureCollection } {
   const ocean = getPackedOcean();
-  if (ocean?.contours) {
-    return { c100: ocean.contours, c200: emptyFc() };
-  }
+  if (ocean?.contours) return splitPackedContours(ocean.contours);
   if (ocean) return { c100: emptyFc(), c200: emptyFc() };
   return { c100: contourLines(183, 2), c200: contourLines(366, 3) };
 }
