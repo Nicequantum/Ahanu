@@ -20,10 +20,15 @@ export function isLivePackRequest(url) {
   return v === "1" || v === "true" || v === "yes";
 }
 
+export function isSkipCachePackRequest(url) {
+  const v = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 /** @returns {"cache-first" | "network-first" | null} */
 export function packFetchStrategy(url) {
   if (!isPackPath(url.pathname)) return null;
-  return isLivePackRequest(url) ? "network-first" : "cache-first";
+  return isLivePackRequest(url) || isSkipCachePackRequest(url) ? "network-first" : "cache-first";
 }
 
 export function cachedAtMs(res) {
@@ -97,7 +102,7 @@ export async function respondToPackRequest(request, env) {
     }
   }
 
-  if (cached && isLiveCacheFresh(cached, now)) return cached;
+  if (cached && isLiveCacheFresh(cached, now) && !isSkipCachePackRequest(url)) return cached;
   try {
     const res = await fetchImpl(request);
     if (res.ok) {

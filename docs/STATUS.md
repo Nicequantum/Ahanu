@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (live ingest errors on Packs, 2026-08-20)
+
+Live NOAA misses already kept the hashed fixture, but Packs only showed "fixture". `LiveNoaaResult.errors` now ride the pack as `liveErrors` (capped at 8; empty when live is off or every overlay landed). Helm lists those lines under the NOAA/fixture count and offers Retry live overlays (same download path, skipCache). Tests mock a failed SST fetch. No Worker scoring. No Flutter. 72 h series stays off.
+
 ## This pass (ENC catalog aid boxes, 2026-08-20)
 
 Live packed ENC cells keep catalog west/south/east/north so Helm can paint the aid overlay boxes — catalog coverage, not official S-57.

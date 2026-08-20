@@ -27,7 +27,7 @@ import type {
   Waypoint,
 } from "./types";
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
-import { evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type TripPackManifestV1 } from "./pack";
+import { capLiveErrors, evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type TripPackManifestV1 } from "./pack";
 import { downloadTripPack as fetchTripPack, evidenceFromPackLayers } from "./pack-client";
 import { packedEpoch } from "./packed-fields";
 import { deviceToken, syncCatch } from "./catch-sync";
@@ -80,6 +80,7 @@ export interface AhanuState {
   packError: string | null;
   packEpoch: number;
   packLive: boolean;
+  packLiveErrors: string[];
   sstStaleOverride: boolean;
   simT: number;
   followShip: boolean;
@@ -120,7 +121,7 @@ export interface AhanuState {
   setPackWindow: (start: string, hours: number) => void;
   setPackLive: (live: boolean) => void;
   setSstStaleOverride: (v: boolean) => void;
-  downloadTripPack: () => Promise<ReadyOffshoreResult | null>;
+  downloadTripPack: (opts?: { skipCache?: boolean }) => Promise<ReadyOffshoreResult | null>;
   updateCatch: (id: string, patch: Partial<CatchRecord>) => void;
   setArticle: (id: string | null) => void;
   setRipple: (r: AhanuState["markRipple"]) => void;
@@ -184,6 +185,7 @@ export const useAhanu = create<AhanuState>()(
       packError: null,
       packEpoch: 0,
       packLive: false,
+      packLiveErrors: [],
       sstStaleOverride: false,
       simT: 0.12,
       followShip: true,
@@ -380,11 +382,12 @@ export const useAhanu = create<AhanuState>()(
       downloadAllPacks: () => {
         void get().downloadTripPack();
       },
-      downloadTripPack: async () => {
+      downloadTripPack: async (opts) => {
         const s = get();
         set({
           packDownloading: true,
           packError: null,
+          packLiveErrors: [],
           packLayers: s.packLayers.map((p) => ({ ...p, status: "downloading" as const })),
         });
         try {
@@ -393,6 +396,7 @@ export const useAhanu = create<AhanuState>()(
             start: s.packStart,
             hours: s.packHours,
             live: s.packLive,
+            skipCache: Boolean(opts?.skipCache),
             sstOverride: s.sstStaleOverride,
           });
           const packLayers: TripPackLayer[] = result.manifest.layers.map((l) => {
@@ -425,6 +429,7 @@ export const useAhanu = create<AhanuState>()(
             packReady: result.ready,
             packDownloading: false,
             packError: result.ready.ready ? null : result.ready.failures.join("; "),
+            packLiveErrors: s.packLive ? capLiveErrors(result.manifest.liveErrors) : [],
             packEpoch: packedEpoch(),
           });
           return result.ready;
@@ -451,6 +456,7 @@ export const useAhanu = create<AhanuState>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.layers = { ...DEFAULT_LAYERS, ...state.layers };
+        if (!Array.isArray(state.packLiveErrors)) state.packLiveErrors = [];
         const next = applyDisplayMode(state.displayMode);
         writePersistedDisplayMode(next);
         if (next !== state.displayMode) state.displayMode = next;
@@ -469,6 +475,7 @@ export const useAhanu = create<AhanuState>()(
         packHours: s.packHours,
         packStart: s.packStart,
         packLive: s.packLive,
+        packLiveErrors: s.packLiveErrors,
         sstStaleOverride: s.sstStaleOverride,
         nmeaGateway: s.nmeaGateway,
         safetyDepthM: s.safetyDepthM,

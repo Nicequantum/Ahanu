@@ -74,6 +74,65 @@ export interface TripPackManifestV1 {
   r2Prefix: string;
   sources: { id: string; name: string }[];
   notes: string;
+  /** Live NOAA ingest misses. Empty when live is off or every overlay landed. Capped. */
+  liveErrors: string[];
+}
+
+export const LIVE_ERROR_CAP = 8;
+
+/** Layers Live NOAA can paint. Canyons stay fixture. */
+export const LIVE_OVERLAY_LAYER_IDS = [
+  "enc",
+  "bathymetry",
+  "contours",
+  "sst",
+  "chlorophyll",
+  "altimetry",
+  "wind",
+  "waves",
+  "buoys",
+  "tides",
+  "hms_zones",
+] as const;
+
+export function capLiveErrors(errors: readonly string[] | undefined | null): string[] {
+  if (!errors?.length) return [];
+  const out: string[] = [];
+  for (const line of errors) {
+    if (typeof line !== "string") continue;
+    const t = line.trim();
+    if (!t) continue;
+    out.push(t);
+    if (out.length >= LIVE_ERROR_CAP) break;
+  }
+  return out;
+}
+
+export function liveErrorsForSession(input: {
+  live: boolean;
+  errors?: readonly string[] | undefined | null;
+  overlayLanded?: boolean;
+}): string[] {
+  if (!input.live || input.overlayLanded) return [];
+  return capLiveErrors(input.errors);
+}
+
+export function overlaysAllLanded(overlayIds: Iterable<string>): boolean {
+  const have = new Set(overlayIds);
+  return LIVE_OVERLAY_LAYER_IDS.every((id) => have.has(id));
+}
+
+export function canRetryLiveOverlays(input: {
+  live: boolean;
+  downloading: boolean;
+  layers: { id: string; source?: string }[];
+  liveErrors?: readonly string[] | null;
+}): boolean {
+  if (!input.live || input.downloading) return false;
+  if (input.liveErrors && input.liveErrors.length > 0) return true;
+  return input.layers.some(
+    (l) => l.source === "fixture" && (LIVE_OVERLAY_LAYER_IDS as readonly string[]).includes(l.id),
+  );
 }
 
 export interface LayerEvidence {
@@ -275,6 +334,8 @@ export async function buildFixturePack(options: {
   /** Encoded layer bodies that replace fixtures (live NOAA, tests). */
   overlays?: Partial<Record<string, string>>;
   extraSources?: { id: string; name: string }[];
+  /** Honest live ingest misses. Do not invent. */
+  liveErrors?: string[];
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -352,6 +413,7 @@ export async function buildFixturePack(options: {
     notes: liveIds.length
       ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
+    liveErrors: capLiveErrors(options.liveErrors),
   };
 
   return { manifest, bodies };
@@ -379,12 +441,14 @@ export async function buildTripPack(options: {
   /** Off unless true / { enabled: true }. Do not turn on in CI. */
   gfsWaveSeries?: GfsWaveSeriesFlag;
   sleep?: (ms: number) => Promise<void>;
+  skipCache?: boolean;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
   const start = options.start ?? new Date().toISOString();
   const overlays: Record<string, string> = {};
   const extraSources: { id: string; name: string }[] = [];
+  let liveErrors: string[] = [];
   if (options.tryLive) {
     const { tryLiveNoaa, encodeLiveLayer } = await import("./noaa-live");
     const live = await tryLiveNoaa({
@@ -393,7 +457,7 @@ export async function buildTripPack(options: {
       hours,
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
-      skipCache: Boolean(options.fetchImpl),
+      skipCache: options.skipCache === true || Boolean(options.fetchImpl),
       gfsWaveSeries: options.gfsWaveSeries,
       sleep: options.sleep,
     });
@@ -449,6 +513,11 @@ export async function buildTripPack(options: {
       }
       extraSources.push({ id: "nomads-gfswave", name });
     }
+    liveErrors = liveErrorsForSession({
+      live: true,
+      errors: live.errors,
+      overlayLanded: overlaysAllLanded(Object.keys(overlays)),
+    });
   }
   return buildFixturePack({
     bbox,
@@ -457,5 +526,6 @@ export async function buildTripPack(options: {
     createdAt: options.createdAt,
     overlays: Object.keys(overlays).length ? overlays : undefined,
     extraSources: extraSources.length ? extraSources : undefined,
+    liveErrors,
   });
 }

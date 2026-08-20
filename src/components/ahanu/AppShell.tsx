@@ -19,6 +19,7 @@ import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display
 import { markFishHere, useAhanu } from "@/lib/ahanu/store";
 import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { restorePackedSession } from "@/lib/ahanu/pack-client";
+import { capLiveErrors } from "@/lib/ahanu/pack";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
 import type { PanelId } from "@/lib/ahanu/types";
 import { cn } from "@/lib/utils";
@@ -75,7 +76,11 @@ export function AppShell() {
     }
     void restorePackedSession().then((manifest) => {
       if (manifest) {
-        useAhanu.setState({ packManifest: manifest, packEpoch: packedEpoch() });
+        useAhanu.setState({
+          packManifest: manifest,
+          packEpoch: packedEpoch(),
+          packLiveErrors: capLiveErrors(manifest.liveErrors),
+        });
       }
     });
   }, []);

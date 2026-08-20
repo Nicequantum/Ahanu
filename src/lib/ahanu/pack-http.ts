@@ -84,8 +84,14 @@ function wantLive(url: URL): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function wantSkipCache(url: URL): boolean {
+  const v = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 /** Fixture bodies are deterministic. Live NOAA is not fresh forever. */
-function packCacheControl(live: boolean): Record<string, string> {
+function packCacheControl(live: boolean, skipCache = false): Record<string, string> {
+  if (skipCache) return { "Cache-Control": "no-store" };
   return { "Cache-Control": live ? "public, max-age=30" : "public, max-age=86400" };
 }
 
@@ -106,7 +112,7 @@ function previewTripPack(
   start: string,
   hours: number,
   fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>,
-  extra?: { timeoutMs?: number; sleep?: (ms: number) => Promise<void> },
+  extra?: { timeoutMs?: number; sleep?: (ms: number) => Promise<void>; skipCache?: boolean },
 ) {
   return buildTripPack({
     bbox,
@@ -116,6 +122,7 @@ function previewTripPack(
     timeoutMs: extra?.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
     fetchImpl,
     sleep: extra?.sleep,
+    skipCache: extra?.skipCache,
   });
 }
 
@@ -136,12 +143,13 @@ export async function handlePacksRequest(
     if (bbox instanceof Response) return bbox;
     const win = parseStartHours(url);
     if (win instanceof Response) return win;
+    const skipCache = wantSkipCache(url);
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, opts)
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     return json(built.manifest, 200, {
       "X-Ahanu-Pack-Id": built.manifest.packId,
-      ...packCacheControl(wantLive(url)),
+      ...packCacheControl(wantLive(url), skipCache),
     });
   }
 
@@ -153,8 +161,9 @@ export async function handlePacksRequest(
     const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
+    const skipCache = wantSkipCache(url);
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, opts)
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
@@ -163,7 +172,7 @@ export async function handlePacksRequest(
       ETag: rec ? `"${rec.hash}"` : "",
       "X-Ahanu-Hash": rec?.hash ?? "",
       "X-Ahanu-Source": rec?.source ?? "fixture",
-      ...packCacheControl(wantLive(url)),
+      ...packCacheControl(wantLive(url), skipCache),
     });
   }
 

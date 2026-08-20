@@ -328,3 +328,57 @@ describe("preview pack HTTP live ENC catalog bounds", () => {
     assert.equal((geo.features[0]!.properties as { legal?: boolean })?.legal, false);
   });
 });
+
+describe("preview pack HTTP liveErrors", () => {
+  it("records SST ingest errors when the live probe fails", async () => {
+    const base = mockNoaaSuccess();
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (isSstUrl(url)) return new Response("no", { status: 503 });
+        return base(url);
+      },
+    });
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: LayerRow[]; liveErrors?: string[] };
+    assert.equal(man.layers.find((l) => l.id === "sst")!.source, "fixture");
+    const errors = man.liveErrors ?? [];
+    assert.ok(errors.length > 0, "expected live SST errors");
+    assert.ok(errors.length <= 8);
+    assert.ok(errors.some((e) => e.startsWith("sst") && (e.includes("fetch failed") || e.includes("fixture kept"))));
+  });
+
+  it("keeps liveErrors empty when live is off", async () => {
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}`), {
+      fetchImpl: mockNoaaSuccess(),
+    });
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { liveErrors?: string[] };
+    assert.deepEqual(man.liveErrors ?? [], []);
+  });
+
+  it("keeps liveErrors empty when every overlay lands noaa", async () => {
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      fetchImpl: mockNoaaSuccess(),
+    });
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: LayerRow[]; liveErrors?: string[] };
+    const overlayIds = [
+      "enc",
+      "bathymetry",
+      "contours",
+      "sst",
+      "chlorophyll",
+      "altimetry",
+      "wind",
+      "waves",
+      "buoys",
+      "tides",
+      "hms_zones",
+    ];
+    for (const id of overlayIds) {
+      assert.equal(man.layers.find((l) => l.id === id)?.source, "noaa", id);
+    }
+    assert.deepEqual(man.liveErrors ?? [], []);
+  });
+});

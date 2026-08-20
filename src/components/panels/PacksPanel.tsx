@@ -6,10 +6,10 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
-import { readyOffshoreBadge } from "@/lib/ahanu/pack";
+import { canRetryLiveOverlays, readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
+/** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -35,6 +35,7 @@ export function PacksPanel() {
   const downloading = useAhanu((s) => s.packDownloading);
   const error = useAhanu((s) => s.packError);
   const live = useAhanu((s) => s.packLive);
+  const liveErrors = useAhanu((s) => s.packLiveErrors) ?? [];
   const setLive = useAhanu((s) => s.setPackLive);
   const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
   const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
@@ -47,6 +48,12 @@ export function PacksPanel() {
   const pct = total ? (ok / total) * 100 : 0;
   const offshore = Boolean(ready?.ready);
   const badge = readyOffshoreBadge(ready);
+  const retryLive = canRetryLiveOverlays({
+    live: Boolean(live),
+    downloading,
+    layers: packs,
+    liveErrors,
+  });
 
   return (
     <Pane title="Trip packs" kicker="Pre-departure">
@@ -188,9 +195,27 @@ export function PacksPanel() {
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>
       </div>
-      <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+      {liveErrors.length ? (
+        <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
+          {liveErrors.map((line, i) => (
+            <li key={`${i}:${line}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
         <div className="h-full bg-sunrise" style={{ width: `${pct}%` }} />
       </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mb-4"
+        disabled={!retryLive}
+        onClick={() => {
+          void download({ skipCache: true });
+        }}
+      >
+        Retry live overlays
+      </Button>
 
       <ul className="space-y-2">
         {packs.map((p) => (

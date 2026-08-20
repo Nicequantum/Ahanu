@@ -403,6 +403,14 @@ describe("packQuery live flag", () => {
     const q = new URLSearchParams(packQuery(bbox, START, 72, { live: true }));
     assert.equal(q.get("live"), "1");
   });
+
+  it("sets skipCache=1 only when requested", () => {
+    const off = new URLSearchParams(packQuery(bbox, START, 72, { live: true }));
+    assert.equal(off.get("skipCache"), null);
+    const on = new URLSearchParams(packQuery(bbox, START, 72, { live: true, skipCache: true }));
+    assert.equal(on.get("skipCache"), "1");
+    assert.equal(on.get("live"), "1");
+  });
 });
 
 describe("downloadTripPack live query", () => {
@@ -410,7 +418,7 @@ describe("downloadTripPack live query", () => {
     resetPackMemory();
   });
 
-  async function stubDownload(live: boolean): Promise<string[]> {
+  async function stubDownload(live: boolean, skipCache = false): Promise<string[]> {
     const { manifest, bodies } = await buildFixturePack({
       bbox: POINT_JUDITH_CANYON_BBOX,
       start: START,
@@ -437,6 +445,7 @@ describe("downloadTripPack live query", () => {
         hours: 72,
         base: "http://ahanu.test",
         live,
+        skipCache,
         now: START,
       });
     } finally {
@@ -455,5 +464,85 @@ describe("downloadTripPack live query", () => {
     const urls = await stubDownload(false);
     assert.ok(urls.some((u) => u.includes("/api/packs?")));
     assert.ok(urls.every((u) => !u.includes("live=")));
+  });
+
+  it("retry skipCache re-requests live packs", async () => {
+    const first = await stubDownload(true, false);
+    const retry = await stubDownload(true, true);
+    assert.ok(first.some((u) => u.includes("/api/packs?") && u.includes("live=1")));
+    assert.ok(first.filter((u) => u.includes("/api/packs?")).every((u) => !u.includes("skipCache=")));
+    assert.ok(retry.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")));
+    const objectRetries = retry.filter((u) => u.includes("/api/objects?"));
+    assert.ok(objectRetries.length > 0);
+    assert.ok(objectRetries.every((u) => !u.includes("skipCache=")));
+  });
+});
+
+
+const {
+  capLiveErrors,
+  canRetryLiveOverlays,
+  liveErrorsForSession,
+  LIVE_ERROR_CAP,
+} = await import("../src/lib/ahanu/pack.ts");
+
+describe("live ingest errors on pack session", () => {
+  it("caps honest lines and stays empty when live is off", () => {
+    assert.equal(LIVE_ERROR_CAP, 8);
+    assert.deepEqual(liveErrorsForSession({ live: false, errors: ["sst: fetch failed"] }), []);
+    assert.deepEqual(liveErrorsForSession({ live: true, overlayLanded: true, errors: ["sst mur: fetch failed"] }), []);
+    const many = Array.from({ length: 12 }, (_, i) => `sst path ${i}: fetch failed`);
+    const capped = capLiveErrors(many);
+    assert.equal(capped.length, 8);
+    assert.equal(capped[0], "sst path 0: fetch failed");
+    assert.equal(capped[7], "sst path 7: fetch failed");
+  });
+
+  it("enables retry when live is on and a live layer is still fixture", () => {
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "sst", source: "fixture" }],
+        liveErrors: [],
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "canyons", source: "fixture" }, { id: "sst", source: "noaa" }],
+        liveErrors: [],
+      }),
+      false,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "sst", source: "noaa" }],
+        liveErrors: ["sst: all public paths failed — fixture kept"],
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: false,
+        downloading: false,
+        layers: [{ id: "sst", source: "fixture" }],
+        liveErrors: ["sst: fetch failed"],
+      }),
+      false,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: true,
+        layers: [{ id: "sst", source: "fixture" }],
+        liveErrors: ["sst: fetch failed"],
+      }),
+      false,
+    );
   });
 });

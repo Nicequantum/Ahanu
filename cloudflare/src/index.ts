@@ -172,6 +172,7 @@ export interface TripPackManifest {
   r2Prefix: string;
   sources: { id: string; name: string }[];
   notes: string;
+  liveErrors?: string[];
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -261,8 +262,8 @@ function parseIso(raw: string | null): string {
   return d.toISOString();
 }
 
-async function buildManifest(bbox: BBox, start: string, hours: number): Promise<TripPackManifest> {
-  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500 });
+async function buildManifest(bbox: BBox, start: string, hours: number, skipCache = false): Promise<TripPackManifest> {
+  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: 3500, skipCache });
   const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
     id: layer.id,
     label: layer.label,
@@ -294,6 +295,7 @@ async function buildManifest(bbox: BBox, start: string, hours: number): Promise<
       "SHA-256 of pack object bytes. Buoys/tides/ENC catalog may be live public NOAA; " +
       "GFS-Wave f000 may be hashed but does not replace 72 h wind/wave grids; SST/CMEMS stay fixture. " +
       "ENC catalog is not official S-57. Client must re-hash. On-device scoring does not run here.",
+    liveErrors: manifest.liveErrors ?? [],
   };
 }
 
@@ -608,7 +610,9 @@ export default {
         if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
           return error(400, "hours must be 1–168");
         }
-        const manifest = await buildManifest(bboxOrErr, start, Math.round(hours));
+        const skipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+        const skipCache = skipRaw === "1" || skipRaw === "true" || skipRaw === "yes";
+        const manifest = await buildManifest(bboxOrErr, start, Math.round(hours), skipCache);
         return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
       }
 

@@ -32,7 +32,7 @@ export function packQuery(
   bbox: PackBBox,
   start: string,
   hours: number,
-  opts?: { live?: boolean },
+  opts?: { live?: boolean; skipCache?: boolean },
 ): string {
   const p = new URLSearchParams({
     west: String(bbox.west),
@@ -43,6 +43,7 @@ export function packQuery(
     hours: String(hours),
   });
   if (opts?.live) p.set("live", "1");
+  if (opts?.skipCache) p.set("skipCache", "1");
   return p.toString();
 }
 
@@ -51,7 +52,7 @@ export async function fetchManifest(
   start: string,
   hours: number,
   base = packsApiBase(),
-  opts?: { live?: boolean },
+  opts?: { live?: boolean; skipCache?: boolean },
 ): Promise<TripPackManifestV1> {
   const url = `${base}/api/packs?${packQuery(bbox, start, hours, opts)}`;
   const res = await fetch(url);
@@ -101,11 +102,15 @@ export async function downloadTripPack(options: {
   dayTrip?: boolean;
   sstOverride?: boolean;
   live?: boolean;
+  skipCache?: boolean;
   onProgress?: (p: DownloadProgress) => void;
 }): Promise<DownloadedPack> {
   const base = options.base ?? packsApiBase();
   const q = { live: Boolean(options.live) };
-  const manifest = await fetchManifest(options.bbox, options.start, options.hours, base, q);
+  const manifest = await fetchManifest(options.bbox, options.start, options.hours, base, {
+    ...q,
+    skipCache: Boolean(options.skipCache),
+  });
   const bodies: Record<string, string> = {};
   const evidence: LayerEvidence[] = [];
   const total = manifest.layers.length;
