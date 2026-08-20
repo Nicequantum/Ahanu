@@ -66,7 +66,7 @@ export function LayersPanel() {
       <p className="text-xs text-muted">
         Packed / fixture = trip-pack grid or vector. Synthetic = demo field with no pack. Missing = pack
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
-        pack. ENC is a fixture cell list, not official S-57 — Ahanu is an aid to navigation.
+        pack. ENC is a cell list (fixture or NOAA catalog), not official S-57 — Ahanu is an aid to navigation.
       </p>
       <p className="mt-2 text-xs text-muted">Right-click the chart to drop a mark. Measure lives on the instruments bar.</p>
     </Pane>

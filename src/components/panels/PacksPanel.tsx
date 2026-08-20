@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
@@ -11,6 +12,12 @@ function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | 
   if (status === "ready") return "go";
   if (status === "stale" || status === "downloading") return "caution";
   return "nogo";
+}
+
+function sourceTone(source: TripPackLayer["source"]): "muted" | "sunrise" | "go" {
+  if (source === "noaa" || source === "r2") return "go";
+  if (source === "fixture") return "sunrise";
+  return "muted";
 }
 
 export function PacksPanel() {
@@ -24,6 +31,8 @@ export function PacksPanel() {
   const ready = useAhanu((s) => s.packReady);
   const downloading = useAhanu((s) => s.packDownloading);
   const error = useAhanu((s) => s.packError);
+  const live = useAhanu((s) => s.packLive);
+  const setLive = useAhanu((s) => s.setPackLive);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   useAhanu((s) => s.packEpoch);
   const total = packs.length;
@@ -48,9 +57,21 @@ export function PacksPanel() {
         </Button>
       </div>
 
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm">Live NOAA</p>
+          <p className="text-[11px] text-muted">
+            Buoys, tides, ENC catalog, GFS-Wave hour-0 probe. SST and 72 h wind/wave stay fixtures.
+          </p>
+        </div>
+        <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
+      </div>
+
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Client re-checks hashes after download. Worker ready flag is a hint
-        only{workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA does not fetch 72 h
+        SST or GRIB grids and does not claim official ENC. Client re-checks hashes after download.
+        Worker ready flag is a hint only
+        {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>
 
       <div className="mb-3 grid grid-cols-2 gap-2">
@@ -163,7 +184,14 @@ export function PacksPanel() {
                 {p.verified ? " · verified" : ""}
               </p>
             </div>
-            <Badge tone={packTone(p.status)}>{p.status}</Badge>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {p.source ? (
+                <Badge tone={sourceTone(p.source)} className="text-[10px] uppercase tracking-wider">
+                  {p.source}
+                </Badge>
+              ) : null}
+              <Badge tone={packTone(p.status)}>{p.status}</Badge>
+            </span>
           </li>
         ))}
       </ul>
@@ -172,7 +200,11 @@ export function PacksPanel() {
       ) : null}
       {packedEncCells().length ? (
         <div className="mt-4">
-          <h3 className="mb-1 text-sm font-medium">ENC clip (fixture)</h3>
+          <h3 className="mb-1 text-sm font-medium">
+            {packs.find((layer) => layer.id === "enc")?.source === "noaa"
+              ? "ENC catalog (NOAA)"
+              : "ENC clip (fixture)"}
+          </h3>
           <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
             {packedEncCells().map((c) => (
               <li key={c.id}>

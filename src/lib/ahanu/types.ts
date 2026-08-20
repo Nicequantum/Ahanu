@@ -176,6 +176,7 @@ export interface TripPackLayer {
   contentType?: string;
   sizeBytes?: number;
   verified?: boolean;
+  source?: "fixture" | "r2" | "noaa";
 }
 
 export interface FloatPlan {

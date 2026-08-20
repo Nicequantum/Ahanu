@@ -28,7 +28,12 @@ export function packsApiBase(): string {
   return (fromEnv ?? "").replace(/\/+$/, "");
 }
 
-export function packQuery(bbox: PackBBox, start: string, hours: number): string {
+export function packQuery(
+  bbox: PackBBox,
+  start: string,
+  hours: number,
+  opts?: { live?: boolean },
+): string {
   const p = new URLSearchParams({
     west: String(bbox.west),
     south: String(bbox.south),
@@ -37,6 +42,7 @@ export function packQuery(bbox: PackBBox, start: string, hours: number): string 
     start,
     hours: String(hours),
   });
+  if (opts?.live) p.set("live", "1");
   return p.toString();
 }
 
@@ -45,8 +51,9 @@ export async function fetchManifest(
   start: string,
   hours: number,
   base = packsApiBase(),
+  opts?: { live?: boolean },
 ): Promise<TripPackManifestV1> {
-  const url = `${base}/api/packs?${packQuery(bbox, start, hours)}`;
+  const url = `${base}/api/packs?${packQuery(bbox, start, hours, opts)}`;
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -61,8 +68,9 @@ export async function fetchLayerBody(
   hours: number,
   layerId: string,
   base = packsApiBase(),
+  opts?: { live?: boolean },
 ): Promise<string> {
-  const url = `${base}/api/objects?${packQuery(bbox, start, hours)}&layer=${encodeURIComponent(layerId)}`;
+  const url = `${base}/api/objects?${packQuery(bbox, start, hours, opts)}&layer=${encodeURIComponent(layerId)}`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`GET /api/objects ${layerId} ${res.status}`);
@@ -92,10 +100,12 @@ export async function downloadTripPack(options: {
   now?: string;
   dayTrip?: boolean;
   sstOverride?: boolean;
+  live?: boolean;
   onProgress?: (p: DownloadProgress) => void;
 }): Promise<DownloadedPack> {
   const base = options.base ?? packsApiBase();
-  const manifest = await fetchManifest(options.bbox, options.start, options.hours, base);
+  const q = { live: Boolean(options.live) };
+  const manifest = await fetchManifest(options.bbox, options.start, options.hours, base, q);
   const bodies: Record<string, string> = {};
   const evidence: LayerEvidence[] = [];
   const total = manifest.layers.length;
@@ -106,12 +116,12 @@ export async function downloadTripPack(options: {
     let hashActual = "";
     let present = false;
     try {
-      body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base);
+      body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, q);
       hashActual = await sha256Hex(body);
       present = true;
       if (!hashesMatch(hashActual, layer.hash)) {
         // DATA_PACKS: delete, retry once, then fail the layer.
-        body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base);
+        body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, q);
         hashActual = await sha256Hex(body);
       }
       const hashOk = hashesMatch(hashActual, layer.hash);

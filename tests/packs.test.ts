@@ -288,3 +288,74 @@ describe("pack HTTP (preview/Worker shape)", () => {
     assert.equal(res.status, 401);
   });
 });
+
+const { packQuery, downloadTripPack } = await import("../src/lib/ahanu/pack-client.ts");
+const { resetPackMemory } = await import("../src/lib/ahanu/pack-store.ts");
+
+describe("packQuery live flag", () => {
+  const bbox = { west: -72.8, south: 39.4, east: -68.8, north: 41.5 };
+
+  it("omits live unless requested", () => {
+    const q = new URLSearchParams(packQuery(bbox, START, 72));
+    assert.equal(q.get("live"), null);
+    assert.equal(q.get("hours"), "72");
+  });
+
+  it("sets live=1 when requested", () => {
+    const q = new URLSearchParams(packQuery(bbox, START, 72, { live: true }));
+    assert.equal(q.get("live"), "1");
+  });
+});
+
+describe("downloadTripPack live query", () => {
+  afterEach(() => {
+    resetPackMemory();
+  });
+
+  async function stubDownload(live: boolean): Promise<string[]> {
+    const { manifest, bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const urls: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/api/packs")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      const layer = new URL(url).searchParams.get("layer") ?? "";
+      const body = bodies[layer];
+      if (!body) return new Response("missing", { status: 404 });
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+    try {
+      await downloadTripPack({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        start: START,
+        hours: 72,
+        base: "http://ahanu.test",
+        live,
+        now: START,
+      });
+    } finally {
+      globalThis.fetch = orig;
+    }
+    return urls;
+  }
+
+  it("requests packs and objects with live=1 when live is on", async () => {
+    const urls = await stubDownload(true);
+    assert.ok(urls.some((u) => u.includes("/api/packs?") && u.includes("live=1")));
+    assert.ok(urls.some((u) => u.includes("/api/objects?") && u.includes("live=1")));
+  });
+
+  it("keeps fixture download without live", async () => {
+    const urls = await stubDownload(false);
+    assert.ok(urls.some((u) => u.includes("/api/packs?")));
+    assert.ok(urls.every((u) => !u.includes("live=")));
+  });
+});

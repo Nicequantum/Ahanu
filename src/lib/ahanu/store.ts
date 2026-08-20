@@ -73,6 +73,7 @@ export interface AhanuState {
   packDownloading: boolean;
   packError: string | null;
   packEpoch: number;
+  packLive: boolean;
   simT: number;
   followShip: boolean;
   markRipple: { lat: number; lon: number; id: string } | null;
@@ -110,6 +111,7 @@ export interface AhanuState {
   downloadAllPacks: () => void;
   setPackBbox: (b: Partial<PackBBox>) => void;
   setPackWindow: (start: string, hours: number) => void;
+  setPackLive: (live: boolean) => void;
   downloadTripPack: () => Promise<ReadyOffshoreResult | null>;
   updateCatch: (id: string, patch: Partial<CatchRecord>) => void;
   setArticle: (id: string | null) => void;
@@ -173,6 +175,7 @@ export const useAhanu = create<AhanuState>()(
       packDownloading: false,
       packError: null,
       packEpoch: 0,
+      packLive: false,
       simT: 0.12,
       followShip: true,
       markRipple: null,
@@ -345,6 +348,7 @@ export const useAhanu = create<AhanuState>()(
         })),
       setPackBbox: (b) => set((s) => ({ packBbox: { ...s.packBbox, ...b } })),
       setPackWindow: (packStart, packHours) => set({ packStart, packHours }),
+      setPackLive: (packLive) => set({ packLive }),
       downloadAllPacks: () => {
         void get().downloadTripPack();
       },
@@ -360,6 +364,7 @@ export const useAhanu = create<AhanuState>()(
             bbox: s.packBbox,
             start: s.packStart,
             hours: s.packHours,
+            live: s.packLive,
           });
           const packLayers: TripPackLayer[] = result.manifest.layers.map((l) => {
             const ev = result.ready.layers.find((r) => r.id === l.id);
@@ -382,6 +387,7 @@ export const useAhanu = create<AhanuState>()(
               contentType: l.contentType,
               sizeBytes: l.sizeBytes,
               verified: ev?.hashOk,
+              source: l.source,
             };
           });
           set({
@@ -426,6 +432,7 @@ export const useAhanu = create<AhanuState>()(
         packBbox: s.packBbox,
         packHours: s.packHours,
         packStart: s.packStart,
+        packLive: s.packLive,
         nmeaGateway: s.nmeaGateway,
         safetyDepthM: s.safetyDepthM,
       }),
