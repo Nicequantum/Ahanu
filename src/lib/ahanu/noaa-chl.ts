@@ -28,12 +28,23 @@ export interface ChlEndpoint {
 }
 
 /**
- * Probe order. S-NPP VIIRS NRT daily 4 km is the path that returned a
- * usable Point Judith grid from this network (2026-08-20). NOAA-20 daily
- * and S-NPP weekly SQ are documented fallbacks. PFEG erdVHNchla8day is
- * North Pacific only and does not cover this box.
+ * Probe order. PFEG Aqua MODIS L3SMI 8-day NRT 4 km is first: it still
+ * updates for this box (analysis 2026-08-09 here) and the 8-day composite
+ * fills better than L3 daily clouds. CoastWatch S-NPP / NOAA-20 dailies
+ * and S-NPP SQ weekly stay as fallbacks — they cover the box but last
+ * times here were 2026-07-09 / 2026-06-20. PFEG erdVHNchla8day is North
+ * Pacific only. oc_3p0_chla is not on CoastWatch / PFEG / PolarWatch.
  */
 export const CHL_ENDPOINTS: readonly ChlEndpoint[] = [
+  {
+    id: "erdMH1chla8day_R2022NRT",
+    name: "NASA Aqua MODIS L3SMI 8-day NRT",
+    base: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day_R2022NRT",
+    variable: "chlorophyll",
+    nativeDeg: 0.04167,
+    nativeLabel: "4 km / 0.0417°",
+    stride: 1,
+  },
   {
     id: "noaacwNPPVIIRSchlaDaily",
     name: "NOAA S-NPP VIIRS NRT L3 daily",

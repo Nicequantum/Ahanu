@@ -258,9 +258,9 @@ export function ghrsstCoastwatchSst(): IngestMeta {
  *   Product:  OCEANCOLOUR_GLO_BGC_L4_NRT_009_102
  *   Dataset:  cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D
  *   Portal:   https://data.marine.copernicus.eu/product/OCEANCOLOUR_GLO_BGC_L4_NRT_009_102
- *   Live no-key path (2026-08-20): CoastWatch S-NPP VIIRS NRT L3 daily 4 km
- *     https://coastwatch.noaa.gov/erddap/griddap/noaacwNPPVIIRSchlaDaily
- *   Fallbacks: noaacwN20VIIRSchlaDaily, noaacwNPPVIIRSSQchlaWeekly
+ *   Live no-key path (2026-08-20): PFEG Aqua MODIS L3SMI 8-day NRT 4 km
+ *     https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day_R2022NRT
+ *   Fallbacks: noaacwNPPVIIRSchlaDaily, noaacwN20VIIRSchlaDaily, noaacwNPPVIIRSSQchlaWeekly
  *   PFEG erdVHNchla8day is North Pacific only — it does not cover Point Judith.
  */
 export function copernicusChlorophyll(): IngestMeta {
@@ -282,7 +282,11 @@ export function copernicusChlorophyll(): IngestMeta {
         url: "https://data.marine.copernicus.eu/",
       },
       {
-        label: "CoastWatch S-NPP VIIRS NRT daily 4 km (no-key live)",
+        label: "PFEG Aqua MODIS 8-day NRT 4 km (no-key live)",
+        url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day_R2022NRT",
+      },
+      {
+        label: "CoastWatch S-NPP VIIRS NRT daily 4 km",
         url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwNPPVIIRSchlaDaily",
       },
       {
@@ -295,7 +299,7 @@ export function copernicusChlorophyll(): IngestMeta {
       },
     ],
     notes:
-      "CMEMS L4 is the licensed production target and is not fetched here. The no-key live path that returned a Point Judith grid is CoastWatch S-NPP VIIRS NRT L3 daily 4 km / 0.0375° (noaacwNPPVIIRSchlaDaily) — not 1 km VIIRS, not CMEMS. PFEG erdVHNchla8day does not cover the Northeast. Miss keeps the hashed fixture. Chlorophyll does not block Ready.",
+      "CMEMS L4 is the licensed production target and is not fetched here. The no-key live path that returned a still-updating Point Judith grid is PFEG Aqua MODIS L3SMI 8-day NRT 4 km / 0.0417° (erdMH1chla8day_R2022NRT) — not 1 km VIIRS, not CMEMS. CoastWatch VIIRS L3 dailies stay as fallbacks. PFEG erdVHNchla8day does not cover the Northeast. Miss keeps the hashed fixture. Chlorophyll does not block Ready.",
   });
 }
 

@@ -768,7 +768,7 @@ describe("ERDDAP chlorophyll parse", () => {
     assert.equal(grid.nx, 4);
     assert.equal(grid.ny, 4);
     assert.equal(grid.updatedAt, "2026-07-09T12:00:00.000Z");
-    assert.match(grid.note ?? "", /4 km|0\.0375/);
+    assert.match(grid.note ?? "", /4 km|0\.0417|0\.0375/);
     assert.match(grid.note ?? "", /not 1 km VIIRS/);
     assert.match(grid.note ?? "", /not CMEMS/);
     assert.ok((grid.values[0]![0] ?? 0) > 0 && (grid.values[0]![0] ?? 0) < 10);
@@ -778,8 +778,42 @@ describe("ERDDAP chlorophyll parse", () => {
     assert.equal(parseErddapChlCsv("<html>nope</html>"), null);
   });
 
-  it("builds the S-NPP VIIRS ERDDAP CSV URL with altitude", () => {
+  it("parses PFEG MODIS chlorophyll CSV without altitude", () => {
+    const rows = [
+      "time,latitude,longitude,chlorophyll",
+      "UTC,degrees_north,degrees_east,mg m-3",
+    ];
+    const lats = [39.4, 40.0, 40.6, 41.2];
+    const lons = [-72.8, -71.6, -70.4, -69.2];
+    for (const lat of lats) {
+      for (const lon of lons) {
+        const v = 0.18 + (41.2 - lat) * 0.35 + Math.max(0, -70.4 - lon) * 0.08;
+        rows.push(`2026-08-09T00:00:00Z,${lat},${lon},${v.toFixed(3)}`);
+      }
+    }
+    const table = parseErddapChlCsv(rows.join("\n") + "\n");
+    assert.ok(table);
+    const mh1 = CHL_ENDPOINTS.find((e) => e.id === "erdMH1chla8day_R2022NRT")!;
+    const grid = chlTableToPacked(table!, mh1, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.updatedAt, "2026-08-09T00:00:00.000Z");
+    assert.match(grid.note ?? "", /4 km|0\.0417/);
+    assert.match(grid.note ?? "", /not 1 km VIIRS/);
+  });
+
+  it("builds the Aqua MODIS 8-day ERDDAP CSV URL without altitude", () => {
     const url = erddapChlCsvUrl(CHL_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.equal(CHL_ENDPOINTS[0]!.id, "erdMH1chla8day_R2022NRT");
+    assert.match(url, /erdMH1chla8day_R2022NRT\.csv/);
+    assert.match(url, /chlorophyll/);
+    assert.match(url, /39\.4/);
+    assert.match(url, /-72\.8/);
+    assert.doesNotMatch(url, /\[\(0\.0\)\]/);
+  });
+
+  it("builds the S-NPP VIIRS ERDDAP CSV URL with altitude", () => {
+    const npp = CHL_ENDPOINTS.find((e) => e.id === "noaacwNPPVIIRSchlaDaily")!;
+    const url = erddapChlCsvUrl(npp, POINT_JUDITH_CANYON_BBOX);
     assert.match(url, /noaacwNPPVIIRSchlaDaily\.csv/);
     assert.match(url, /chlor_a/);
     assert.match(url, /39\.4/);
@@ -789,10 +823,10 @@ describe("ERDDAP chlorophyll parse", () => {
 });
 
 describe("tryLiveNoaa chlorophyll overlay", () => {
-  it("paints chlorophyll source noaa when VIIRS CSV parses", async () => {
+  it("paints chlorophyll source noaa when MODIS 8-day CSV parses", async () => {
     const csv = chlCsvAt("2026-07-09T12:00:00Z");
     const fetchImpl = async (url: string) => {
-      if (url.includes("chlor_a") || url.includes("VIIRSchla")) {
+      if (url.includes("chlorophyll") || url.includes("chlor_a") || url.includes("VIIRSchla") || url.includes("erdMH1")) {
         return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
       }
       return new Response("no", { status: 404 });
@@ -806,9 +840,9 @@ describe("tryLiveNoaa chlorophyll overlay", () => {
     });
     assert.ok(live.chlorophyll);
     assert.equal(live.chlorophyll.source, "noaa");
-    assert.equal(live.chlorophyll.dataset, "noaacwNPPVIIRSchlaDaily");
+    assert.equal(live.chlorophyll.dataset, "erdMH1chla8day_R2022NRT");
     assert.equal(live.chlorophyll.grid.source, "noaa");
-    assert.match(live.chlorophyll.note, /4 km|0\.0375/);
+    assert.match(live.chlorophyll.note, /4 km|0\.0417|0\.0375/);
     assert.doesNotMatch(live.chlorophyll.note, /1 km VIIRS L4|CMEMS L4 gap/);
   });
 
@@ -844,7 +878,7 @@ describe("buildTripPack chlorophyll overlay", () => {
       tryLive: true,
       timeoutMs: 1000,
       fetchImpl: async (url: string) => {
-        if (url.includes("chlor_a") || url.includes("VIIRSchla")) {
+        if (url.includes("chlorophyll") || url.includes("chlor_a") || url.includes("VIIRSchla") || url.includes("erdMH1")) {
           return new Response(csv, { status: 200 });
         }
         return new Response("no", { status: 404 });
@@ -914,9 +948,11 @@ describe("optional live chlorophyll probe", () => {
     assert.equal(chl.source, "noaa");
     assert.ok(chl.grid.nx >= 2 && chl.grid.ny >= 2);
     assert.equal(chl.grid.unit, "mg_m3");
-    assert.match(chl.note, /4 km|0\.0375|km|°/);
+    assert.match(chl.note, /4 km|0\.0417|0\.0375|km|°/);
     assert.match(chl.note, /not 1 km VIIRS/);
-    if (chl.dataset === "noaacwNPPVIIRSchlaDaily") {
+    if (chl.dataset === "erdMH1chla8day_R2022NRT") {
+      assert.ok(Math.abs(chl.effectiveDeg - 0.04167) < 1e-4);
+    } else if (chl.dataset === "noaacwNPPVIIRSchlaDaily") {
       assert.ok(Math.abs(chl.effectiveDeg - 0.0375) < 1e-6);
     }
   });

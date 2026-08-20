@@ -93,7 +93,7 @@ function mockNoaa(sstOk: boolean) {
     if (url.includes("filter_gfswave") || url.includes("atlocn")) {
       return new Response(grib, { status: 200, headers: { "Content-Type": "application/octet-stream" } });
     }
-    if (url.includes("chlor_a") || url.includes("VIIRSchla")) {
+    if (url.includes("chlorophyll") || url.includes("chlor_a") || url.includes("VIIRSchla") || url.includes("erdMH1")) {
       return new Response(chl, { status: 200, headers: { "Content-Type": "text/csv" } });
     }
     if (url.includes("sla") || url.includes("BLENDEDssh") || url.includes("nesdisSSH")) {
