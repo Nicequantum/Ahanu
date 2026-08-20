@@ -1,8 +1,9 @@
 /**
  * Public NOAA ingest (no secrets): NDBC latest_obs, CO-OPS tides, ENC product
- * catalog, and a small GFS-Wave NOMADS subset. Writes fixture-shaped pack
- * objects. Fetch failure omits that overlay so the caller keeps the hashed
- * fixture. Do not use this for GHRSST / CMEMS / official S-57 paint.
+ * catalog, a small GFS-Wave NOMADS subset, and a public CoastWatch/ERDDAP
+ * SST probe. Writes fixture-shaped pack objects. Fetch failure omits that
+ * overlay so the caller keeps the hashed fixture. Do not invent 1 km MUR /
+ * GHRSST if a coarser public grid is what arrived. Not CMEMS. Not official S-57.
  *
  * Keep this file free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -33,6 +34,7 @@ import {
   type GfsWaveSeriesGrids,
 } from "./noaa-gfs";
 import { ncepToPacked, parseNcep } from "./grid-io";
+import { fetchLiveSst, type SstIngest } from "./noaa-sst";
 
 export const NDBC_LATEST_OBS_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 export const COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
@@ -287,7 +289,7 @@ export function parseCoopsWaterLevel(json: unknown): { at: string; heightFt: num
   return { at: coopsIso(row.t), heightFt: r1(h) };
 }
 
-export function coopsStationsForBox(bbox?: PackBBox): typeof COOPS_HARBOR_STATIONS[number][] {
+export function coopsStationsForBox(bbox?: PackBBox): (typeof COOPS_HARBOR_STATIONS)[number][] {
   return COOPS_HARBOR_STATIONS.filter((st) => st.required || inBbox(st.lat, st.lon, bbox));
 }
 
@@ -308,6 +310,7 @@ export interface LiveNoaaResult {
   enc?: PackedJson;
   gfsWave?: GfsWaveIngest;
   gfsWaveSeries?: GfsWaveSeriesGrids;
+  sst?: SstIngest;
   errors: string[];
 }
 
@@ -432,7 +435,12 @@ async function probeEncTiles(fetchImpl: FetchLike, timeoutMs: number): Promise<E
     probe: "skipped",
   };
   const [tileBuf, mapText] = await Promise.all([
-    fetchBytes(ENC_DIRECT_TILE_TEMPLATE.replace("{z}/{x}/{y}", "0/0/0"), fetchImpl, Math.min(timeoutMs, 2500), 64_000),
+    fetchBytes(
+      ENC_DIRECT_TILE_TEMPLATE.replace("{z}/{x}/{y}", "0/0/0"),
+      fetchImpl,
+      Math.min(timeoutMs, 2500),
+      64_000,
+    ),
     fetchText(ENC_ONLINE_MAPSERVER_URL, fetchImpl, timeoutMs, 200_000),
   ]);
   if (tileBuf && tileBuf.byteLength > 8) tiles.probe = "ok";
@@ -520,7 +528,7 @@ async function liveGfsWave(
         ? "NCEP Atlantic 0p16 f000 parsed — hour-0 wind/wave only, not a 72 h grid."
         : GFS_WAVE_NOTE,
       parsed: hasField ? packed : undefined,
-      parseError: hasField ? undefined : parsed.error ?? "no wind/wave fields",
+      parseError: hasField ? undefined : (parsed.error ?? "no wind/wave fields"),
     };
   }
   errors.push("gfs-wave: fetch failed");
@@ -641,17 +649,33 @@ export async function tryLiveNoaa(options: {
 
   const series = seriesFlag(options.gfsWaveSeries);
   const gfsJob = series.enabled
-    ? liveGfsWaveSeries(options.bbox, fetchImpl, Math.max(timeoutMs, 8000), errors, series, options.now)
-    : liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now).then((ingest) => ({ ingest }));
-  const [buoys, tides, enc, gfs] = await Promise.all([
+    ? liveGfsWaveSeries(
+        options.bbox,
+        fetchImpl,
+        Math.max(timeoutMs, 8000),
+        errors,
+        series,
+        options.now,
+      )
+    : liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now).then((ingest) => ({
+        ingest,
+      }));
+  const [buoys, tides, enc, gfs, sst] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors),
     gfsJob,
+    fetchLiveSst({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: Math.max(timeoutMs, 6000),
+      errors,
+    }),
   ]);
   if (buoys) out.buoys = buoys;
   if (tides) out.tides = tides;
   if (enc) out.enc = enc;
+  if (sst) out.sst = sst;
   if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
     out.gfsWaveSeries = gfs.series;
     if (gfs.ingest) out.gfsWave = gfs.ingest;
@@ -680,3 +704,11 @@ export {
   gfsWaveSeriesEnabled,
   gfsWaveSeriesHours,
 } from "./noaa-gfs";
+export {
+  SST_ENDPOINTS,
+  erddapSstCsvUrl,
+  parseErddapSstCsv,
+  sstTableToPacked,
+  fetchLiveSst,
+  sampleCsvForTests,
+} from "./noaa-sst";

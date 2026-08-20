@@ -12,6 +12,7 @@ export interface SampleGrid {
   nx: number;
   ny: number;
   hours: number[];
+  hoursCovered?: number;
   values: number[][];
   live?: boolean;
   source?: PackFieldSource;
@@ -32,7 +33,14 @@ export interface EncClip {
   note: string;
   bbox?: PackBBox;
   coverage?: { harborApproach: string[]; coastalTo100fm: boolean };
-  cells: { id: string; usage: number; name: string; zipUrl?: string; zipBytes?: number; zipSha256?: string }[];
+  cells: {
+    id: string;
+    usage: number;
+    name: string;
+    zipUrl?: string;
+    zipBytes?: number;
+    zipSha256?: string;
+  }[];
   tiles?: { template: string; legal?: boolean; probe?: string };
 }
 
@@ -63,6 +71,7 @@ export interface PackedOcean {
   tideSource?: PackFieldSource;
   windSource?: PackFieldSource;
   waveSource?: PackFieldSource;
+  sstSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -123,6 +132,7 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
     nx: g.nx,
     ny: g.ny,
     hours: g.hours,
+    hoursCovered: g.hoursCovered,
     values: g.values,
     live: g.live,
     source: g.source === "noaa" || g.live ? "noaa" : g.source === "r2" ? "r2" : undefined,
@@ -134,7 +144,8 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
 function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSource {
   if (payload && typeof payload === "object") {
     const p = payload as { live?: boolean; source?: string; fixture?: boolean };
-    if (p.source === "ndbc" || p.source === "coops" || p.source === "noaa-enc-catalog" || p.live) return "noaa";
+    if (p.source === "ndbc" || p.source === "coops" || p.source === "noaa-enc-catalog" || p.live)
+      return "noaa";
     if (p.fixture) return "fixture";
   }
   return fallback;
@@ -164,7 +175,9 @@ function asBuoys(payload: unknown): PackedBuoyRow[] | null {
   if (!payload || typeof payload !== "object") return null;
   const buoys = (payload as { buoys?: PackedBuoyRow[] }).buoys;
   if (!Array.isArray(buoys)) return null;
-  return buoys.filter((b) => b && typeof b.id === "string" && Number.isFinite(b.lat) && Number.isFinite(b.lon));
+  return buoys.filter(
+    (b) => b && typeof b.id === "string" && Number.isFinite(b.lat) && Number.isFinite(b.lon),
+  );
 }
 
 function asTides(payload: unknown): PackedTideWindow | null {
@@ -198,6 +211,7 @@ export function packedOceanFromBodies(
       const src = g.source ?? (g.live ? "noaa" : undefined);
       if (key === "windKt" && src) out.windSource = src;
       if (key === "waveFt" && src) out.waveSource = src;
+      if (key === "sst" && src) out.sstSource = src;
     }
   };
   takeGrid("sst", "sst");
@@ -247,7 +261,9 @@ export function packedOceanFromBodies(
   return out;
 }
 
-export function packedHasChart(kind: "canyons" | "contours" | "hms" | "buoys" | "tides" | "enc" | "depth"): boolean {
+export function packedHasChart(
+  kind: "canyons" | "contours" | "hms" | "buoys" | "tides" | "enc" | "depth",
+): boolean {
   if (!packed) return false;
   if (kind === "hms") return Boolean(packed.hms);
   if (kind === "depth") return Boolean(packed.depth);
@@ -257,7 +273,11 @@ export function packedHasChart(kind: "canyons" | "contours" | "hms" | "buoys" | 
 function hourIndex(grid: SampleGrid, hour: number): number | null {
   if (!grid.hours.length) return null;
   if (grid.hours.length === 1) {
-    if (grid.live) return Math.abs(hour - grid.hours[0]!) <= 1.5 ? 0 : null;
+    // Hour-0 live weather is only valid near that hour. A daily SST
+    // composite (hoursCovered >= 24) is the field for the whole window.
+    if (grid.live && (grid.hoursCovered ?? 1) < 24) {
+      return Math.abs(hour - grid.hours[0]!) <= 1.5 ? 0 : null;
+    }
     return 0;
   }
   let best = 0;
@@ -275,11 +295,15 @@ function hourIndex(grid: SampleGrid, hour: number): number | null {
 }
 
 function cellLat(bbox: PackBBox, ny: number, y: number): number {
-  return ny === 1 ? (bbox.north + bbox.south) / 2 : bbox.north - ((bbox.north - bbox.south) * y) / (ny - 1);
+  return ny === 1
+    ? (bbox.north + bbox.south) / 2
+    : bbox.north - ((bbox.north - bbox.south) * y) / (ny - 1);
 }
 
 function cellLon(bbox: PackBBox, nx: number, x: number): number {
-  return nx === 1 ? (bbox.west + bbox.east) / 2 : bbox.west + ((bbox.east - bbox.west) * x) / (nx - 1);
+  return nx === 1
+    ? (bbox.west + bbox.east) / 2
+    : bbox.west + ((bbox.east - bbox.west) * x) / (nx - 1);
 }
 
 /** Bilinear sample. Returns null outside the packed bbox. */
@@ -370,7 +394,12 @@ function samplePlane(
   const ty = fy - y0;
   const at = (x: number, y: number) => plane[y * grid.nx + x] ?? 0;
   if (!angle) {
-    return at(x0, y0) * (1 - tx) * (1 - ty) + at(x1, y0) * tx * (1 - ty) + at(x0, y1) * (1 - tx) * ty + at(x1, y1) * tx * ty;
+    return (
+      at(x0, y0) * (1 - tx) * (1 - ty) +
+      at(x1, y0) * tx * (1 - ty) +
+      at(x0, y1) * (1 - tx) * ty +
+      at(x1, y1) * tx * ty
+    );
   }
   const top = lerpAngle(at(x0, y0), at(x1, y0), tx);
   const bot = lerpAngle(at(x0, y1), at(x1, y1), tx);

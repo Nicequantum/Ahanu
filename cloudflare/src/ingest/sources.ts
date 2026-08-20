@@ -239,7 +239,7 @@ export function ghrsstCoastwatchSst(): IngestMeta {
       },
     ],
     notes:
-      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore.",
+      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. The no-key live path that returned bytes from this network is CoastWatch CoralTemp daily 5 km (noaacrwsstDaily), not 1 km MUR. MUR / GOES-16 stay documented probes; do not invent GHRSST if they fail.",
   });
 }
 

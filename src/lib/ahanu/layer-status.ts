@@ -29,7 +29,14 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
   const field = FIELD[id];
   if (field) {
     if (ocean?.[field]) {
-      const layerSrc = field === "windKt" ? ocean.windSource : field === "waveFt" ? ocean.waveSource : undefined;
+      const layerSrc =
+        field === "windKt"
+          ? ocean.windSource
+          : field === "waveFt"
+            ? ocean.waveSource
+            : field === "sst"
+              ? ocean.sstSource
+              : undefined;
       return packLabel(ocean, layerSrc);
     }
     if (ocean) return "missing";

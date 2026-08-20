@@ -192,9 +192,8 @@ describe("packedGridFeatures", () => {
   });
 });
 
-const { canyonsForChart, contoursForChart, hmsForChart, buoysForChart, packedEncCells } = await import(
-  "../src/lib/ahanu/packed-chart.ts"
-);
+const { canyonsForChart, contoursForChart, hmsForChart, buoysForChart, packedEncCells } =
+  await import("../src/lib/ahanu/packed-chart.ts");
 
 describe("packed chart layers", () => {
   it("uses packed canyons / contours / HMS / buoys when present", async () => {
@@ -204,7 +203,11 @@ describe("packed chart layers", () => {
     assert.ok(canyons.features.some((f) => (f.properties as { name?: string })?.name === "Veatch"));
     const contours = contoursForChart();
     assert.ok(contours.c100.features.length >= 1);
-    assert.equal(contours.c200.features.length, 0, "packed fixture has 100fm only — do not invent 200fm");
+    assert.equal(
+      contours.c200.features.length,
+      0,
+      "packed fixture has 100fm only — do not invent 200fm",
+    );
     assert.ok(hmsForChart().features.length >= 1);
     const buoys = buoysForChart();
     assert.ok(buoys.some((b) => b.id === "44097"));
@@ -236,5 +239,31 @@ describe("packed chart layers", () => {
     await loadFixture(["bathymetry"]);
     assert.equal(layerPaintSource("bathymetry"), "missing");
     assert.equal(fieldImage("depth", 0, 8, 6), null);
+  });
+});
+
+describe("live SST daily paint", () => {
+  it("marks packed noaa and samples the daily field past hour 0", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { sampleCsvForTests, parseErddapSstCsv, sstTableToPacked, SST_ENDPOINTS } =
+      await import("../src/lib/ahanu/noaa-sst.ts");
+    const table = parseErddapSstCsv(sampleCsvForTests())!;
+    const grid = sstTableToPacked(table, SST_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX)!;
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.sst = encodeLayerBody(grid);
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(layerPaintSource("sst"), "packed");
+    const at0 = samplePackedKind("sst", 40.0, -71.6, 0);
+    const at36 = samplePackedKind("sst", 40.0, -71.6, 36);
+    assert.ok(at0 != null);
+    assert.equal(at36, at0);
+    const img = fieldImage("sst", 12, 8, 6);
+    assert.ok(img);
+    assert.equal(img.source, "packed");
   });
 });

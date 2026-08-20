@@ -13,10 +13,15 @@ const {
   parseCoopsWaterLevel,
   isGrib2,
   gfsWaveFilterUrl,
+  erddapSstCsvUrl,
+  parseErddapSstCsv,
+  sstTableToPacked,
+  fetchLiveSst,
+  sampleCsvForTests,
+  SST_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
-const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } = await import(
-  "../src/lib/ahanu/pack.ts"
-);
+const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
+  await import("../src/lib/ahanu/pack.ts");
 const { parseLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
 
 afterEach(() => {
@@ -88,7 +93,11 @@ describe("tryLiveNoaa", () => {
     });
     assert.ok(live.buoys);
     assert.ok(live.tides);
-    const buoyPayload = live.buoys.payload as { live?: boolean; source?: string; buoys?: { id: string }[] };
+    const buoyPayload = live.buoys.payload as {
+      live?: boolean;
+      source?: string;
+      buoys?: { id: string }[];
+    };
     assert.equal(buoyPayload.live, true);
     assert.equal(buoyPayload.source, "ndbc");
     assert.ok(buoyPayload.buoys?.some((b) => b.id === "44097"));
@@ -166,7 +175,10 @@ describe("buildTripPack live overlay", () => {
       live.manifest.layers.find((l) => l.id === "buoys")!.hash,
       fixture.manifest.layers.find((l) => l.id === "buoys")!.hash,
     );
-    assert.equal(live.manifest.layers.find((l) => l.id === "enc")!.hash, fixture.manifest.layers.find((l) => l.id === "enc")!.hash);
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "enc")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "enc")!.hash,
+    );
   });
 });
 
@@ -176,13 +188,15 @@ describe("ENC honesty", () => {
     const body = generateLayerBody("enc", POINT_JUDITH_CANYON_BBOX, START, 72);
     assert.match(body, /not official S-57/);
     assert.doesNotMatch(body, /application\/zip/);
-    const parsed = parseLayerBody(body) as { kind?: string; payload?: { fixture?: boolean; cells?: unknown[] } };
+    const parsed = parseLayerBody(body) as {
+      kind?: string;
+      payload?: { fixture?: boolean; cells?: unknown[] };
+    };
     assert.equal(parsed.kind, "enc-clip");
     assert.equal(parsed.payload?.fixture, true);
     assert.ok((parsed.payload?.cells?.length ?? 0) >= 3);
   });
 });
-
 
 const ENC_SAMPLE = `<?xml version="1.0" encoding="UTF-8" ?>
 <EncProductCatalog>
@@ -241,17 +255,26 @@ const GRIB_MIN = new Uint8Array([
 ]);
 
 function liveFetch(url: string): Promise<Response> {
-  if (url.includes("latest_obs")) return Promise.resolve(new Response(NDBC_SAMPLE, { status: 200 }));
+  if (url.includes("latest_obs"))
+    return Promise.resolve(new Response(NDBC_SAMPLE, { status: 200 }));
   if (url.includes("ENCProdCat")) return Promise.resolve(new Response(ENC_SAMPLE, { status: 200 }));
   if (url.includes("filter_gfswave") || url.includes("atlocn")) {
-    return Promise.resolve(new Response(GRIB_MIN, { status: 200, headers: { "Content-Type": "application/octet-stream" } }));
+    return Promise.resolve(
+      new Response(GRIB_MIN, {
+        status: 200,
+        headers: { "Content-Type": "application/octet-stream" },
+      }),
+    );
   }
   if (url.includes("datagetter") && url.includes("water_level")) {
     return Promise.resolve(
-      new Response(JSON.stringify({ data: [{ t: "2026-08-20 18:18", v: "3.73" }] }), { status: 200 }),
+      new Response(JSON.stringify({ data: [{ t: "2026-08-20 18:18", v: "3.73" }] }), {
+        status: 200,
+      }),
     );
   }
-  if (url.includes("datagetter")) return Promise.resolve(new Response(JSON.stringify(COOPS_SAMPLE), { status: 200 }));
+  if (url.includes("datagetter"))
+    return Promise.resolve(new Response(JSON.stringify(COOPS_SAMPLE), { status: 200 }));
   if (url.includes("MapServer")) {
     return Promise.resolve(new Response(JSON.stringify({ mapName: "Layers" }), { status: 200 }));
   }
@@ -360,7 +383,10 @@ describe("buildTripPack ENC + GFS-Wave honesty", () => {
     assert.equal(await sha256Hex(live.bodies.enc!), enc.hash);
     const parsed = parseLayerBody(live.bodies.enc!) as { payload?: { official?: boolean } };
     assert.equal(parsed.payload?.official, false);
-    assert.equal(live.manifest.layers.find((l) => l.id === "waves")!.hash, fixture.manifest.layers.find((l) => l.id === "waves")!.hash);
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "waves")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "waves")!.hash,
+    );
     assert.equal(live.manifest.layers.find((l) => l.id === "wind")!.source, "fixture");
     assert.ok(live.manifest.sources.some((s) => s.id === "nomads-gfswave"));
     assert.equal(live.manifest.readyForOffshore, true);
@@ -374,5 +400,219 @@ describe("gfsWaveFilterUrl", () => {
     assert.match(url, /atlocn\.0p16\.f000/);
     assert.match(url, /var_HTSGW=on/);
     assert.match(url, /leftlon=-72\.8/);
+  });
+});
+
+function sstCsvAt(iso: string, unit = "degree_C", kelvin = false): string {
+  const rows = [`time,latitude,longitude,analysed_sst`, `UTC,degrees_north,degrees_east,${unit}`];
+  const lats = [39.4, 40.0, 40.6, 41.2];
+  const lons = [-72.8, -71.6, -70.4, -69.2];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      let v = 22.4 - (lat - 39.6) * 0.8 + (lon + 70.6) * 0.1;
+      if (kelvin) v += 273.15;
+      rows.push(`${iso},${lat},${lon},${v.toFixed(2)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}
+
+describe("ERDDAP SST parse", () => {
+  it("builds a north-up degC grid and does not claim 1 km MUR", () => {
+    const table = parseErddapSstCsv(sampleCsvForTests());
+    assert.ok(table);
+    const ep = SST_ENDPOINTS[0]!;
+    const grid = sstTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.layer, "sst");
+    assert.equal(grid.source, "noaa");
+    assert.equal(grid.live, true);
+    assert.equal(grid.hoursCovered, 24);
+    assert.equal(grid.unit, "degC");
+    assert.equal(grid.nx, 4);
+    assert.equal(grid.ny, 4);
+    assert.equal(grid.updatedAt, "2026-08-18T12:00:00.000Z");
+    assert.match(grid.note ?? "", /5 km|0\.05/);
+    assert.match(grid.note ?? "", /not 1 km MUR/);
+    assert.ok((grid.values[0]![0] ?? 0) > 15 && (grid.values[0]![0] ?? 0) < 30);
+  });
+
+  it("converts Kelvin units to degC", () => {
+    const table = parseErddapSstCsv(sstCsvAt("2026-08-19T12:00:00Z", "degree_K", true));
+    assert.ok(table);
+    const grid = sstTableToPacked(table!, SST_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    const v = grid.values[0]![0]!;
+    assert.ok(v > 15 && v < 30, `expected degC, got ${v}`);
+  });
+
+  it("rejects HTML error pages", () => {
+    assert.equal(parseErddapSstCsv("<html>nope</html>"), null);
+  });
+
+  it("builds the CoralTemp ERDDAP CSV URL", () => {
+    const url = erddapSstCsvUrl(SST_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.match(url, /noaacrwsstDaily\.csv/);
+    assert.match(url, /analysed_sst/);
+    assert.match(url, /39\.4/);
+    assert.match(url, /-72\.8/);
+  });
+});
+
+describe("tryLiveNoaa SST overlay", () => {
+  it("paints sst source noaa when CoralTemp CSV parses", async () => {
+    const csv = sstCsvAt(START);
+    const fetchImpl = async (url: string) => {
+      if (url.includes("noaacrwsstDaily") || url.includes("analysed_sst")) {
+        return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.sst);
+    assert.equal(live.sst.source, "noaa");
+    assert.equal(live.sst.dataset, "noaacrwsstDaily");
+    assert.equal(live.sst.grid.source, "noaa");
+    assert.match(live.sst.note, /5 km|0\.05/);
+    assert.doesNotMatch(live.sst.note, /native 1 km/);
+  });
+
+  it("omits sst on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.sst, undefined);
+    assert.ok(live.errors.some((e) => e.includes("sst")));
+  });
+});
+
+describe("buildTripPack SST overlay", () => {
+  it("hashes live SST and marks source noaa", async () => {
+    const csv = sstCsvAt(START);
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("noaacrwsstDaily") || url.includes("analysed_sst")) {
+          return new Response(csv, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const sst = live.manifest.layers.find((l) => l.id === "sst")!;
+    assert.equal(sst.source, "noaa");
+    assert.notEqual(sst.hash, fixture.manifest.layers.find((l) => l.id === "sst")!.hash);
+    assert.equal(await sha256Hex(live.bodies.sst!), sst.hash);
+    assert.equal(sst.updatedAt, START);
+    assert.equal(sst.hours, 24);
+    const body = parseLayerBody(live.bodies.sst!) as {
+      source?: string;
+      note?: string;
+      live?: boolean;
+    };
+    assert.equal(body.source, "noaa");
+    assert.match(body.note ?? "", /not 1 km MUR/);
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-sst"));
+    assert.equal(live.manifest.readyForOffshore, true);
+  });
+
+  it("keeps fixture SST when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "sst")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "sst")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "sst")!.source, "fixture");
+  });
+
+  it("stale live SST fails Ready-for-offshore without override", async () => {
+    const csv = sstCsvAt("2026-08-17T12:00:00.000Z");
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("analysed_sst") || url.includes("noaacrwsstDaily")) {
+          return new Response(csv, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const sst = live.manifest.layers.find((l) => l.id === "sst")!;
+    assert.equal(sst.source, "noaa");
+    assert.equal(sst.updatedAt, "2026-08-17T12:00:00.000Z");
+    assert.equal(live.manifest.readyForOffshore, false);
+  });
+});
+
+describe("optional live SST probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let sst;
+    try {
+      sst = await fetchLiveSst({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live SST fetch threw");
+      return;
+    }
+    if (!sst) {
+      t.skip(errors.join("; ") || "live SST blocked");
+      return;
+    }
+    assert.equal(sst.source, "noaa");
+    assert.ok(sst.grid.nx >= 2 && sst.grid.ny >= 2);
+    assert.equal(sst.grid.unit, "degC");
+    if (sst.dataset === "noaacrwsstDaily") {
+      assert.ok(Math.abs(sst.effectiveDeg - 0.05) < 1e-6);
+      assert.match(sst.note, /5 km|0\.05/);
+      assert.match(sst.note, /not 1 km MUR/);
+    } else {
+      assert.match(sst.note, /subsampled|km|°/);
+    }
   });
 });

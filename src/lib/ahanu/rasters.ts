@@ -11,12 +11,7 @@ import {
 import { habitatScore } from "./scoring";
 import type { SpeciesId } from "./types";
 import type { LayerPaintSource } from "./layer-status";
-import {
-  getPackedOcean,
-  packedBBox,
-  samplePacked,
-  type SampleGrid,
-} from "./packed-fields";
+import { getPackedOcean, packedBBox, samplePacked, type SampleGrid } from "./packed-fields";
 import type { PackBBox } from "./pack-fixtures";
 
 export type OverlayBounds = [
@@ -93,7 +88,12 @@ export function buildPackedRaster(
   return { data, width: w, height: h, west, east, south, north };
 }
 
-export function fieldImage(kind: RasterKind, hour: number, w: number, h: number): FieldImage | null {
+export function fieldImage(
+  kind: RasterKind,
+  hour: number,
+  w: number,
+  h: number,
+): FieldImage | null {
   const ocean = getPackedOcean();
   const grid = ocean?.[RASTER_FIELD[kind]];
   if (grid) {
@@ -101,7 +101,11 @@ export function fieldImage(kind: RasterKind, hour: number, w: number, h: number)
     return {
       url: rasterToDataUrl(r.data, r.width, r.height),
       bounds: overlayBounds(grid.bbox),
-      source: ocean.source === "r2" || ocean.source === "noaa" ? "packed" : "fixture",
+      source: (() => {
+        const layerSrc = kind === "sst" ? ocean.sstSource : undefined;
+        const src = layerSrc ?? ocean.source;
+        return src === "r2" || src === "noaa" ? "packed" : "fixture";
+      })(),
       bbox: grid.bbox,
     };
   }
@@ -128,8 +132,7 @@ export function habitatImage(
 ): FieldImage {
   const box = packedBBox("sst") ?? packedBBox("chl") ?? packedBBox("ssh") ?? { ...REGION };
   const ocean = getPackedOcean();
-  const source: LayerPaintSource =
-    ocean?.sst || ocean?.chl || ocean?.ssh ? "derived" : "synthetic";
+  const source: LayerPaintSource = ocean?.sst || ocean?.chl || ocean?.ssh ? "derived" : "synthetic";
   return {
     url: habitatUrl(species, hour, date, w, h, box),
     bounds: overlayBounds(box),

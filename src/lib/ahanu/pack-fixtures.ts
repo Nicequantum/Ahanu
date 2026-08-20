@@ -153,6 +153,8 @@ export interface PackedGrid {
   source?: string;
   fixture?: boolean;
   note?: string;
+  /** Analysis / composite time (ISO). Used for SST age. */
+  updatedAt?: string;
   dirValues?: number[][];
   dirUnit?: string;
   periodValues?: number[][];

@@ -106,6 +106,15 @@ export interface ReadyOffshoreResult {
   warnings: string[];
 }
 
+function overlayUpdatedAt(body: string, fallback: string): string {
+  const parsed = parseLayerBody(body);
+  if (parsed && parsed.kind === "grid") {
+    const t = parsed.updatedAt;
+    if (typeof t === "string" && !Number.isNaN(Date.parse(t))) return t;
+  }
+  return fallback;
+}
+
 function overlayCoverHours(body: string, fallback: number): number {
   const parsed = parseLayerBody(body);
   if (parsed && parsed.kind === "grid") {
@@ -137,7 +146,8 @@ export function evaluateReadyForOffshore(input: {
   sstOverride?: boolean;
   layers: LayerEvidence[];
 }): ReadyOffshoreResult {
-  const nowMs = typeof input.now === "number" ? input.now : Date.parse(input.now ?? new Date().toISOString());
+  const nowMs =
+    typeof input.now === "number" ? input.now : Date.parse(input.now ?? new Date().toISOString());
   const dayTrip = Boolean(input.dayTrip);
   const sstOverride = Boolean(input.sstOverride);
   const hoursOk = dayTrip || input.hours >= DEFAULT_PACK_HOURS;
@@ -267,7 +277,7 @@ export async function buildFixturePack(options: {
       sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
       sizeBytes: bytes,
       status: "ready",
-      updatedAt: createdAt,
+      updatedAt: overlay ? overlayUpdatedAt(overlay, createdAt) : createdAt,
       hours: layerHours,
       hash,
       r2Key,
@@ -311,7 +321,7 @@ export async function buildFixturePack(options: {
       ...(options.extraSources ?? []),
     ],
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
@@ -361,12 +371,21 @@ export async function buildTripPack(options: {
     if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
     const series = live.gfsWaveSeries;
     if (series?.windKt) overlays.wind = encodeLayerBody(series.windKt);
-    else if (live.gfsWave?.parsed?.windKt) overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
+    else if (live.gfsWave?.parsed?.windKt)
+      overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
     if (series?.waveFt) overlays.waves = encodeLayerBody(series.waveFt);
-    else if (live.gfsWave?.parsed?.waveFt) overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
+    else if (live.gfsWave?.parsed?.waveFt)
+      overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
+    if (live.sst?.grid) {
+      overlays.sst = encodeLayerBody(live.sst.grid);
+      extraSources.push({ id: "noaa-sst", name: live.sst.note });
+    }
     if (live.gfsWave || series) {
       const painted = Boolean(
-        series?.windKt || series?.waveFt || live.gfsWave?.parsed?.windKt || live.gfsWave?.parsed?.waveFt,
+        series?.windKt ||
+        series?.waveFt ||
+        live.gfsWave?.parsed?.windKt ||
+        live.gfsWave?.parsed?.waveFt,
       );
       const hash = live.gfsWave?.sha256.slice(0, 12) ?? "series";
       const bytes = live.gfsWave?.bytes ?? 0;
