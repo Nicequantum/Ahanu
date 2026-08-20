@@ -1,0 +1,136 @@
+# Trip packs
+
+A trip pack is everything the helm needs for a named box and a named window, downloaded while the boat is still tied up. After that, cell can die at the 30-fathom curve and the plotter does not care.
+
+This is the operational contract for `GET /api/packs` and the R2 bucket `ahanu-trip-packs`. Scoring is not in the pack. The pack is bytes.
+
+---
+
+## A departure from Point Judith
+
+Point Judith, Rhode Island (`41.3615 N, 71.4814 W`). Typical canyon run: steam south-southeast toward Veatch or Atlantis, 80–110 nmi depending on the wall, overnight or 36–48 h out-and-back. The skipper is on marina Wi-Fi or a phone hotspot at the fuel dock.
+
+1. Open Packs. Confirm vessel limits (wind, sea, fuel, reserve) — those are local, not downloaded.
+2. Set the box. A working default for this run:
+
+   ```
+   west  -72.8
+   south  39.4
+   east  -68.8
+   north  41.5
+   ```
+
+   That covers the harbor, Block Island Sound, the steam, Veatch, Atlantis, and a margin around Hydrographer if the day goes east. It is smaller than the full Northeast operating box (`-75.4, 36.4, -66.4, 42.6`) and therefore a smaller download.
+
+3. Set the window: `start` = planned departure (ISO UTC), `hours` = **72**. Seventy-two hours is the product default. It covers a weather-hold morning, the steam, a night, and the steam home with a cushion. Do not pack 24 h and hope.
+4. Download. Verify hashes. Wait for **Ready for offshore**.
+5. Leave the dock. From here the pack is IndexedDB (PWA) or SQLite (Flutter, later).
+
+A Montauk or Newport start uses the same flow; only the bbox origin changes. Hudson-only runs shift the box west; a long trip that includes the full shelf should use the Northeast default and accept the extra ENC and GRIB weight.
+
+---
+
+## What is in a pack
+
+Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source adapters and real NOAA/CMEMS URLs are in `cloudflare/src/ingest/sources.ts`.
+
+| Layer | Bytes | Window | Why it is in the pack |
+| --- | --- | --- | --- |
+| NOAA ENC clip | S-57 cells, Harbor/Approach/Coastal | static, weekly refresh | Legal-adjacent chart. Aid only — see Safety. |
+| Bathymetry COG | raster | static | Canyon walls, 100-fathom curve, heads. |
+| Depth contours | vector | static | Fast drawing, night-readable. |
+| Canyon axes & heads | GeoJSON | static | Veatch, Atlantis, Hydrographer, Hudson, … |
+| SST composite | MUR L4 + GOES-East gap-fill, COG | last 24 h | Water mass. Input to on-device breaks. |
+| Chlorophyll-a L4 | CMEMS / VIIRS fallback | last 24–48 h | Color. Input to on-device edges. |
+| SSH anomaly | altimetry L4 | last 24 h | Eddy / filament field under blank SST. |
+| Wind GRIB | NDFD + GFS-Wave | **72 h**, 3 h step | Go/no-go against `BoatLimits.maxWindKt`. |
+| Wave GRIB | GFS-Wave ATL 0p16 (WW3) | **72 h**, 3 h step | Go/no-go against `BoatLimits.maxWaveFt`. |
+| NDBC snapshot | JSON | ~hourly, stale after 3 h | Ground truth vs model. |
+| CO-OPS tides | JSON hi/lo + hourly | **72 h** | Harbor windows, The Race, Block Island Sound. |
+| HMS closed areas | GeoJSON | static / as published | Overlay, not a legal determination. |
+
+**Not in the pack:** habitat score, temperature-break polylines, chlorophyll edges, solunar, marks, tracks, catch history, AIS. The first four are derived on the device from SST/chl/SSH + clock. The rest is user data.
+
+Identity of an object:
+
+```
+r2://ahanu-trip-packs/packs/{packId}/{layerId}/{hash12}.{ext}
+```
+
+`packId` is derived from bbox + forecast cycle + hours. Until ingest writes real bodies, hashes are identity hashes of those same inputs. Production ingest replaces them with SHA-256 of the object bytes; the client already verifies whatever hash the manifest carries.
+
+---
+
+## 72-hour GRIB
+
+The weather axis is 72 hours because canyon weather is a two-night problem. A fair Thursday morning is not a fair Friday night on the wall.
+
+- **Waves:** NCEP GFS-Wave / WAVEWATCH III, Atlantic regional `atlocn.0p16`, fields Hs, primary period, primary direction, swell. Global 0p25 only as fallback.
+- **Wind:** NDFD over the coastal half of the box, GFS-Wave wind over the offshore half, one GRIB the client already knows how to parse.
+- **Cycle:** 6-hourly. A layer whose cycle is more than 6 h old is **stale**. Stale weather is not Ready for offshore.
+- **Step:** 3 h. Enough for a go/no-go strip, small enough to keep the file in the low tens of megabytes for a canyon bbox.
+
+The Worker does not decide go/no-go. The device compares each forecast hour to the skipper’s limits and paints green / caution / no-go locally.
+
+---
+
+## SST composites
+
+Captains read temperature the way they read a canyon wall: not the number, the **break**.
+
+- Nightly **MUR L4 (1 km)** is the planning field. It is complete, slightly smooth, and honest about yesterday.
+- **GOES-East L3** fills “today, this afternoon” when the sky is clear enough. Cloudy days stay on MUR.
+- Packed as a clipped Cloud-Optimized GeoTIFF plus a quantized display PNG. The plotter paints the PNG; scoring reads the COG.
+- Composite **age > 24 h → stale**. **> 48 h → missing** for the Ready-for-offshore test.
+- Break detection (gradient, threshold in °C/nmi) is on-device. If two skippers disagree on a 0.5 °C cutoff, that is their argument, not a server flag.
+
+Chlorophyll and altimetry follow the same rule: pack the field, derive the edge at the helm.
+
+---
+
+## What “Ready for offshore” means
+
+A boolean on the manifest (`readyForOffshore`) and a stronger check the client must repeat after download and hash verify.
+
+All of the following must be true:
+
+1. **ENC clip present** for the bbox, including Harbor/Approach coverage of the departure (Point Judith, Montauk, or Newport) and Coastal coverage out to the 100-fathom curve in the box.
+2. **Bathymetry** present (COG readable).
+3. **SST composite** present and not stale (< 24 h, or < 48 h with an explicit skipper override — the client may warn; the manifest does not auto-pass).
+4. **Wind GRIB** and **wave GRIB** present, covering `start` … `start+hours`, cycle age ≤ 6 h.
+5. **CO-OPS window** present for the departure harbor over the same 72 h.
+6. **HMS closed areas** present (even if empty geometry — the layer file exists).
+7. **Every required object’s hash verifies** against the manifest.
+8. **Hours ≥ 72** unless the skipper is explicitly packing a day-trip inshore box (client UX, not the Worker).
+
+Chlorophyll, altimetry, buoys, and canyon labels make a pack *better*. They do not block Ready. A skipper may still leave without them; the UI should say so in one line, not a modal essay.
+
+A pack that is Ready is still an aid. Official ENC, a lookout, and a float plan are not in R2.
+
+---
+
+## Size and radio reality
+
+For the Point Judith canyon box above, expect roughly:
+
+- ENC clip ~ 20–40 MB
+- Bathy + contours ~ 15–25 MB
+- SST + chl + SSH ~ 10–20 MB
+- 72 h GRIB (wind + wave) ~ 8–15 MB
+- JSON (buoys, tides, HMS, canyons) < 1 MB
+
+Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone download. Do it at the dock. The whole design assumes you did.
+
+---
+
+## Failure modes the client must handle
+
+| Symptom | Meaning | Helm behavior |
+| --- | --- | --- |
+| Layer `missing` | Ingest never wrote the key | Pack cannot be Ready if required |
+| Layer `stale` | Cycle/composite too old | Weather/SST: not Ready |
+| Hash mismatch | Bytes ≠ manifest | Delete object, retry once, then fail the pack |
+| 401 on catch POST | No bearer token | Keep the catch local, `synced: false` |
+| No network mid-trip | Expected | Freeze last buoy snapshot, keep scoring on packed rasters |
+
+Never block logging a catch on the network. The logbook is user data; it belongs on the boat first.

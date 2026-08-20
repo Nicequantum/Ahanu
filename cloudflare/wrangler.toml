@@ -1,0 +1,46 @@
+# Ahanu trip-pack data plane.
+# Production delivery is Cloudflare only (Workers + Pages + R2 + D1 + Durable Objects).
+# Vercel is never used to serve chart packs, GRIB, SST, or any other marine bytes.
+
+name = "ahanu-packs"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+SERVICE = "ahanu-packs"
+# Default operating box: Northeast U.S. shelf + canyons (see src/lib/ahanu/constants.ts).
+REGION_WEST = "-75.4"
+REGION_SOUTH = "36.4"
+REGION_EAST = "-66.4"
+REGION_NORTH = "42.6"
+
+# ---------------------------------------------------------------------------
+# Routes placeholder
+# Replace pattern + zone_name after the custom domain is attached in the
+# Cloudflare dashboard. Until then, traffic lands on *.workers.dev.
+# ---------------------------------------------------------------------------
+[[routes]]
+pattern = "api.ahanu.app/*"
+zone_name = "ahanu.app"
+
+[[r2_buckets]]
+binding = "PACKS"
+bucket_name = "ahanu-trip-packs"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ahanu-core"
+# Placeholder — wrangler d1 create ahanu-core will emit the real id.
+database_id = "00000000-0000-0000-0000-000000000000"
+preview_database_id = "00000000-0000-0000-0000-000000000000"
+
+# Live community presence + pack-build leases. SQLite-backed DO (2024+).
+[[durable_objects.bindings]]
+name = "COMMUNITY"
+class_name = "CommunityHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CommunityHub"]
