@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (ERDDAP timeout + retry, 2026-08-20)
+
+Live NOAA ERDDAP grids (SST / chl / SSH / bathy), HMS, and hour-0 GFS now share an 18 s fetch with one retry on timeout / 429 / 5xx (1.5 s backoff). 404 is not retried. Two failures still keep the fixture. 72 h GFS series stays off. Tests mock fetch and sleep. No Worker scoring. No Flutter.
+
 ## This pass (preview live overlays, 2026-08-20)
 
 Preview `GET /api/packs?live=1` and matching `/api/objects` already called `buildTripPack({ tryLive })`, but the pack-http test only mocked NDBC so only buoys looked live. Tests now mock SST, ETOPO bathymetry + contours, chlorophyll, SSH, HMS, and hour-0 GFS-Wave and mark those layers `source: "noaa"`. A failed fetch keeps that layer fixture. No live=1 stays fixture. 72 h series stays off. No Worker scoring. No Flutter.

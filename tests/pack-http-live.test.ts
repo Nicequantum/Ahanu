@@ -11,6 +11,7 @@ const {
   sampleSshCsvForTests,
   sampleBathyCsvForTests,
   sampleHmsKmzForTests,
+  SST_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { encodeHour0Sample } = await import("../src/lib/ahanu/grid-io.ts");
 
@@ -197,5 +198,89 @@ describe("preview pack HTTP live overlays", () => {
       assert.equal(row.source, "fixture", id);
       assert.equal(row.hash, fix.hash, id);
     }
+  });
+});
+
+
+function abortErr(): DOMException {
+  return new DOMException("The operation was aborted.", "AbortError");
+}
+
+function isSstUrl(url: string): boolean {
+  return (
+    url.includes("analysed_sst") ||
+    url.includes("noaacrwsst") ||
+    url.includes("MURSST") ||
+    url.includes("GEOHIRR")
+  );
+}
+
+describe("preview pack HTTP NOAA retry", () => {
+  it("GET /api/packs?live=1 retries a timed-out SST then marks noaa", async () => {
+    const base = mockNoaaSuccess();
+    let sst = 0;
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (isSstUrl(url)) {
+          sst += 1;
+          if (sst === 1) throw abortErr();
+        }
+        return base(url);
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(sst, 2);
+    const man = (await res.json()) as { layers: LayerRow[] };
+    assert.equal(man.layers.find((l) => l.id === "sst")!.source, "noaa");
+  });
+
+  it("GET /api/packs?live=1 does not retry a 404 SST path", async () => {
+    const base = mockNoaaSuccess();
+    let sst = 0;
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      sleep: async () => {
+        throw new Error("404 must not sleep");
+      },
+      fetchImpl: async (url: string) => {
+        if (isSstUrl(url)) {
+          sst += 1;
+          return new Response("no", { status: 404 });
+        }
+        return base(url);
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(sst, SST_ENDPOINTS.length);
+    const man = (await res.json()) as { layers: LayerRow[] };
+    assert.equal(man.layers.find((l) => l.id === "sst")!.source, "fixture");
+  });
+
+  it("GET /api/packs?live=1 keeps fixture SST after two 503s", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const base = mockNoaaSuccess();
+    let sst = 0;
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (isSstUrl(url)) {
+          sst += 1;
+          return new Response("no", { status: 503 });
+        }
+        return base(url);
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(sst, SST_ENDPOINTS.length * 2);
+    const man = (await res.json()) as { layers: LayerRow[] };
+    const live = man.layers.find((l) => l.id === "sst")!;
+    const fix = fixture.manifest.layers.find((l) => l.id === "sst")!;
+    assert.equal(live.source, "fixture");
+    assert.equal(live.hash, fix.hash);
   });
 });

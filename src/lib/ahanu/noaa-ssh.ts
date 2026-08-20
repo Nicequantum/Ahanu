@@ -7,10 +7,11 @@
  */
 
 import { sha256Hex, type PackBBox, type PackedGrid } from "./pack-fixtures";
+import { fetchNoaaText, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
 
 export const SSH_MAX_BYTES = 2_000_000;
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type { FetchLike };
 
 export interface SshEndpoint {
   id: string;
@@ -243,27 +244,6 @@ export function normalizeSshTime(raw: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
-async function fetchText(
-  url: string,
-  fetchImpl: FetchLike,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<string | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
-    return new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 /**
  * Probe public SSH / SLA endpoints. Never throws. Returns undefined when
  * every path fails so the caller keeps the hashed fixture. Altimetry does
@@ -275,13 +255,20 @@ export async function fetchLiveSsh(options: {
   timeoutMs?: number;
   endpoints?: readonly SshEndpoint[];
   errors?: string[];
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<SshIngest | undefined> {
-  const timeoutMs = options.timeoutMs ?? 4000;
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const errors = options.errors;
   const endpoints = options.endpoints ?? SSH_ENDPOINTS;
   for (const ep of endpoints) {
     const url = erddapSshCsvUrl(ep, options.bbox);
-    const text = await fetchText(url, options.fetchImpl, timeoutMs, SSH_MAX_BYTES);
+    const text = await fetchNoaaText({
+      url,
+      fetchImpl: options.fetchImpl,
+      timeoutMs,
+      maxBytes: SSH_MAX_BYTES,
+      sleep: options.sleep,
+    });
     if (!text) {
       errors?.push(`ssh ${ep.id}: fetch failed`);
       continue;

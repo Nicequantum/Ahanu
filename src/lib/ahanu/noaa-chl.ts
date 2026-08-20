@@ -7,10 +7,11 @@
  */
 
 import { sha256Hex, type PackBBox, type PackedGrid } from "./pack-fixtures";
+import { fetchNoaaText, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
 
 export const CHL_MAX_BYTES = 2_000_000;
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type { FetchLike };
 
 export interface ChlEndpoint {
   id: string;
@@ -245,27 +246,6 @@ export function normalizeChlTime(raw: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
-async function fetchText(
-  url: string,
-  fetchImpl: FetchLike,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<string | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
-    return new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 /**
  * Probe public chlorophyll endpoints. Never throws. Returns undefined when
  * every path fails so the caller keeps the hashed fixture. Chlorophyll does
@@ -277,13 +257,20 @@ export async function fetchLiveChl(options: {
   timeoutMs?: number;
   endpoints?: readonly ChlEndpoint[];
   errors?: string[];
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<ChlIngest | undefined> {
-  const timeoutMs = options.timeoutMs ?? 4000;
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const errors = options.errors;
   const endpoints = options.endpoints ?? CHL_ENDPOINTS;
   for (const ep of endpoints) {
     const url = erddapChlCsvUrl(ep, options.bbox);
-    const text = await fetchText(url, options.fetchImpl, timeoutMs, CHL_MAX_BYTES);
+    const text = await fetchNoaaText({
+      url,
+      fetchImpl: options.fetchImpl,
+      timeoutMs,
+      maxBytes: CHL_MAX_BYTES,
+      sleep: options.sleep,
+    });
     if (!text) {
       errors?.push(`chl ${ep.id}: fetch failed`);
       continue;

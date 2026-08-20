@@ -46,6 +46,10 @@ const {
   fetchLiveBathy,
   sampleBathyCsvForTests,
   BATHY_ENDPOINTS,
+  fetchNoaaBytes,
+  fetchNoaaText,
+  NOAA_GRID_TIMEOUT_MS,
+  NOAA_RETRY_BACKOFF_MS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -1365,5 +1369,175 @@ describe("optional live bathymetry probe", () => {
     if (bathy.dataset === "ETOPO_2022_v1_15s") {
       assert.ok(Math.abs(bathy.effectiveDeg - 0.004166666666666667 * 8) < 1e-6);
     }
+  });
+});
+
+
+function abortErr(): DOMException {
+  return new DOMException("The operation was aborted.", "AbortError");
+}
+
+describe("NOAA fetch timeout + retry", () => {
+  it("uses an 18 s ERDDAP grid timeout", () => {
+    assert.equal(NOAA_GRID_TIMEOUT_MS, 18_000);
+    assert.ok(NOAA_RETRY_BACKOFF_MS >= 1000 && NOAA_RETRY_BACKOFF_MS <= 2000);
+  });
+
+  it("retries once after a timeout and then succeeds", async () => {
+    let n = 0;
+    const slept: number[] = [];
+    const bytes = await fetchNoaaBytes({
+      url: "https://coastwatch.test/grid.csv",
+      timeoutMs: 20,
+      maxBytes: 64,
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+      fetchImpl: async (_url, init) => {
+        n += 1;
+        if (n === 1) {
+          await new Promise<never>((_, reject) => {
+            const sig = init?.signal;
+            if (!sig) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            const fail = () => reject(abortErr());
+            if (sig.aborted) {
+              fail();
+              return;
+            }
+            sig.addEventListener("abort", fail, { once: true });
+          });
+        }
+        return new Response("ok-grid", { status: 200 });
+      },
+    });
+    assert.equal(n, 2);
+    assert.deepEqual(slept, [NOAA_RETRY_BACKOFF_MS]);
+    assert.equal(new TextDecoder().decode(bytes!), "ok-grid");
+  });
+
+  it("retries 429 and 503 then succeeds", async () => {
+    let n = 0;
+    const text = await fetchNoaaText({
+      url: "https://coastwatch.test/grid.csv",
+      timeoutMs: 50,
+      maxBytes: 64,
+      sleep: async () => {},
+      fetchImpl: async () => {
+        n += 1;
+        if (n === 1) return new Response("slow", { status: 429 });
+        return new Response("csv-ok", { status: 200 });
+      },
+    });
+    assert.equal(n, 2);
+    assert.equal(text, "csv-ok");
+  });
+
+  it("does not retry 404", async () => {
+    let n = 0;
+    const bytes = await fetchNoaaBytes({
+      url: "https://coastwatch.test/missing.csv",
+      timeoutMs: 50,
+      maxBytes: 64,
+      sleep: async () => {
+        throw new Error("404 must not sleep");
+      },
+      fetchImpl: async () => {
+        n += 1;
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.equal(n, 1);
+    assert.equal(bytes, null);
+  });
+
+  it("returns null after two 5xx failures", async () => {
+    let n = 0;
+    const bytes = await fetchNoaaBytes({
+      url: "https://coastwatch.test/down.csv",
+      timeoutMs: 50,
+      maxBytes: 64,
+      sleep: async () => {},
+      fetchImpl: async () => {
+        n += 1;
+        return new Response("no", { status: 503 });
+      },
+    });
+    assert.equal(n, 2);
+    assert.equal(bytes, null);
+  });
+
+  it("paints live SST after a timeout then a good CSV", async () => {
+    const csv = sampleCsvForTests();
+    let n = 0;
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      endpoints: [SST_ENDPOINTS[0]!],
+      sleep: async () => {},
+      fetchImpl: async () => {
+        n += 1;
+        if (n === 1) throw abortErr();
+        return new Response(csv, { status: 200 });
+      },
+    });
+    assert.equal(n, 2);
+    assert.ok(sst);
+    assert.equal(sst!.source, "noaa");
+  });
+
+  it("does not retry a 404 SST path", async () => {
+    let n = 0;
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      endpoints: [SST_ENDPOINTS[0]!],
+      sleep: async () => {
+        throw new Error("404 must not sleep");
+      },
+      fetchImpl: async () => {
+        n += 1;
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.equal(n, 1);
+    assert.equal(sst, undefined);
+  });
+
+  it("keeps the SST fixture after two failures", async () => {
+    let n = 0;
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (
+          url.includes("analysed_sst") ||
+          url.includes("noaacrwsst") ||
+          url.includes("MURSST") ||
+          url.includes("GEOHIRR")
+        ) {
+          n += 1;
+          if (n % 2 === 1) throw abortErr();
+          return new Response("no", { status: 503 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.ok(n >= 2);
+    assert.equal(live.manifest.layers.find((l) => l.id === "sst")!.source, "fixture");
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "sst")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "sst")!.hash,
+    );
   });
 });

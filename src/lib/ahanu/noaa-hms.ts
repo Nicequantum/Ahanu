@@ -9,13 +9,14 @@
  */
 
 import { sha256Hex, type PackBBox, type PackedJson } from "./pack-fixtures";
+import { fetchNoaaBytes, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
 
 export const HMS_MAX_BYTES = 2_000_000;
 
 export const HMS_REMINDER_NOTE =
   "Reminder overlay from a public NMFS/NOAA closed-area file — not a legal determination and not a substitute for the current Atlantic HMS Recreational Compliance Guide. Recreational trolling / rod-and-reel is generally not the same as commercial pelagic longline closures. The Northeast Canyons and Seamounts Marine National Monument and any all-permit HMS action still apply. Verify with NOAA HMS before you leave the dock.";
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type { FetchLike };
 
 export type HmsKind = "kmz" | "shapefile-zip";
 
@@ -380,27 +381,6 @@ export function hmsToPackedJson(features: GeoJSON.Feature[], note: string): Pack
   return { kind: "geojson", layer: "hms_zones", payload };
 }
 
-async function fetchBytes(
-  url: string,
-  fetchImpl: FetchLike,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<Uint8Array | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
-    return buf;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 /**
  * Probe public NMFS/NOAA HMS closed-area files. Never throws.
  * Returns undefined when every path fails or no feature intersects the
@@ -412,12 +392,19 @@ export async function fetchLiveHms(options: {
   timeoutMs?: number;
   endpoints?: readonly HmsEndpoint[];
   errors?: string[];
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<HmsIngest | undefined> {
-  const timeoutMs = options.timeoutMs ?? 4000;
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const errors = options.errors;
   const endpoints = options.endpoints ?? HMS_ENDPOINTS;
   for (const ep of endpoints) {
-    const bytes = await fetchBytes(ep.url, options.fetchImpl, timeoutMs, HMS_MAX_BYTES);
+    const bytes = await fetchNoaaBytes({
+      url: ep.url,
+      fetchImpl: options.fetchImpl,
+      timeoutMs,
+      maxBytes: HMS_MAX_BYTES,
+      sleep: options.sleep,
+    });
     if (!bytes) {
       errors?.push(`hms ${ep.id}: fetch failed`);
       continue;

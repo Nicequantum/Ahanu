@@ -45,6 +45,12 @@ import { fetchLiveChl, type ChlIngest } from "./noaa-chl";
 import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
 import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
 import { fetchLiveBathy, type BathyIngest } from "./noaa-bathy";
+import {
+  fetchNoaaBytes,
+  fetchNoaaText,
+  NOAA_GRID_TIMEOUT_MS,
+  type FetchLike,
+} from "./noaa-http";
 
 export const NDBC_LATEST_OBS_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 export const COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
@@ -92,7 +98,7 @@ const NDBC_NAMES: Record<string, string> = {
 const MS_TO_KT = 1.943844;
 const M_TO_FT = 3.28084;
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type { FetchLike };
 
 export interface PackedBuoyRow {
   id: string;
@@ -258,36 +264,15 @@ function addHoursIso(iso: string, hours: number): string {
   return new Date(Date.parse(iso) + hours * 3_600_000).toISOString();
 }
 
-async function fetchText(
-  url: string,
-  fetchImpl: FetchLike,
-  timeoutMs: number,
-  maxBytes = 16_000_000,
-): Promise<string | null> {
-  const bytes = await fetchBytes(url, fetchImpl, timeoutMs, maxBytes);
-  if (!bytes) return null;
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-}
-
-async function fetchBytes(
+function noaaGet(
   url: string,
   fetchImpl: FetchLike,
   timeoutMs: number,
   maxBytes: number,
-): Promise<Uint8Array | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
-    return buf;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
+  sleep?: (ms: number) => Promise<void>,
+  retries?: number,
+) {
+  return { url, fetchImpl, timeoutMs, maxBytes, sleep, retries };
 }
 
 export function parseCoopsWaterLevel(json: unknown): { at: string; heightFt: number } | undefined {
@@ -344,8 +329,11 @@ async function liveBuoys(
   fetchImpl: FetchLike,
   timeoutMs: number,
   errors: string[],
+  sleep?: (ms: number) => Promise<void>,
 ): Promise<PackedJson | undefined> {
-  const ndbcText = await fetchText(NDBC_LATEST_OBS_URL, fetchImpl, timeoutMs);
+  const ndbcText = await fetchNoaaText(
+    noaaGet(NDBC_LATEST_OBS_URL, fetchImpl, timeoutMs, 16_000_000, sleep),
+  );
   if (!ndbcText) {
     errors.push("ndbc: fetch failed");
     return undefined;
@@ -366,6 +354,7 @@ async function liveTides(
   fetchImpl: FetchLike,
   timeoutMs: number,
   errors: string[],
+  sleep?: (ms: number) => Promise<void>,
 ): Promise<PackedJson | undefined> {
   const begin = yyyymmdd(start);
   const end = yyyymmdd(addHoursIso(start, hours));
@@ -386,9 +375,9 @@ async function liveTides(
           `&datum=MLLW&time_zone=gmt&units=english&format=json` +
           `&station=${st.id}&date=latest`;
         const [hourlyText, hiloText, obsText] = await Promise.all([
-          fetchText(hourlyUrl, fetchImpl, timeoutMs),
-          fetchText(hiloUrl, fetchImpl, timeoutMs),
-          fetchText(obsUrl, fetchImpl, timeoutMs),
+          fetchNoaaText(noaaGet(hourlyUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
+          fetchNoaaText(noaaGet(hiloUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
+          fetchNoaaText(noaaGet(obsUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
         ]);
         if (!hourlyText) {
           errors.push(`coops ${st.id}: hourly fetch failed`);
@@ -442,20 +431,28 @@ async function liveTides(
   return tidesToPackedJson(start, hours, stations);
 }
 
-async function probeEncTiles(fetchImpl: FetchLike, timeoutMs: number): Promise<EncTileMeta> {
+async function probeEncTiles(
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<EncTileMeta> {
   const tiles: EncTileMeta = {
     template: ENC_DIRECT_TILE_TEMPLATE,
     legal: false,
     probe: "skipped",
   };
   const [tileBuf, mapText] = await Promise.all([
-    fetchBytes(
-      ENC_DIRECT_TILE_TEMPLATE.replace("{z}/{x}/{y}", "0/0/0"),
-      fetchImpl,
-      Math.min(timeoutMs, 2500),
-      64_000,
+    fetchNoaaBytes(
+      noaaGet(
+        ENC_DIRECT_TILE_TEMPLATE.replace("{z}/{x}/{y}", "0/0/0"),
+        fetchImpl,
+        Math.min(timeoutMs, 2500),
+        64_000,
+        sleep,
+        0,
+      ),
     ),
-    fetchText(ENC_ONLINE_MAPSERVER_URL, fetchImpl, timeoutMs, 200_000),
+    fetchNoaaText(noaaGet(ENC_ONLINE_MAPSERVER_URL, fetchImpl, timeoutMs, 200_000, sleep)),
   ]);
   if (tileBuf && tileBuf.byteLength > 8) tiles.probe = "ok";
   else tiles.probe = "tls-failed";
@@ -477,11 +474,12 @@ async function liveEnc(
   fetchImpl: FetchLike,
   timeoutMs: number,
   errors: string[],
+  sleep?: (ms: number) => Promise<void>,
 ): Promise<PackedJson | undefined> {
   const catalogTimeout = Math.max(timeoutMs, 8000);
   const [xml, tiles] = await Promise.all([
-    fetchText(ENC_PROD_CAT_URL, fetchImpl, catalogTimeout, 16_000_000),
-    probeEncTiles(fetchImpl, timeoutMs),
+    fetchNoaaText(noaaGet(ENC_PROD_CAT_URL, fetchImpl, catalogTimeout, 16_000_000, sleep)),
+    probeEncTiles(fetchImpl, timeoutMs, sleep),
   ]);
   if (!xml) {
     errors.push("enc: catalog fetch failed");
@@ -494,7 +492,7 @@ async function liveEnc(
   }
   const probe = pickSmallEncZip(cells);
   if (probe?.zipUrl && (probe.zipBytes ?? 0) <= 80_000) {
-    const zip = await fetchBytes(probe.zipUrl, fetchImpl, timeoutMs, 200_000);
+    const zip = await fetchNoaaBytes(noaaGet(probe.zipUrl, fetchImpl, timeoutMs, 200_000, sleep));
     if (zip && zip.byteLength > 4) {
       probe.zipSha256 = await sha256Hex(zip);
       probe.zipBytes = zip.byteLength;
@@ -515,10 +513,13 @@ async function liveGfsWave(
   timeoutMs: number,
   errors: string[],
   now = new Date(),
+  sleep?: (ms: number) => Promise<void>,
 ): Promise<GfsWaveIngest | undefined> {
   for (const cycle of gfsWaveCycleCandidates(now)) {
     const url = gfsWaveFilterUrl(cycle.ymd, cycle.cc, 0, bbox);
-    const bytes = await fetchBytes(url, fetchImpl, timeoutMs, GFS_WAVE_MAX_BYTES);
+    const bytes = await fetchNoaaBytes(
+      noaaGet(url, fetchImpl, Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS), GFS_WAVE_MAX_BYTES, sleep),
+    );
     if (!bytes) continue;
     if (!isGrib2(bytes)) {
       errors.push(`gfs-wave: ${cycle.ymd}${cycle.cc} not GRIB2`);
@@ -645,8 +646,10 @@ export async function tryLiveNoaa(options: {
   skipCache?: boolean;
   now?: Date;
   gfsWaveSeries?: GfsWaveSeriesFlag;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<LiveNoaaResult> {
-  const timeoutMs = options.timeoutMs ?? 4000;
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
+  const sleep = options.sleep;
   const fetchImpl = options.fetchImpl ?? (globalThis.fetch as FetchLike | undefined);
   const key = liveCacheKey(options.bbox, options.start, options.hours);
   if (!options.skipCache) {
@@ -662,6 +665,7 @@ export async function tryLiveNoaa(options: {
   }
 
   const series = seriesFlag(options.gfsWaveSeries);
+  const gridTimeout = Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS);
   const gfsJob = series.enabled
     ? liveGfsWaveSeries(
         options.bbox,
@@ -671,43 +675,50 @@ export async function tryLiveNoaa(options: {
         series,
         options.now,
       )
-    : liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now).then((ingest) => ({
-        ingest,
-      }));
+    : liveGfsWave(options.bbox, fetchImpl, gridTimeout, errors, options.now, sleep).then(
+        (ingest) => ({
+          ingest,
+        }),
+      );
   const [buoys, tides, enc, gfs, sst, chl, ssh, hms, bathy] = await Promise.all([
-    liveBuoys(options.bbox, fetchImpl, timeoutMs, errors),
-    liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors),
-    liveEnc(options.bbox, fetchImpl, timeoutMs, errors),
+    liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
+    liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
+    liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     gfsJob,
     fetchLiveSst({
       bbox: options.bbox,
       fetchImpl,
-      timeoutMs: Math.max(timeoutMs, 6000),
+      timeoutMs: gridTimeout,
       errors,
+      sleep,
     }),
     fetchLiveChl({
       bbox: options.bbox,
       fetchImpl,
-      timeoutMs: Math.max(timeoutMs, 6000),
+      timeoutMs: gridTimeout,
       errors,
+      sleep,
     }),
     fetchLiveSsh({
       bbox: options.bbox,
       fetchImpl,
-      timeoutMs: Math.max(timeoutMs, 6000),
+      timeoutMs: gridTimeout,
       errors,
+      sleep,
     }),
     fetchLiveHms({
       bbox: options.bbox,
       fetchImpl,
-      timeoutMs: Math.max(timeoutMs, 6000),
+      timeoutMs: gridTimeout,
       errors,
+      sleep,
     }),
     fetchLiveBathy({
       bbox: options.bbox,
       fetchImpl,
-      timeoutMs: Math.max(timeoutMs, 6000),
+      timeoutMs: gridTimeout,
       errors,
+      sleep,
     }),
   ]);
   if (buoys) out.buoys = buoys;
@@ -724,7 +735,14 @@ export async function tryLiveNoaa(options: {
   } else if (gfs.ingest) {
     out.gfsWave = gfs.ingest;
   } else if (series.enabled) {
-    const hour0 = await liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now);
+    const hour0 = await liveGfsWave(
+      options.bbox,
+      fetchImpl,
+      gridTimeout,
+      errors,
+      options.now,
+      sleep,
+    );
     if (hour0) out.gfsWave = hour0;
   }
 
@@ -736,6 +754,15 @@ export function encodeLiveLayer(body: PackedJson): string {
   return encodeLayerBody(body);
 }
 
+export {
+  fetchNoaaBytes,
+  fetchNoaaText,
+  NOAA_GRID_TIMEOUT_MS,
+  NOAA_QUICK_TIMEOUT_MS,
+  NOAA_RETRY_BACKOFF_MS,
+  noaaStatusRetryable,
+  isNoaaAbortError,
+} from "./noaa-http";
 export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog } from "./noaa-enc";
 export {
   gfsWaveFilterUrl,

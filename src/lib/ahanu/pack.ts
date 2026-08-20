@@ -378,6 +378,7 @@ export async function buildTripPack(options: {
   timeoutMs?: number;
   /** Off unless true / { enabled: true }. Do not turn on in CI. */
   gfsWaveSeries?: GfsWaveSeriesFlag;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -394,6 +395,7 @@ export async function buildTripPack(options: {
       timeoutMs: options.timeoutMs,
       skipCache: Boolean(options.fetchImpl),
       gfsWaveSeries: options.gfsWaveSeries,
+      sleep: options.sleep,
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);

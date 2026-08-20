@@ -9,13 +9,14 @@
  */
 
 import { sha256Hex, type PackBBox, type PackedGrid, type PackedJson } from "./pack-fixtures";
+import { fetchNoaaText, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
 
 export const BATHY_MAX_BYTES = 2_000_000;
 
 export const BATHY_AID_NOTE =
   "Public relief grid for canyon-wall paint — not official ENC and not a substitute for the legal chart. Official NOAA ENC remains the chart of record.";
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type { FetchLike };
 
 export interface BathyEndpoint {
   id: string;
@@ -301,27 +302,6 @@ export function contoursFromDepthGrid(grid: PackedGrid): PackedJson | undefined 
   };
 }
 
-async function fetchText(
-  url: string,
-  fetchImpl: FetchLike,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<string | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
-    return new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 /**
  * Probe public bathymetry endpoints. Never throws. Returns undefined when
  * every path fails so the caller keeps the hashed fixture. Bathymetry is
@@ -333,13 +313,20 @@ export async function fetchLiveBathy(options: {
   timeoutMs?: number;
   endpoints?: readonly BathyEndpoint[];
   errors?: string[];
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<BathyIngest | undefined> {
-  const timeoutMs = options.timeoutMs ?? 4000;
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const errors = options.errors;
   const endpoints = options.endpoints ?? BATHY_ENDPOINTS;
   for (const ep of endpoints) {
     const url = erddapBathyCsvUrl(ep, options.bbox);
-    const text = await fetchText(url, options.fetchImpl, timeoutMs, BATHY_MAX_BYTES);
+    const text = await fetchNoaaText({
+      url,
+      fetchImpl: options.fetchImpl,
+      timeoutMs,
+      maxBytes: BATHY_MAX_BYTES,
+      sleep: options.sleep,
+    });
     if (!text) {
       errors?.push(`bathy ${ep.id}: fetch failed`);
       continue;

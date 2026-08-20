@@ -11,6 +11,7 @@
  */
 
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
+import { NOAA_GRID_TIMEOUT_MS } from "./noaa-http";
 import { buildFixturePack, buildTripPack, type PackBBox } from "./pack";
 import { specForLayer } from "./pack-fixtures";
 import type { CatchRecord, SpeciesId } from "./types";
@@ -105,20 +106,26 @@ function previewTripPack(
   start: string,
   hours: number,
   fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>,
+  extra?: { timeoutMs?: number; sleep?: (ms: number) => Promise<void> },
 ) {
   return buildTripPack({
     bbox,
     start,
     hours,
     tryLive: true,
-    timeoutMs: 8000,
+    timeoutMs: extra?.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
     fetchImpl,
+    sleep: extra?.sleep,
   });
 }
 
 export async function handlePacksRequest(
   request: Request,
-  opts?: { fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response> },
+  opts?: {
+    fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+    timeoutMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  },
 ): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(request.url);
@@ -130,7 +137,7 @@ export async function handlePacksRequest(
     const win = parseStartHours(url);
     if (win instanceof Response) return win;
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl)
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, opts)
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     return json(built.manifest, 200, {
       "X-Ahanu-Pack-Id": built.manifest.packId,
@@ -147,7 +154,7 @@ export async function handlePacksRequest(
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl)
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, opts)
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
