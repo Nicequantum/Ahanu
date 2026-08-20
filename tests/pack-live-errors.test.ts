@@ -26,8 +26,19 @@ const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
 const { downloadTripPack } = await import("../src/lib/ahanu/pack-client.ts");
 const { resetPackMemory } = await import("../src/lib/ahanu/pack-store.ts");
 const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
-const { resetLiveNoaaCache, sampleCsvForTests, sampleChlCsvForTests, sampleSshCsvForTests, sampleBathyCsvForTests, sampleHmsKmzForTests } =
-  await import("../src/lib/ahanu/noaa-live.ts");
+const {
+  resetLiveNoaaCache,
+  seedLiveNoaaCache,
+  liveCacheKey,
+  sampleCsvForTests,
+  sampleChlCsvForTests,
+  sampleSshCsvForTests,
+  sampleBathyCsvForTests,
+  sampleHmsKmzForTests,
+  tryLiveNoaa,
+  buoysToPackedJson,
+  tidesToPackedJson,
+} = await import("../src/lib/ahanu/noaa-live.ts");
 const { encodeHour0Sample } = await import("../src/lib/ahanu/grid-io.ts");
 const { useAhanu } = await import("../src/lib/ahanu/store.ts");
 
@@ -106,6 +117,34 @@ afterEach(() => {
 });
 
 describe("downloadTripPack surfaces liveErrors", () => {
+  it("helm live download query includes skipCache", async () => {
+    const orig = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      return handlePacksRequest(new Request(url), { fetchImpl: mockNoaa(false), sleep: async () => {} });
+    }) as typeof fetch;
+    try {
+      await downloadTripPack({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        start: START,
+        hours: 72,
+        base: "http://ahanu.test",
+        live: true,
+        now: START,
+      });
+      assert.ok(
+        urls.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")),
+      );
+      const objects = urls.filter((u) => u.includes("/api/objects?"));
+      assert.ok(objects.length > 0);
+      assert.ok(objects.every((u) => u.includes("live=1") && !u.includes("skipCache=")));
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
   it("keeps mocked SST failures on the downloaded manifest", async () => {
     const orig = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -128,6 +167,57 @@ describe("downloadTripPack surfaces liveErrors", () => {
     } finally {
       globalThis.fetch = orig;
     }
+  });
+});
+
+describe("stale liveCache does not hide SST", () => {
+  it("cached live result without errors does not hide a failed SST", async () => {
+    const key = liveCacheKey(POINT_JUDITH_CANYON_BBOX, START, 72);
+    seedLiveNoaaCache(key, {
+      buoys: buoysToPackedJson(
+        [{ id: "44097", name: "Block Island", lat: 40.967, lon: -71.126 }],
+        START,
+      ),
+      tides: tidesToPackedJson(START, 72, []),
+      errors: [],
+    });
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: false,
+      fetchImpl: mockNoaa(false),
+      sleep: async () => {},
+    });
+    assert.equal(live.sst, undefined);
+    assert.ok(live.errors.some((e) => e.startsWith("sst")), live.errors.join(" | "));
+  });
+
+  it("cache hit still carries liveErrors for /api/objects fan-out", async () => {
+    const first = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      fetchImpl: mockNoaa(false),
+      sleep: async () => {},
+    });
+    assert.ok(first.errors.some((e) => e.startsWith("sst")));
+    let fetches = 0;
+    const counting = async (url: string) => {
+      fetches += 1;
+      return mockNoaa(false)(url);
+    };
+    const second = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: false,
+      fetchImpl: counting,
+      sleep: async () => {},
+    });
+    assert.equal(fetches, 0, "same-download cache should not refetch");
+    assert.ok(second.errors.some((e) => e.startsWith("sst")), second.errors.join(" | "));
   });
 });
 

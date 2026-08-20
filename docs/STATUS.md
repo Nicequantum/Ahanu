@@ -2,6 +2,14 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (packed tide curve, 2026-08-20)
+
+Safety and a compact plotter HUD paint the packed CO-OPS hourly series for Newport (default; Quonset / Montauk selectable). Next high/low come from packed hi/lo. Empty or missing pack shows "no packed tides" — no invented water levels. Fixture and live NOAA bodies use the same renderer. Tests cover hourly + hi/lo and the empty path. No Worker scoring. No Flutter. 72 h GFS series stays off.
+
+## This pass (helm live skipCache, 2026-08-20)
+
+Helm Live NOAA Download always sends skipCache; a cached live result without errors cannot hide a failed SST. Same-download /api/objects still reuse the cache with liveErrors. No Worker scoring. No Flutter.
+
 ## This pass (live ingest errors on Packs, 2026-08-20)
 
 Live NOAA misses already kept the hashed fixture, but Packs only showed "fixture". `LiveNoaaResult.errors` now ride the pack as `liveErrors` (capped at 8; empty when live is off or every overlay landed). Helm lists those lines under the NOAA/fixture count and offers Retry live overlays (same download path, skipCache). Tests mock a failed SST fetch. No Worker scoring. No Flutter. 72 h series stays off.

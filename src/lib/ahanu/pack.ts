@@ -108,13 +108,43 @@ export function capLiveErrors(errors: readonly string[] | undefined | null): str
   return out;
 }
 
+const LIVE_MISS_PREFIX: Record<string, string> = {
+  sst: "sst",
+  chlorophyll: "chl",
+  altimetry: "ssh",
+  bathymetry: "bathy",
+  contours: "bathy",
+  hms_zones: "hms",
+  enc: "enc",
+  wind: "gfs-wave",
+  waves: "gfs-wave",
+  buoys: "ndbc",
+  tides: "coops",
+};
+
+/** Honest miss lines when a live result has no error list (stale cache shape). */
+export function liveMissErrorLines(missingIds: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const id of missingIds) {
+    const prefix = LIVE_MISS_PREFIX[id] ?? id;
+    if (seen.has(prefix)) continue;
+    seen.add(prefix);
+    lines.push(`${prefix}: live miss — fixture kept`);
+  }
+  return lines;
+}
+
 export function liveErrorsForSession(input: {
   live: boolean;
   errors?: readonly string[] | undefined | null;
   overlayLanded?: boolean;
+  missingOverlayIds?: readonly string[];
 }): string[] {
   if (!input.live || input.overlayLanded) return [];
-  return capLiveErrors(input.errors);
+  const capped = capLiveErrors(input.errors);
+  if (capped.length) return capped;
+  return capLiveErrors(liveMissErrorLines(input.missingOverlayIds ?? []));
 }
 
 export function overlaysAllLanded(overlayIds: Iterable<string>): boolean {
@@ -513,10 +543,12 @@ export async function buildTripPack(options: {
       }
       extraSources.push({ id: "nomads-gfswave", name });
     }
+    const overlayIds = Object.keys(overlays);
     liveErrors = liveErrorsForSession({
       live: true,
       errors: live.errors,
-      overlayLanded: overlaysAllLanded(Object.keys(overlays)),
+      overlayLanded: overlaysAllLanded(overlayIds),
+      missingOverlayIds: LIVE_OVERLAY_LAYER_IDS.filter((id) => overlays[id] == null),
     });
   }
   return buildFixturePack({

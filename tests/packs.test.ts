@@ -460,6 +460,16 @@ describe("downloadTripPack live query", () => {
     assert.ok(urls.some((u) => u.includes("/api/objects?") && u.includes("live=1")));
   });
 
+  it("helm live download query includes skipCache", async () => {
+    const urls = await stubDownload(true);
+    assert.ok(
+      urls.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")),
+    );
+    const objects = urls.filter((u) => u.includes("/api/objects?"));
+    assert.ok(objects.length > 0);
+    assert.ok(objects.every((u) => u.includes("live=1") && !u.includes("skipCache=")));
+  });
+
   it("keeps fixture download without live", async () => {
     const urls = await stubDownload(false);
     assert.ok(urls.some((u) => u.includes("/api/packs?")));
@@ -469,8 +479,7 @@ describe("downloadTripPack live query", () => {
   it("retry skipCache re-requests live packs", async () => {
     const first = await stubDownload(true, false);
     const retry = await stubDownload(true, true);
-    assert.ok(first.some((u) => u.includes("/api/packs?") && u.includes("live=1")));
-    assert.ok(first.filter((u) => u.includes("/api/packs?")).every((u) => !u.includes("skipCache=")));
+    assert.ok(first.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")));
     assert.ok(retry.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")));
     const objectRetries = retry.filter((u) => u.includes("/api/objects?"));
     assert.ok(objectRetries.length > 0);
@@ -491,6 +500,13 @@ describe("live ingest errors on pack session", () => {
     assert.equal(LIVE_ERROR_CAP, 8);
     assert.deepEqual(liveErrorsForSession({ live: false, errors: ["sst: fetch failed"] }), []);
     assert.deepEqual(liveErrorsForSession({ live: true, overlayLanded: true, errors: ["sst mur: fetch failed"] }), []);
+    const hiddenSst = liveErrorsForSession({
+      live: true,
+      overlayLanded: false,
+      errors: [],
+      missingOverlayIds: ["sst", "chlorophyll"],
+    });
+    assert.ok(hiddenSst.some((e) => e.startsWith("sst")), hiddenSst.join(" | "));
     const many = Array.from({ length: 12 }, (_, i) => `sst path ${i}: fetch failed`);
     const capped = capLiveErrors(many);
     assert.equal(capped.length, 8);

@@ -324,6 +324,54 @@ export function resetLiveNoaaCache(): void {
   liveCache.clear();
 }
 
+/** Test helper: plant a liveCache row (stale-shape / same-download fan-out). */
+export function seedLiveNoaaCache(key: string, value: LiveNoaaResult, at = Date.now()): void {
+  liveCache.set(key, { at, value });
+}
+
+const LIVE_PROBE_GATES: {
+  landed: (v: LiveNoaaResult) => boolean;
+  prefix: string;
+  miss: string;
+}[] = [
+  { landed: (v) => Boolean(v.buoys), prefix: "ndbc", miss: "ndbc: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.tides), prefix: "coops", miss: "coops: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.enc), prefix: "enc", miss: "enc: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.gfsWave || v.gfsWaveSeries), prefix: "gfs-wave", miss: "gfs-wave: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.sst), prefix: "sst", miss: "sst: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.chlorophyll), prefix: "chl", miss: "chl: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.altimetry), prefix: "ssh", miss: "ssh: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.hms), prefix: "hms", miss: "hms: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.bathymetry), prefix: "bathy", miss: "bathy: live miss — fixture kept" },
+];
+
+/** Every live-capable overlay landed. Used to decide if empty errors are honest. */
+export function liveOverlaysComplete(value: LiveNoaaResult): boolean {
+  return LIVE_PROBE_GATES.every((g) => g.landed(value));
+}
+
+/**
+ * Reuse only when the row has an errors array and is either complete or already
+ * lists misses. A buoys+tides hit with errors=[] is the pre-liveErrors shape.
+ */
+export function liveCacheValueUsable(value: LiveNoaaResult | undefined | null): boolean {
+  if (!value || !Array.isArray(value.errors)) return false;
+  if (value.errors.length > 0) return true;
+  return liveOverlaysComplete(value);
+}
+
+/** Push an honest miss line when a probe forgot, or a cache hit omitted one. */
+export function ensureLiveOverlayErrors(value: LiveNoaaResult): LiveNoaaResult {
+  const errors = Array.isArray(value.errors) ? value.errors : [];
+  for (const g of LIVE_PROBE_GATES) {
+    if (g.landed(value)) continue;
+    if (errors.some((e) => e.startsWith(g.prefix))) continue;
+    errors.push(g.miss);
+  }
+  value.errors = errors;
+  return value;
+}
+
 async function liveBuoys(
   bbox: PackBBox,
   fetchImpl: FetchLike,
@@ -654,12 +702,15 @@ export async function tryLiveNoaa(options: {
   const key = liveCacheKey(options.bbox, options.start, options.hours);
   if (!options.skipCache) {
     const hit = liveCache.get(key);
-    if (hit && Date.now() - hit.at < LIVE_TTL_MS) return hit.value;
+    if (hit && Date.now() - hit.at < LIVE_TTL_MS && liveCacheValueUsable(hit.value)) {
+      return ensureLiveOverlayErrors({ ...hit.value, errors: [...hit.value.errors] });
+    }
   }
   const errors: string[] = [];
   const out: LiveNoaaResult = { errors };
   if (typeof fetchImpl !== "function") {
     errors.push("fetch unavailable");
+    ensureLiveOverlayErrors(out);
     liveCache.set(key, { at: Date.now(), value: out });
     return out;
   }
@@ -746,6 +797,7 @@ export async function tryLiveNoaa(options: {
     if (hour0) out.gfsWave = hour0;
   }
 
+  ensureLiveOverlayErrors(out);
   liveCache.set(key, { at: Date.now(), value: out });
   return out;
 }

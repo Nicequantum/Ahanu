@@ -106,10 +106,14 @@ export async function downloadTripPack(options: {
   onProgress?: (p: DownloadProgress) => void;
 }): Promise<DownloadedPack> {
   const base = options.base ?? packsApiBase();
-  const q = { live: Boolean(options.live) };
+  const live = Boolean(options.live);
+  const q = { live };
+  // Skipper wants fresh NOAA on every live helm download. Objects omit skipCache
+  // so /api/objects can reuse the same-download in-process cache (with liveErrors).
+  const skipCache = live || Boolean(options.skipCache);
   const manifest = await fetchManifest(options.bbox, options.start, options.hours, base, {
-    ...q,
-    skipCache: Boolean(options.skipCache),
+    live,
+    skipCache,
   });
   const bodies: Record<string, string> = {};
   const evidence: LayerEvidence[] = [];
