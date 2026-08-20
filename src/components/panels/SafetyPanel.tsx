@@ -1,4 +1,4 @@
-import { TideCurveCard } from "@/components/ahanu/TideCurve";
+import { TideCurveCard, TideHarborChips } from "@/components/ahanu/TideCurve";
 import { FloatPlanExport } from "@/components/panels/FloatPlanExport";
 import { Pane, Stat } from "@/components/panels/pane";
 import { Badge } from "@/components/ui/badge";
@@ -7,9 +7,9 @@ import { Separator } from "@/components/ui/separator";
 import { compass } from "@/lib/ahanu/geo";
 import { formatClock } from "@/lib/ahanu/solunar";
 import { useAhanu } from "@/lib/ahanu/store";
-import { DEFAULT_TIDE_HARBOR, packedTideCurve, packedTideHarbors } from "@/lib/ahanu/tide-curve";
+import { packedTideCurve, packedTideHarbors, resolveTideHarbor } from "@/lib/ahanu/tide-curve";
 import { currentAt, tideAt } from "@/lib/ahanu/tides";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 const KIT = [
   {
@@ -45,7 +45,9 @@ export function SafetyPanel() {
   const v = useAhanu((s) => s.vessel);
   const clock = useAhanu((s) => s.clockMs);
   const packEpoch = useAhanu((s) => s.packEpoch);
-  const [harbor, setHarbor] = useState(DEFAULT_TIDE_HARBOR);
+  const harborPick = useAhanu((s) => s.tideHarbor);
+  const setTideHarbor = useAhanu((s) => s.setTideHarbor);
+  const harbor = useMemo(() => resolveTideHarbor(harborPick), [harborPick, packEpoch]);
   const tide = useMemo(() => tideAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
   const cur = useMemo(() => currentAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
   const curve = useMemo(() => packedTideCurve(new Date(clock), harbor), [clock, harbor, packEpoch]);
@@ -113,24 +115,12 @@ export function SafetyPanel() {
       </ul>
       <Separator className="my-4" />
       <h3 className="mb-2 text-sm font-medium">Tide & current</h3>
-      {harbors.length > 1 ? (
-        <div className="mb-2 flex flex-wrap gap-1">
-          {harbors.map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setHarbor(name)}
-              className={
-                name === (curve?.harbor ?? harbor)
-                  ? "rounded-md bg-sunrise px-2 py-1 text-[10px] tracking-wider text-sunrise-fg uppercase"
-                  : "rounded-md bg-elevated px-2 py-1 text-[10px] tracking-wider text-muted uppercase"
-              }
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <TideHarborChips
+        harbors={harbors}
+        selected={curve?.harbor ?? harbor}
+        onSelect={setTideHarbor}
+        className="mb-2"
+      />
       <TideCurveCard curve={curve} now={new Date(clock)} />
       <div className="mt-3 mb-2 grid grid-cols-2 gap-2">
         <Stat label="Height" value={`${tide.heightFt.toFixed(1)} ft`} />

@@ -116,3 +116,36 @@ export function TideCurveCard({
     </div>
   );
 }
+
+export function TideHarborChips({
+  harbors,
+  selected,
+  onSelect,
+  className,
+}: {
+  harbors: string[];
+  selected: string;
+  onSelect: (name: string) => void;
+  className?: string;
+}) {
+  if (harbors.length <= 1) return null;
+  return (
+    <div className={cn("flex flex-wrap gap-1", className)} data-tide-harbors="">
+      {harbors.map((name) => (
+        <button
+          key={name}
+          type="button"
+          onClick={() => onSelect(name)}
+          className={
+            name === selected
+              ? "rounded-md bg-sunrise px-2 py-1 text-[10px] tracking-wider text-sunrise-fg uppercase"
+              : "rounded-md bg-elevated px-2 py-1 text-[10px] tracking-wider text-muted uppercase"
+          }
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+}
+

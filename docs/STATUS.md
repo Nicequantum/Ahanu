@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (tide harbor persist, 2026-08-20)
+
+Safety / HUD harbor pick (Newport / Quonset / Montauk) is kept on this device (`ahanu-tide-harbor`); reload restores it if that station is still packed, else Newport. Missing pack does not invent water levels. No Worker scoring. No Flutter.
+
 ## This pass (canyon-head clip vs default box, 2026-08-20)
 
 Did not widen `POINT_JUDITH_CANYON_BBOX` / default pack bbox (`west -72.8, south 39.4, east -68.8, north 41.5`). MarineCadastre Undersea Feature Place Names (same MapServer, 2026-08-20) puts the skipper landmarks **inside** that product box: Veatch (−69.60, 39.87), Atlantis (−70.20, 39.87), Hydrographer (−69.05, 40.20), Alvin (−70.50, 39.87). Hudson (−72.20, 39.45) also clips in. A tighter live pack query (`west=-72.2 south=39.6 east=-70.8 north=41.5`) is not the default — its east edge sits 0.3–1.75° west of those four heads, so live paint there is McMaster / Ryan / Block / Uchupi only. Fixture labels Veatch / Atlantis / Hydrographer are east of that tighter clip, not east of the product box. NOAA coordinates were not moved; no axes invented.

@@ -1,5 +1,5 @@
 import { ChartIsland } from "@/components/ahanu/ChartIsland";
-import { TideCurveCard } from "@/components/ahanu/TideCurve";
+import { TideCurveCard, TideHarborChips } from "@/components/ahanu/TideCurve";
 import { PanelBody } from "@/components/ahanu/Panels";
 import { CompassTape } from "@/components/ahanu/CompassTape";
 import { MarkBurst } from "@/components/ahanu/MarkBurst";
@@ -22,7 +22,7 @@ import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { restorePackedSession } from "@/lib/ahanu/pack-client";
 import { capLiveErrors } from "@/lib/ahanu/pack";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
-import { packedTideCurve } from "@/lib/ahanu/tide-curve";
+import { packedTideCurve, packedTideHarbors, resolveTideHarbor } from "@/lib/ahanu/tide-curve";
 import type { PanelId } from "@/lib/ahanu/types";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
@@ -149,10 +149,17 @@ export function AppShell() {
 
 function TideHud() {
   const clock = useAhanu((s) => s.clockMs);
-  useAhanu((s) => s.packEpoch);
-  const curve = packedTideCurve(new Date(clock));
+  const packEpoch = useAhanu((s) => s.packEpoch);
+  const harborPick = useAhanu((s) => s.tideHarbor);
+  const setTideHarbor = useAhanu((s) => s.setTideHarbor);
+  const harbor = useMemo(() => resolveTideHarbor(harborPick), [harborPick, packEpoch]);
+  const harbors = useMemo(() => packedTideHarbors(), [packEpoch]);
+  const curve = useMemo(() => packedTideCurve(new Date(clock), harbor), [clock, harbor, packEpoch]);
   return (
     <div className="pointer-events-none absolute top-20 left-2 z-20 hidden w-44 rounded-2xl bg-surface/90 px-2.5 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md md:block md:left-[4.25rem]">
+      <div className="pointer-events-auto">
+        <TideHarborChips harbors={harbors} selected={curve?.harbor ?? harbor} onSelect={setTideHarbor} className="mb-1" />
+      </div>
       <TideCurveCard curve={curve} now={new Date(clock)} compact />
     </div>
   );

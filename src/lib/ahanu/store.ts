@@ -37,6 +37,12 @@ import {
   readPersistedDisplayMode,
   writePersistedDisplayMode,
 } from "./display-mode";
+import {
+  DEFAULT_TIDE_HARBOR,
+  findPackedTideStation,
+  readPersistedTideHarbor,
+  writePersistedTideHarbor,
+} from "./tide-curve";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -63,6 +69,7 @@ export interface AhanuState {
   species: SpeciesId;
   panel: PanelId;
   displayMode: DisplayMode;
+  tideHarbor: string;
   waypoints: Waypoint[];
   catches: CatchRecord[];
   track: { lat: number; lon: number }[];
@@ -99,6 +106,7 @@ export interface AhanuState {
   setHour: (h: number) => void;
   setSpecies: (s: SpeciesId) => void;
   setDisplayMode: (m: DisplayMode) => void;
+  setTideHarbor: (harbor: string) => void;
   setMode: (m: NavMode) => void;
   setFollow: (v: boolean) => void;
   setBreakSensitivity: (n: number) => void;
@@ -155,6 +163,7 @@ export const useAhanu = create<AhanuState>()(
       species: "bigeye",
       panel: null,
       displayMode: readPersistedDisplayMode(),
+      tideHarbor: readPersistedTideHarbor(),
       waypoints: SEED_SPOTS,
       catches: [],
       track: [{ lat: 39.905, lon: -69.695 }],
@@ -216,6 +225,13 @@ export const useAhanu = create<AhanuState>()(
         const next = applyDisplayMode(displayMode);
         writePersistedDisplayMode(next);
         set({ displayMode: next });
+      },
+      setTideHarbor: (harbor) => {
+        const raw = harbor.trim() || DEFAULT_TIDE_HARBOR;
+        const st = findPackedTideStation(raw);
+        const next = st?.name ?? raw;
+        writePersistedTideHarbor(st ? { id: st.id, name: st.name } : next);
+        set({ tideHarbor: next });
       },
       setMode: (mode) =>
         set((s) => ({
@@ -460,6 +476,11 @@ export const useAhanu = create<AhanuState>()(
         const next = applyDisplayMode(state.displayMode);
         writePersistedDisplayMode(next);
         if (next !== state.displayMode) state.displayMode = next;
+        const harbor = (typeof state.tideHarbor === "string" && state.tideHarbor.trim())
+          ? state.tideHarbor.trim()
+          : readPersistedTideHarbor();
+        writePersistedTideHarbor(harbor);
+        if (harbor !== state.tideHarbor) state.tideHarbor = harbor;
       },
       partialize: (s) => ({
         waypoints: s.waypoints,
@@ -468,6 +489,7 @@ export const useAhanu = create<AhanuState>()(
         floatPlan: s.floatPlan,
         contacts: s.contacts,
         displayMode: s.displayMode,
+        tideHarbor: s.tideHarbor,
         species: s.species,
         layers: s.layers,
         packLayers: s.packLayers,
