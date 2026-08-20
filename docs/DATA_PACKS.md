@@ -72,6 +72,26 @@ The weather axis is 72 hours because canyon weather is a two-night problem. A fa
 
 The Worker does not decide go/no-go. The device compares each forecast hour to the skipper’s limits and paints green / caution / no-go locally.
 
+### Enabling the live 72 h / 3 h series (off by default)
+
+Hour-0 (f000) may paint when tryLive is on. The full series is a separate path.
+It stays off so CI and GET /api/packs never pull about 25 NOMADS files.
+
+| How | What happens |
+| --- | --- |
+| buildTripPack({ tryLive: true, gfsWaveSeries: true }) | Fetch f000-f072, about 10 s between files (GFS_WAVE_PACE_MS). |
+| gfsWaveSeries: { enabled: true, hours: [0, 3, 6], paceMs: 0 } | Tests and short clips. Fake fetchImpl. |
+| env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1 | Read by Worker cron ingestFixturePack only. |
+| Worker [vars] GFS_WAVE_SERIES | Same cron flag. Do not enable on GET /api/packs. |
+
+NOMADS pacing: about 10 seconds between subset files, about 4 minutes for 25 hours.
+A failed or missing step must not claim 72 h. hoursCovered is the contiguous prefix from hour 0 (hour 0 alone is 1 h).
+Fixture wind/wave stay when the series is off or empty.
+
+Cron (15 2,8,14,20 * * *) remains commented in cloudflare/wrangler.toml until R2 ahanu-trip-packs and D1 ahanu-core exist.
+Uncommenting the trigger without the env flag still leaves the series off.
+
+
 ---
 
 ## SST composites
@@ -140,7 +160,7 @@ Never block logging a catch on the network. The logbook is user data; it belongs
 
 ## Production ingest ops (not claimed done)
 
-Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), and a NOMADS GFS-Wave `atlocn.0p16` f000 subset. Hour-0 wind/wave is painted only when the subset parses; that is not a 72 h grid and does not satisfy Ready-for-offshore weather coverage. Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`. GHRSST / CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
+Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), and a NOMADS GFS-Wave `atlocn.0p16` f000 subset. Hour-0 wind/wave is painted only when the subset parses; that is not a 72 h grid and does not satisfy Ready-for-offshore weather coverage. The paced f000-f072 / 3 h series is implemented and off by default (see above). Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`; it does not enable the series. GHRSST / CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
 
 Until a scheduled Worker writes R2:
 

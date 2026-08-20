@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
 
-const { parseNcep, ncepToPacked, encodeHour0Sample, sampleNcep, MS_TO_KT, M_TO_FT } = await import(
+const { parseNcep, ncepToPacked, encodeHour0Sample, encodeHourSample, sampleNcep, MS_TO_KT, M_TO_FT } = await import(
   "../src/lib/ahanu/grid-io.ts"
 );
 const { isGrib2 } = await import("../src/lib/ahanu/noaa-gfs.ts");
@@ -195,16 +195,210 @@ describe("hour-0 overlay honesty", () => {
   });
 });
 
-describe("paced series stays off", () => {
+describe("paced GFS-Wave series", () => {
+  const STEPS = [0, 3, 6];
+
+  function mockSeriesFetch(okHours: number[], tracker?: { urls: string[] }) {
+    return async (url: string) => {
+      tracker?.urls.push(url);
+      if (!url.includes("filter_gfswave")) return new Response("no", { status: 404 });
+      const m = url.match(/\.f(\d{3})\.grib2/);
+      const hour = m ? Number(m[1]) : -1;
+      if (!okHours.includes(hour)) return new Response("missing", { status: 404 });
+      return new Response(encodeHourSample(hour, 5 + hour / 3, 1 + hour / 12), { status: 200 });
+    };
+  }
+
   it("returns no files unless enabled", async () => {
     const { fetchGfsWaveSeries } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const tracker = { urls: [] as string[] };
     const rows = await fetchGfsWaveSeries({
       bbox: POINT_JUDITH_CANYON_BBOX,
       ymd: "20260820",
       cc: "12",
+      hours: STEPS,
       enabled: false,
-      fetchImpl: async () => new Response("no", { status: 500 }),
+      fetchImpl: mockSeriesFetch(STEPS, tracker),
     });
     assert.deepEqual(rows, []);
+    assert.deepEqual(tracker.urls, []);
+  });
+
+  it("gfsWaveSeriesEnabled is off without a flag or env", async () => {
+    const { gfsWaveSeriesEnabled } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    assert.equal(gfsWaveSeriesEnabled(false, { AHANU_GFS_WAVE_SERIES: "1" }), false);
+    assert.equal(gfsWaveSeriesEnabled(undefined, { AHANU_GFS_WAVE_SERIES: "" }), false);
+    assert.equal(gfsWaveSeriesEnabled(true), true);
+    assert.equal(gfsWaveSeriesEnabled(undefined, { AHANU_GFS_WAVE_SERIES: "1" }), true);
+    assert.equal(gfsWaveSeriesEnabled("1"), true);
+  });
+
+  it("enabled mocked 3 steps builds a short series and paces", async () => {
+    const { fetchGfsWaveSeries, assembleGfsWaveSeries, GFS_WAVE_PACE_MS } = await import(
+      "../src/lib/ahanu/noaa-gfs.ts"
+    );
+    const sleeps: number[] = [];
+    const tracker = { urls: [] as string[] };
+    const rows = await fetchGfsWaveSeries({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      ymd: "20260820",
+      cc: "12",
+      hours: STEPS,
+      enabled: true,
+      paceMs: GFS_WAVE_PACE_MS,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      fetchImpl: mockSeriesFetch(STEPS, tracker),
+    });
+    assert.deepEqual(rows.map((r) => r.hour), STEPS);
+    assert.equal(tracker.urls.length, 3);
+    assert.ok(tracker.urls.every((u) => u.includes("f000") || u.includes("f003") || u.includes("f006")));
+    assert.ok(!tracker.urls.some((u) => u.includes("f072")));
+    assert.deepEqual(sleeps, [10_000, 10_000]);
+    const assembled = assembleGfsWaveSeries(rows, STEPS);
+    assert.equal(assembled.complete, true);
+    assert.equal(assembled.hoursCovered, 6);
+    assert.deepEqual(assembled.windKt?.hours, STEPS);
+    assert.equal(assembled.windKt?.source, "noaa");
+    assert.equal(assembled.windKt?.hoursCovered, 6);
+    assert.equal(assembled.waveFt?.hoursCovered, 6);
+    assert.ok((assembled.windKt?.note ?? "").includes("not a 72 h"));
+  });
+
+  it("one failed step does not claim 72 h", async () => {
+    const { fetchGfsWaveSeries, assembleGfsWaveSeries, gfsWaveSeriesHours } = await import(
+      "../src/lib/ahanu/noaa-gfs.ts"
+    );
+    const wanted = gfsWaveSeriesHours();
+    assert.equal(wanted.length, 25);
+    assert.equal(wanted[wanted.length - 1], 72);
+    const rows = await fetchGfsWaveSeries({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      ymd: "20260820",
+      cc: "12",
+      hours: STEPS,
+      enabled: true,
+      paceMs: 0,
+      fetchImpl: mockSeriesFetch([0, 6]),
+    });
+    assert.deepEqual(rows.map((r) => r.hour), [0, 6]);
+    const assembled = assembleGfsWaveSeries(rows, wanted);
+    assert.equal(assembled.complete, false);
+    assert.equal(assembled.hoursCovered, 1);
+    assert.notEqual(assembled.hoursCovered, 72);
+    assert.ok((assembled.windKt?.note ?? "").includes("not a 72 h"));
+    const pack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      gfsWaveSeries: { enabled: true, hours: STEPS, paceMs: 0, ymd: "20260820", cc: "12" },
+      fetchImpl: mockSeriesFetch([0, 6]),
+    });
+    const wind = pack.manifest.layers.find((l) => l.id === "wind")!;
+    const waves = pack.manifest.layers.find((l) => l.id === "waves")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(waves.source, "noaa");
+    assert.equal(wind.hours, 1);
+    assert.equal(waves.hours, 1);
+    assert.equal(pack.manifest.readyForOffshore, false);
+    const ev = pack.manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.updatedAt,
+      hoursCovered: l.hours,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers: ev });
+    assert.equal(ready.ready, false);
+    assert.ok(ready.failures.some((f) => f.includes("wind") && !f.includes("72 h <")));
+  });
+
+  it("enabled 3-step pack is noaa with honest hours, not 72 h ready", async () => {
+    const pack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      gfsWaveSeries: { enabled: true, hours: STEPS, paceMs: 0, ymd: "20260820", cc: "12" },
+      fetchImpl: mockSeriesFetch(STEPS),
+    });
+    const wind = pack.manifest.layers.find((l) => l.id === "wind")!;
+    const waves = pack.manifest.layers.find((l) => l.id === "waves")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(waves.source, "noaa");
+    assert.equal(wind.hours, 6);
+    assert.equal(waves.hours, 6);
+    assert.notEqual(wind.hours, 72);
+    assert.equal(pack.manifest.readyForOffshore, false);
+    const body = parseLayerBody(pack.bodies.wind!) as {
+      hours?: number[];
+      hoursCovered?: number;
+      source?: string;
+    };
+    assert.deepEqual(body.hours, STEPS);
+    assert.equal(body.hoursCovered, 6);
+    assert.equal(body.source, "noaa");
+    const nomads = pack.manifest.sources.find((s) => s.id === "nomads-gfswave");
+    assert.ok(nomads?.name.includes("not 72 h ready"));
+  });
+
+  it("mocked full 25-step assemble claims 72 h", async () => {
+    const { assembleGfsWaveSeries, gfsWaveSeriesHours } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const wanted = gfsWaveSeriesHours();
+    const files = wanted.map((hour) => ({ hour, bytes: encodeHourSample(hour) }));
+    const assembled = assembleGfsWaveSeries(files, wanted);
+    assert.equal(assembled.complete, true);
+    assert.equal(assembled.hoursCovered, 72);
+    assert.equal(assembled.windKt?.hoursCovered, 72);
+    assert.equal(assembled.windKt?.source, "noaa");
+    assert.equal(assembled.windKt?.hours.length, 25);
+    assert.ok((assembled.windKt?.note ?? "").includes("f000"));
+  });
+
+  it("enabled pack with mocked f000-f072 stamps 72 h noaa", async () => {
+    const { gfsWaveSeriesHours } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const wanted = gfsWaveSeriesHours();
+    const pack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      gfsWaveSeries: { enabled: true, hours: wanted, paceMs: 0, ymd: "20260820", cc: "12" },
+      fetchImpl: mockSeriesFetch(wanted),
+    });
+    const wind = pack.manifest.layers.find((l) => l.id === "wind")!;
+    const waves = pack.manifest.layers.find((l) => l.id === "waves")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(waves.source, "noaa");
+    assert.equal(wind.hours, 72);
+    assert.equal(waves.hours, 72);
+    const nomads = pack.manifest.sources.find((s) => s.id === "nomads-gfswave");
+    assert.ok(nomads?.name.includes("72 h"));
+  });
+
+  it("tryLive without series flag does not fetch f003–f072", async () => {
+    const { tryLiveNoaa } = await import("../src/lib/ahanu/noaa-live.ts");
+    const tracker = { urls: [] as string[] };
+    await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      fetchImpl: mockSeriesFetch(STEPS, tracker),
+    });
+    const gfsUrls = tracker.urls.filter((u) => u.includes("filter_gfswave"));
+    assert.ok(gfsUrls.length >= 1);
+    assert.ok(gfsUrls.every((u) => u.includes("f000")));
+    assert.ok(!gfsUrls.some((u) => u.includes("f003") || u.includes("f072")));
   });
 });

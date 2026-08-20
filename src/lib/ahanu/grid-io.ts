@@ -305,6 +305,7 @@ export function encodeConstantField(opts: {
   nx: number; ny: number;
   la1: number; lo1: number; la2: number; lo2: number;
   scan?: number;
+  forecastHour?: number;
 }): Uint8Array {
   const scan = opts.scan ?? 0;
   const ndp = opts.nx * opts.ny;
@@ -333,7 +334,11 @@ export function encodeConstantField(opts: {
   s4[3] = 34; s4[4] = 4;
   s4[9] = opts.cat; s4[10] = opts.param;
   s4[17] = 1;
-  s4[18] = 0; s4[19] = 0; s4[20] = 0; s4[21] = 0;
+  const fh = Math.max(0, Math.round(opts.forecastHour ?? 0));
+  s4[18] = (fh >>> 24) & 0xff;
+  s4[19] = (fh >>> 16) & 0xff;
+  s4[20] = (fh >>> 8) & 0xff;
+  s4[21] = fh & 0xff;
   const s5: number[] = [];
   putU32(s5, 21); s5.push(5); putU32(s5, ndp); putU16(s5, 0);
   putF32(s5, opts.value); putU16(s5, 0); putU16(s5, 0); s5.push(0, 0);
@@ -347,12 +352,16 @@ export function encodeConstantField(opts: {
   return new Uint8Array([...s0, ...body]);
 }
 
-export function encodeHour0Sample(): Uint8Array {
-  const box = { nx: 2, ny: 2, la1: 41, lo1: -72, la2: 40, lo2: -71, scan: 0 };
-  const wind = encodeConstantField({ disc: 0, cat: 2, param: 1, value: 5, ...box });
+export function encodeHourSample(forecastHour = 0, windMs = 5, htsgwM = 1): Uint8Array {
+  const box = { nx: 2, ny: 2, la1: 41, lo1: -72, la2: 40, lo2: -71, scan: 0, forecastHour };
+  const wind = encodeConstantField({ disc: 0, cat: 2, param: 1, value: windMs, ...box });
   const dir = encodeConstantField({ disc: 0, cat: 2, param: 0, value: 220, ...box });
-  const hs = encodeConstantField({ disc: 10, cat: 0, param: 3, value: 1, ...box });
+  const hs = encodeConstantField({ disc: 10, cat: 0, param: 3, value: htsgwM, ...box });
   const out = new Uint8Array(wind.length + dir.length + hs.length);
   out.set(wind, 0); out.set(dir, wind.length); out.set(hs, wind.length + dir.length);
   return out;
+}
+
+export function encodeHour0Sample(): Uint8Array {
+  return encodeHourSample(0);
 }

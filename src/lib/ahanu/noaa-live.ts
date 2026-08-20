@@ -21,10 +21,16 @@ import {
 import {
   GFS_WAVE_MAX_BYTES,
   GFS_WAVE_NOTE,
+  GFS_WAVE_PACE_MS,
+  assembleGfsWaveSeries,
+  fetchGfsWaveSeries,
   gfsWaveCycleCandidates,
   gfsWaveFilterUrl,
+  gfsWaveSeriesEnabled,
+  gfsWaveSeriesHours,
   isGrib2,
   type GfsWaveIngest,
+  type GfsWaveSeriesGrids,
 } from "./noaa-gfs";
 import { ncepToPacked, parseNcep } from "./grid-io";
 
@@ -285,11 +291,23 @@ export function coopsStationsForBox(bbox?: PackBBox): typeof COOPS_HARBOR_STATIO
   return COOPS_HARBOR_STATIONS.filter((st) => st.required || inBbox(st.lat, st.lon, bbox));
 }
 
+export type GfsWaveSeriesFlag =
+  | boolean
+  | {
+      enabled?: boolean;
+      hours?: number[];
+      paceMs?: number;
+      sleep?: (ms: number) => Promise<void>;
+      ymd?: string;
+      cc?: string;
+    };
+
 export interface LiveNoaaResult {
   buoys?: PackedJson;
   tides?: PackedJson;
   enc?: PackedJson;
   gfsWave?: GfsWaveIngest;
+  gfsWaveSeries?: GfsWaveSeriesGrids;
   errors: string[];
 }
 
@@ -509,6 +527,88 @@ async function liveGfsWave(
   return undefined;
 }
 
+function seriesFlag(raw: GfsWaveSeriesFlag | undefined): {
+  enabled: boolean;
+  hours?: number[];
+  paceMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  ymd?: string;
+  cc?: string;
+} {
+  if (raw === true) return { enabled: true };
+  if (raw === false || raw == null) return { enabled: false };
+  return {
+    enabled: gfsWaveSeriesEnabled(raw.enabled),
+    hours: raw.hours,
+    paceMs: raw.paceMs,
+    sleep: raw.sleep,
+    ymd: raw.ymd,
+    cc: raw.cc,
+  };
+}
+
+async function liveGfsWaveSeries(
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  series: ReturnType<typeof seriesFlag>,
+  now = new Date(),
+): Promise<{ ingest?: GfsWaveIngest; series?: GfsWaveSeriesGrids }> {
+  const hours = series.hours ?? gfsWaveSeriesHours();
+  const cycles =
+    series.ymd && series.cc ? [{ ymd: series.ymd, cc: series.cc }] : gfsWaveCycleCandidates(now);
+  const pacedFetch: FetchLike = async (input, init) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetchImpl(input, { signal: init?.signal ?? ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  for (const cycle of cycles) {
+    const files = await fetchGfsWaveSeries({
+      bbox,
+      ymd: cycle.ymd,
+      cc: cycle.cc,
+      hours,
+      fetchImpl: pacedFetch,
+      paceMs: series.paceMs ?? GFS_WAVE_PACE_MS,
+      enabled: true,
+      sleep: series.sleep,
+    });
+    if (!files.length) continue;
+    const assembled = assembleGfsWaveSeries(files, hours);
+    const f000 = files.find((f) => f.hour === 0) ?? files[0];
+    let ingest: GfsWaveIngest | undefined;
+    if (f000) {
+      const hash = await sha256Hex(f000.bytes);
+      const painted = Boolean(assembled.windKt || assembled.waveFt);
+      ingest = {
+        live: true,
+        source: "nomads-gfswave",
+        grid: "atlocn.0p16",
+        forecastHour: f000.hour,
+        cycle: `${cycle.ymd}${cycle.cc}`,
+        url: f000.url,
+        bytes: files.reduce((n, f) => n + f.bytes.byteLength, 0),
+        sha256: hash,
+        contentType: "application/wmo-grib",
+        note:
+          assembled.complete && assembled.hoursCovered >= 72
+            ? "NCEP Atlantic 0p16 f000–f072 / 3 h parsed."
+            : `NCEP Atlantic 0p16 series hours ${assembled.fetchedHours.join(",")} — hoursCovered ${assembled.hoursCovered}, not 72 h ready.`,
+        parsed: painted ? { windKt: assembled.windKt, waveFt: assembled.waveFt } : undefined,
+        parseError: painted ? undefined : "no wind/wave fields",
+      };
+    }
+    return { ingest, series: assembled };
+  }
+  errors.push("gfs-wave-series: fetch failed");
+  return {};
+}
+
 /**
  * Fetch public NOAA overlays. Any failure is recorded and that layer is
  * omitted (caller keeps the fixture). Never throws. Does not replace
@@ -522,6 +622,7 @@ export async function tryLiveNoaa(options: {
   timeoutMs?: number;
   skipCache?: boolean;
   now?: Date;
+  gfsWaveSeries?: GfsWaveSeriesFlag;
 }): Promise<LiveNoaaResult> {
   const timeoutMs = options.timeoutMs ?? 4000;
   const fetchImpl = options.fetchImpl ?? (globalThis.fetch as FetchLike | undefined);
@@ -538,16 +639,28 @@ export async function tryLiveNoaa(options: {
     return out;
   }
 
-  const [buoys, tides, enc, gfsWave] = await Promise.all([
+  const series = seriesFlag(options.gfsWaveSeries);
+  const gfsJob = series.enabled
+    ? liveGfsWaveSeries(options.bbox, fetchImpl, Math.max(timeoutMs, 8000), errors, series, options.now)
+    : liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now).then((ingest) => ({ ingest }));
+  const [buoys, tides, enc, gfs] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors),
-    liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now),
+    gfsJob,
   ]);
   if (buoys) out.buoys = buoys;
   if (tides) out.tides = tides;
   if (enc) out.enc = enc;
-  if (gfsWave) out.gfsWave = gfsWave;
+  if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
+    out.gfsWaveSeries = gfs.series;
+    if (gfs.ingest) out.gfsWave = gfs.ingest;
+  } else if (gfs.ingest) {
+    out.gfsWave = gfs.ingest;
+  } else if (series.enabled) {
+    const hour0 = await liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now);
+    if (hour0) out.gfsWave = hour0;
+  }
 
   liveCache.set(key, { at: Date.now(), value: out });
   return out;
@@ -558,4 +671,12 @@ export function encodeLiveLayer(body: PackedJson): string {
 }
 
 export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog } from "./noaa-enc";
-export { gfsWaveFilterUrl, gfsWaveCycleCandidates, isGrib2 } from "./noaa-gfs";
+export {
+  gfsWaveFilterUrl,
+  gfsWaveCycleCandidates,
+  isGrib2,
+  fetchGfsWaveSeries,
+  assembleGfsWaveSeries,
+  gfsWaveSeriesEnabled,
+  gfsWaveSeriesHours,
+} from "./noaa-gfs";

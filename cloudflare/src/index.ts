@@ -67,6 +67,8 @@ export interface Env {
   REGION_SOUTH?: string;
   REGION_EAST?: string;
   REGION_NORTH?: string;
+  AHANU_GFS_WAVE_SERIES?: string;
+  GFS_WAVE_SERIES?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,24 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (service-worker pack cache, 2026-08-20)
+
+`public/sw-ahanu.js` now actually caches same-origin GET `/api/packs` and GET `/api/objects` so a dock download survives reload and airplane mode. Fixture responses are cache-first after the first success (deterministic hashed bodies, `Cache-Control: max-age=86400`). `?live=1` is network-first with a 30 s freshness stamp only — live NOAA is not treated as fresh forever, and a failed or offline fetch may serve the last successful live response as fallback. IndexedDB remains the source of truth for a pack already written (`restorePackedSession` on helm boot); the worker is the HTTP fallback when those same-origin URLs are fetched again. No Worker scoring. No Flutter.
+
+## This pass (paced GFS-Wave 72 h series, off by default, 2026-08-20)
+
+`fetchGfsWaveSeries` / `assembleGfsWaveSeries` pull NOMADS atlocn.0p16 f000 through f072.
+About 25 files, 10 s apart. Stacks wind/wave PackedGrids. Off unless enabled.
+Hour-0 live paint is unchanged and does not start the series.
+
+Enable: buildTripPack({ tryLive: true, gfsWaveSeries: true }) or { enabled: true, hours, paceMs }.
+Also tryLiveNoaa({ gfsWaveSeries: { enabled: true } }).
+Env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1 is read only by ingestFixturePack (cron), not GET /api/packs.
+
+Complete series can set source noaa and hours 72.
+A failed step keeps hoursCovered as the prefix from hour 0.
+Partial series is never marked as a full 72-hour grid. Tests use mocked fetch. Cron stays commented until R2 exists. No Flutter. No Worker scoring.
+
 ## This pass (hour-0 NCEP wind/wave paint, 2026-08-20)
 
 Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetch public NOAA bytes when the network allows. Preview without `live=1` stays deterministic fixtures. Packs panel **Live NOAA** (default off) requests that flag; layer rows show fixture vs noaa from the manifest. Flutter was not started. Worker scoring was not added. AIS stays the demo gateway. Humor stayed out of helm toasts.
@@ -17,7 +35,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 ### Still fixture / not done
 
 - SST / chlorophyll / altimetry / bathymetry / contours / canyons / HMS grids and vectors.
-- 72 h wind and wave **grids** (hour 0 may be live; hours 3–72 stay fixture or empty. NDFD not fetched. Full series not downloaded).
+- 72 h wind and wave **grids** unless the paced series is explicitly enabled and every f000-f072 step decodes (hour 0 may be live; hours 3-72 stay fixture or empty otherwise. NDFD not fetched. Full series is not downloaded in CI).
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.

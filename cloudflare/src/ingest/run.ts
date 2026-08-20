@@ -14,9 +14,12 @@
  * catalog / GFS-Wave f000 (no keys), then writes fixture bodies for anything
  * the network did not return, when an R2 binding is present, and is a no-op
  * otherwise. ENC catalog is not official S-57. A parsed GFS-Wave hour is hour-0 only, not
- * a 72 h wind/wave grid. Do not pretend live SST / CMEMS / full GRIB exist.
+ * a 72 h wind/wave grid. The paced f000–f072 / 3 h series stays off unless
+ * AHANU_GFS_WAVE_SERIES or GFS_WAVE_SERIES is set. Do not pretend live SST /
+ * CMEMS exist.
  */
 import { buildTripPack } from "../../../src/lib/ahanu/pack";
+import { gfsWaveSeriesEnabled } from "../../../src/lib/ahanu/noaa-gfs";
 import { POINT_JUDITH_CANYON_BBOX } from "./fixtures";
 import { NORTHEAST_BBOX } from "../../../src/lib/ahanu/pack-fixtures";
 
@@ -25,6 +28,8 @@ export interface IngestEnv {
     put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
     get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
   };
+  AHANU_GFS_WAVE_SERIES?: string;
+  GFS_WAVE_SERIES?: string;
 }
 
 export async function ingestFixturePack(
@@ -33,7 +38,17 @@ export async function ingestFixturePack(
   start = new Date().toISOString(),
   hours = 72,
 ): Promise<{ packId: string; wrote: number; source: "r2" | "memory" }> {
-  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true });
+  const seriesOn = gfsWaveSeriesEnabled(undefined, {
+    AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
+    GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
+  });
+  const { manifest, bodies } = await buildTripPack({
+    bbox,
+    start,
+    hours,
+    tryLive: true,
+    gfsWaveSeries: seriesOn,
+  });
   const bucket = env.PACKS;
   let wrote = 0;
   if (bucket && typeof bucket.put === "function") {

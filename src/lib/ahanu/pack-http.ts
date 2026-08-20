@@ -77,6 +77,11 @@ function wantLive(url: URL): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/** Fixture bodies are deterministic. Live NOAA is not fresh forever. */
+function packCacheControl(live: boolean): Record<string, string> {
+  return { "Cache-Control": live ? "public, max-age=30" : "public, max-age=86400" };
+}
+
 function parseStartHours(url: URL): { start: string; hours: number } | Response {
   const startRaw = url.searchParams.get("start");
   const start = startRaw && !Number.isNaN(Date.parse(startRaw)) ? new Date(startRaw).toISOString() : new Date().toISOString();
@@ -111,7 +116,10 @@ export async function handlePacksRequest(
           fetchImpl: opts?.fetchImpl,
         })
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
-    return json(built.manifest, 200, { "X-Ahanu-Pack-Id": built.manifest.packId });
+    return json(built.manifest, 200, {
+      "X-Ahanu-Pack-Id": built.manifest.packId,
+      ...packCacheControl(wantLive(url)),
+    });
   }
 
   if (request.method === "GET" && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
@@ -139,6 +147,7 @@ export async function handlePacksRequest(
       ETag: rec ? `"${rec.hash}"` : "",
       "X-Ahanu-Hash": rec?.hash ?? "",
       "X-Ahanu-Source": rec?.source ?? "fixture",
+      ...packCacheControl(wantLive(url)),
     });
   }
 

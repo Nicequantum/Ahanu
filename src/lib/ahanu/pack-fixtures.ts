@@ -145,6 +145,8 @@ export interface PackedGrid {
   nx: number;
   ny: number;
   hours: number[];
+  /** Honest coverage from hour 0. Gaps do not count as 72 h. */
+  hoursCovered?: number;
   unit: string;
   values: number[][];
   live?: boolean;

@@ -109,6 +109,8 @@ export interface ReadyOffshoreResult {
 function overlayCoverHours(body: string, fallback: number): number {
   const parsed = parseLayerBody(body);
   if (parsed && parsed.kind === "grid") {
+    const covered = parsed.hoursCovered;
+    if (typeof covered === "number" && Number.isFinite(covered)) return covered;
     const hs = parsed.hours ?? [];
     if (hs.length <= 1) return 1;
     return Math.max(...hs);
@@ -309,12 +311,23 @@ export async function buildFixturePack(options: {
       ...(options.extraSources ?? []),
     ],
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
   return { manifest, bodies };
 }
+
+export type GfsWaveSeriesFlag =
+  | boolean
+  | {
+      enabled?: boolean;
+      hours?: number[];
+      paceMs?: number;
+      sleep?: (ms: number) => Promise<void>;
+      ymd?: string;
+      cc?: string;
+    };
 
 export async function buildTripPack(options: {
   bbox: PackBBox;
@@ -324,6 +337,8 @@ export async function buildTripPack(options: {
   tryLive?: boolean;
   fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
   timeoutMs?: number;
+  /** Off unless true / { enabled: true }. Do not turn on in CI. */
+  gfsWaveSeries?: GfsWaveSeriesFlag;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -339,20 +354,33 @@ export async function buildTripPack(options: {
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
       skipCache: Boolean(options.fetchImpl),
+      gfsWaveSeries: options.gfsWaveSeries,
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
     if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
-    if (live.gfsWave) {
-      if (live.gfsWave.parsed?.windKt) overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
-      if (live.gfsWave.parsed?.waveFt) overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
-      const painted = Boolean(live.gfsWave.parsed?.windKt || live.gfsWave.parsed?.waveFt);
-      extraSources.push({
-        id: "nomads-gfswave",
-        name: painted
-          ? `GFS-Wave f000 parsed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, hour-0 only)`
-          : `GFS-Wave f000 hashed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, parse failed — fixture grids kept)`,
-      });
+    const series = live.gfsWaveSeries;
+    if (series?.windKt) overlays.wind = encodeLayerBody(series.windKt);
+    else if (live.gfsWave?.parsed?.windKt) overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
+    if (series?.waveFt) overlays.waves = encodeLayerBody(series.waveFt);
+    else if (live.gfsWave?.parsed?.waveFt) overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
+    if (live.gfsWave || series) {
+      const painted = Boolean(
+        series?.windKt || series?.waveFt || live.gfsWave?.parsed?.windKt || live.gfsWave?.parsed?.waveFt,
+      );
+      const hash = live.gfsWave?.sha256.slice(0, 12) ?? "series";
+      const bytes = live.gfsWave?.bytes ?? 0;
+      let name: string;
+      if (series?.complete && series.hoursCovered >= 72) {
+        name = `GFS-Wave f000–f072 / 3 h parsed ${hash} (${bytes} B, 72 h)`;
+      } else if (series && series.fetchedHours.length) {
+        name = `GFS-Wave series hours ${series.fetchedHours.join(",")} — hoursCovered ${series.hoursCovered}, not 72 h ready`;
+      } else if (painted) {
+        name = `GFS-Wave f000 parsed ${hash} (${bytes} B, hour-0 only)`;
+      } else {
+        name = `GFS-Wave f000 hashed ${hash} (${bytes} B, parse failed — fixture grids kept)`;
+      }
+      extraSources.push({ id: "nomads-gfswave", name });
     }
   }
   return buildFixturePack({

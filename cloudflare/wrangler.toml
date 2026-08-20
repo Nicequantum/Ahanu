@@ -48,6 +48,11 @@ class_name = "CommunityHub"
 tag = "v1"
 new_sqlite_classes = ["CommunityHub"]
 
+# GFS-Wave 72 h / 3 h series is off. Set to "1" only on the cron worker after
+# R2 exists. ~25 NOMADS files, ~10 s apart (~4 min). GET /api/packs never
+# reads this for the series (hour-0 only).
+# GFS_WAVE_SERIES = "0"
+
 # TODO: production ingest cron — commented out until R2 `ahanu-trip-packs`
 # and D1 `ahanu-core` exist and NOAA/CMEMS access is in place. Until then
 # /api/packs serves hashed fixture bodies. Do not assume R2 holds live ENC/GRIB/SST.
