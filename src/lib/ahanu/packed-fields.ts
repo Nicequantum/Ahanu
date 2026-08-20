@@ -1,9 +1,9 @@
 /**
  * On-device sample of packed rasters / GRIB grids.
- * When a trip pack is loaded, ocean.ts and grib.ts prefer these fields.
+ * When a trip pack is loaded, ocean.ts, grib.ts, and the helm prefer these fields.
  */
 
-import type { PackedBody, PackedGrid, PackBBox } from "./pack-fixtures";
+import type { PackedBody, PackedGrid, PackedJson, PackBBox } from "./pack-fixtures";
 import { parseLayerBody } from "./pack-fixtures";
 
 export interface SampleGrid {
@@ -14,6 +14,11 @@ export interface SampleGrid {
   values: number[][];
 }
 
+export type PackFieldId = "sst" | "chl" | "ssh" | "depth" | "windKt" | "waveFt";
+
+/** fixture = hashed demo bodies. r2 = production ingest bytes. */
+export type PackFieldSource = "fixture" | "r2";
+
 export interface PackedOcean {
   sst?: SampleGrid;
   chl?: SampleGrid;
@@ -21,6 +26,7 @@ export interface PackedOcean {
   depth?: SampleGrid;
   windKt?: SampleGrid;
   waveFt?: SampleGrid;
+  source: PackFieldSource;
 }
 
 let packed: PackedOcean | null = null;
@@ -28,6 +34,14 @@ let epoch = 0;
 
 export function getPackedOcean(): PackedOcean | null {
   return packed;
+}
+
+export function hasPackedSession(): boolean {
+  return packed != null;
+}
+
+export function packedSource(): PackFieldSource | null {
+  return packed?.source ?? null;
 }
 
 export function packedEpoch(): number {
@@ -44,6 +58,25 @@ export function clearPackedOcean(): void {
   epoch += 1;
 }
 
+export function packedHas(kind: PackFieldId): boolean {
+  return Boolean(packed?.[kind]);
+}
+
+/** Bbox of a packed field, or the first grid in the session. */
+export function packedBBox(kind?: PackFieldId): PackBBox | null {
+  if (!packed) return null;
+  if (kind) return packed[kind]?.bbox ?? null;
+  return (
+    packed.sst?.bbox ??
+    packed.chl?.bbox ??
+    packed.ssh?.bbox ??
+    packed.depth?.bbox ??
+    packed.windKt?.bbox ??
+    packed.waveFt?.bbox ??
+    null
+  );
+}
+
 export function gridFromBody(body: PackedBody): SampleGrid | null {
   if (body.kind !== "grid") return null;
   const g = body as PackedGrid;
@@ -57,9 +90,25 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
   };
 }
 
-export function packedOceanFromBodies(bodies: Record<string, string>): PackedOcean {
-  const out: PackedOcean = {};
-  const take = (id: string, key: keyof PackedOcean) => {
+function detectSource(bodies: Record<string, string>): PackFieldSource {
+  for (const raw of Object.values(bodies)) {
+    const parsed = parseLayerBody(raw);
+    if (!parsed || !("payload" in parsed)) continue;
+    const payload = (parsed as PackedJson).payload;
+    if (payload && typeof payload === "object" && (payload as { fixture?: boolean }).fixture) {
+      return "fixture";
+    }
+  }
+  // Untagged grids in this repo are still fixtures until live ingest writes R2.
+  return "fixture";
+}
+
+export function packedOceanFromBodies(
+  bodies: Record<string, string>,
+  source?: PackFieldSource,
+): PackedOcean {
+  const out: PackedOcean = { source: source ?? detectSource(bodies) };
+  const take = (id: string, key: PackFieldId) => {
     const raw = bodies[id];
     if (!raw) return;
     const parsed = parseLayerBody(raw);
@@ -90,6 +139,14 @@ function hourIndex(grid: SampleGrid, hour: number): number {
   return best;
 }
 
+function cellLat(bbox: PackBBox, ny: number, y: number): number {
+  return ny === 1 ? (bbox.north + bbox.south) / 2 : bbox.north - ((bbox.north - bbox.south) * y) / (ny - 1);
+}
+
+function cellLon(bbox: PackBBox, nx: number, x: number): number {
+  return nx === 1 ? (bbox.west + bbox.east) / 2 : bbox.west + ((bbox.east - bbox.west) * x) / (nx - 1);
+}
+
 /** Bilinear sample. Returns null outside the packed bbox. */
 export function samplePacked(grid: SampleGrid, lat: number, lon: number, hour = 0): number | null {
   const { west, east, south, north } = grid.bbox;
@@ -114,7 +171,7 @@ export function samplePacked(grid: SampleGrid, lat: number, lon: number, hour = 
 }
 
 export function samplePackedKind(
-  kind: "sst" | "chl" | "ssh" | "depth" | "windKt" | "waveFt",
+  kind: PackFieldId,
   lat: number,
   lon: number,
   hour = 0,
@@ -122,4 +179,29 @@ export function samplePackedKind(
   const g = packed?.[kind];
   if (!g) return null;
   return samplePacked(g, lat, lon, hour);
+}
+
+/** One GeoJSON point per packed cell. Does not invent values outside the grid. */
+export function packedGridFeatures(
+  grid: SampleGrid,
+  hour: number,
+  props: (value: number, lat: number, lon: number) => Record<string, number | string> | null,
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (let y = 0; y < grid.ny; y++) {
+    const lat = cellLat(grid.bbox, grid.ny, y);
+    for (let x = 0; x < grid.nx; x++) {
+      const lon = cellLon(grid.bbox, grid.nx, x);
+      const v = samplePacked(grid, lat, lon, hour);
+      if (v == null) continue;
+      const p = props(v, lat, lon);
+      if (!p) continue;
+      features.push({
+        type: "Feature",
+        properties: p,
+        geometry: { type: "Point", coordinates: [lon, lat] },
+      });
+    }
+  }
+  return { type: "FeatureCollection", features };
 }

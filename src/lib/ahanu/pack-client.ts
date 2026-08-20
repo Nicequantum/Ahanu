@@ -12,8 +12,15 @@ import {
   type TripPackManifestV1,
 } from "./pack";
 import { hashesMatch } from "./pack-fixtures";
-import { packedOceanFromBodies, setPackedOcean } from "./packed-fields";
+import { packedOceanFromBodies, setPackedOcean, type PackFieldSource } from "./packed-fields";
 import { bodiesForPack, putObject, saveManifest } from "./pack-store";
+
+
+function sourceFromManifest(manifest: TripPackManifestV1): PackFieldSource {
+  return manifest.layers.length > 0 && manifest.layers.every((l) => l.source === "r2")
+    ? "r2"
+    : "fixture";
+}
 
 export function packsApiBase(): string {
   if (typeof window === "undefined") return "";
@@ -155,7 +162,7 @@ export async function downloadTripPack(options: {
   });
 
   if (Object.keys(bodies).length) {
-    setPackedOcean(packedOceanFromBodies(bodies));
+    setPackedOcean(packedOceanFromBodies(bodies, sourceFromManifest(manifest)));
   }
 
   return { manifest, ready, workerReady: manifest.readyForOffshore, bodies };

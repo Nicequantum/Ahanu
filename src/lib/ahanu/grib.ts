@@ -77,24 +77,8 @@ function spatial(lat: number, lon: number): number {
  * Hours 0–24 fair SW 10–16 kt; 24–40 a front (22–30 kt, 7–11 ft near h36);
  * 48–72 improving. Open slope is lumpier than the lee of the shelf.
  */
-export function gribAt(lat: number, lon: number, hour: number): GribPoint {
+function syntheticGrib(lat: number, lon: number, hour: number): GribPoint {
   const h = hour;
-  const packedWind = samplePackedKind("windKt", lat, lon, hour);
-  const packedWave = samplePackedKind("waveFt", lat, lon, hour);
-  if (packedWind != null && packedWave != null) {
-    return {
-      windKt: packedWind,
-      windDir: 225,
-      gustKt: packedWind * 1.18,
-      waveFt: packedWave,
-      swellFt: packedWave * 0.7,
-      swellDir: 215,
-      periodS: 7.2,
-      pressureMb: 1016,
-      precipMm: 0,
-      visNm: 8,
-    };
-  }
   const front = frontIntensity(h);
   const exp = isLand(lat, lon) ? 0 : exposure(lat, lon);
   const tex = spatial(lat, lon);
@@ -128,6 +112,20 @@ export function gribAt(lat: number, lon: number, hour: number): GribPoint {
     pressureMb,
     precipMm,
     visNm,
+  };
+}
+
+export function gribAt(lat: number, lon: number, hour: number): GribPoint {
+  const syn = syntheticGrib(lat, lon, hour);
+  const packedWind = samplePackedKind("windKt", lat, lon, hour);
+  const packedWave = samplePackedKind("waveFt", lat, lon, hour);
+  if (packedWind == null && packedWave == null) return syn;
+  return {
+    ...syn,
+    windKt: packedWind ?? syn.windKt,
+    gustKt: packedWind != null ? packedWind * 1.18 : syn.gustKt,
+    waveFt: packedWave ?? syn.waveFt,
+    swellFt: packedWave != null ? packedWave * 0.7 : syn.swellFt,
   };
 }
 

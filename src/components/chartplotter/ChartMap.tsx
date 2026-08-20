@@ -1,7 +1,15 @@
 import { useEffect, useRef } from "react";
 import { REGION } from "@/lib/ahanu/constants";
 import { contourLines, landPolygon } from "@/lib/ahanu/bathymetry";
-import { fieldUrl, habitatUrl, overlayBounds } from "@/lib/ahanu/rasters";
+import {
+  EMPTY_RASTER_URL,
+  fieldImage,
+  habitatImage,
+  overlayBounds,
+  type FieldImage,
+  type OverlayBounds,
+} from "@/lib/ahanu/rasters";
+import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
 import { CANYONS } from "@/lib/data/canyons";
 import { BUOYS } from "@/lib/data/buoys";
@@ -12,9 +20,6 @@ import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
 import { useAhanu } from "@/lib/ahanu/store";
-
-const BOUNDS: [[number, number], [number, number], [number, number], [number, number]] =
-  overlayBounds();
 
 function canyonGeo(): GeoJSON.FeatureCollection {
   return {
@@ -51,14 +56,21 @@ function closedGeo(): GeoJSON.FeatureCollection {
   };
 }
 
+function emptyFc(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
+const DEFAULT_SAMPLE = { west: -74.6, east: -67.4, south: 37.4, north: 41.0 };
+
 function samplePoints(
   test: (lat: number, lon: number) => boolean,
   hour: number,
   step = 0.28,
+  box = DEFAULT_SAMPLE,
 ): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
-  for (let lat = 37.4; lat <= 41.0; lat += step) {
-    for (let lon = -74.6; lon <= -67.4; lon += step) {
+  for (let lat = box.south; lat <= box.north; lat += step) {
+    for (let lon = box.west; lon <= box.east; lon += step) {
       if (test(lat, lon)) {
         features.push({
           type: "Feature",
@@ -72,11 +84,33 @@ function samplePoints(
 }
 
 function breaksGeo(hour: number, sensitivity: number) {
-  return samplePoints((lat, lon) => isTempBreak(lat, lon, hour, sensitivity), hour, 0.28);
+  const ocean = getPackedOcean();
+  if (ocean && !ocean.sst) return emptyFc();
+  const box = ocean?.sst?.bbox ?? DEFAULT_SAMPLE;
+  return samplePoints((lat, lon) => isTempBreak(lat, lon, hour, sensitivity), hour, 0.28, box);
 }
 
 function colorEdgeGeo(hour: number, sensitivity: number) {
-  return samplePoints((lat, lon) => isColorEdge(lat, lon, hour, sensitivity), hour, 0.32);
+  const ocean = getPackedOcean();
+  if (ocean && !ocean.chl) return emptyFc();
+  const box = ocean?.chl?.bbox ?? DEFAULT_SAMPLE;
+  return samplePoints((lat, lon) => isColorEdge(lat, lon, hour, sensitivity), hour, 0.32, box);
+}
+
+function rasterOrEmpty(image: FieldImage | null): { url: string; coordinates: OverlayBounds } {
+  if (image?.url) return { url: image.url, coordinates: image.bounds };
+  return { url: EMPTY_RASTER_URL, coordinates: overlayBounds() };
+}
+
+function applyRaster(
+  map: import("maplibre-gl").Map,
+  id: "sst" | "chl" | "ssh" | "habitat" | "bathy",
+  image: FieldImage | null,
+) {
+  const src = map.getSource(id) as
+    | { updateImage?: (a: { url: string; coordinates: OverlayBounds }) => void }
+    | undefined;
+  src?.updateImage?.(rasterOrEmpty(image));
 }
 
 function lineGeo(pts: { lat: number; lon: number }[]): GeoJSON.FeatureCollection {
@@ -125,9 +159,6 @@ function windLines(hour: number): GeoJSON.FeatureCollection {
   };
 }
 
-function emptyFc(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: [] };
-}
 
 export function ChartMap() {
   const host = useRef<HTMLDivElement>(null);
@@ -191,31 +222,32 @@ export function ChartMap() {
           paint: { "fill-color": mode === "day" ? "#c5d4c0" : "#1a2a22", "fill-opacity": 1 },
         });
 
-        const bathy = fieldUrl("depth", 0, 280, 192);
-        if (bathy) {
-          map.addSource("bathy", { type: "image", url: bathy, coordinates: BOUNDS });
-          map.addLayer({
-            id: "bathy",
-            type: "raster",
-            source: "bathy",
-            paint: { "raster-opacity": layers.bathymetry.opacity, "raster-fade-duration": 0 },
-          });
-        }
+        const bathy = fieldImage("depth", 0, 280, 192);
+        const bathyImg = rasterOrEmpty(bathy);
+        map.addSource("bathy", { type: "image", url: bathyImg.url, coordinates: bathyImg.coordinates });
+        map.addLayer({
+          id: "bathy",
+          type: "raster",
+          source: "bathy",
+          paint: { "raster-opacity": layers.bathymetry.opacity, "raster-fade-duration": 0 },
+        });
 
+        const packClock = new Date(useAhanu.getState().clockMs);
+        const initial: Record<"sst" | "chl" | "ssh" | "habitat", FieldImage | null> = {
+          sst: fieldImage("sst", hour, 220, 150),
+          chl: fieldImage("chl", hour, 220, 150),
+          ssh: fieldImage("ssh", hour, 180, 120),
+          habitat: habitatImage(species, hour, packClock, 120, 82),
+        };
         for (const id of ["sst", "chl", "ssh", "habitat"] as const) {
-          const url =
-            id === "habitat"
-              ? habitatUrl(species, hour, new Date(useAhanu.getState().clockMs), 120, 82)
-              : fieldUrl(id === "chl" ? "chl" : id, hour, 220, 150);
-          if (url) {
-            map.addSource(id, { type: "image", url, coordinates: BOUNDS });
-            map.addLayer({
-              id,
-              type: "raster",
-              source: id,
-              paint: { "raster-opacity": 0, "raster-fade-duration": 0 },
-            });
-          }
+          const img = rasterOrEmpty(initial[id]);
+          map.addSource(id, { type: "image", url: img.url, coordinates: img.coordinates });
+          map.addLayer({
+            id,
+            type: "raster",
+            source: id,
+            paint: { "raster-opacity": 0, "raster-fade-duration": 0 },
+          });
         }
 
         const contours = contourLines(183, 2);
@@ -571,14 +603,10 @@ export function ChartMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const upd = (id: "sst" | "chl" | "ssh" | "habitat", url: string | null) => {
-      const src = map.getSource(id) as { updateImage?: (a: { url: string; coordinates: typeof BOUNDS }) => void } | undefined;
-      if (src?.updateImage && url) src.updateImage({ url, coordinates: BOUNDS });
-    };
-    upd("sst", fieldUrl("sst", hour, 220, 150));
-    upd("chl", fieldUrl("chl", hour, 220, 150));
-    upd("ssh", fieldUrl("ssh", hour, 180, 120));
-    upd("habitat", habitatUrl(species, hour, new Date(useAhanu.getState().clockMs), 120, 82));
+    applyRaster(map, "sst", fieldImage("sst", hour, 220, 150));
+    applyRaster(map, "chl", fieldImage("chl", hour, 220, 150));
+    applyRaster(map, "ssh", fieldImage("ssh", hour, 180, 120));
+    applyRaster(map, "habitat", habitatImage(species, hour, new Date(useAhanu.getState().clockMs), 120, 82));
     const br = map.getSource("breaks") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
     br?.setData?.(breaksGeo(hour, sens));
     const ce = map.getSource("chl-edges") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
