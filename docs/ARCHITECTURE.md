@@ -46,11 +46,11 @@ Until Flutter exists, treat `src/lib/ahanu` as frozen API: additive changes only
 
 A trip pack is a **bbox + time window + content-addressed layers**. The captain downloads it before leaving the harbor. After that, the plotter does not need the network.
 
-| Store | Web PWA | Flutter (planned) |
-| --- | --- | --- |
+| Store                                     | Web PWA                                 | Flutter (planned)   |
+| ----------------------------------------- | --------------------------------------- | ------------------- |
 | Pack bytes (GRIB, COG, ENC clip, GeoJSON) | IndexedDB (`Cache` + IDB for manifests) | SQLite + filesystem |
-| User marks, routes, catch log | IndexedDB / PGLite | SQLite |
-| Session (vessel, display mode) | memory + localStorage | secure prefs |
+| User marks, routes, catch log             | IndexedDB / PGLite                      | SQLite              |
+| Session (vessel, display mode)            | memory + localStorage                   | secure prefs        |
 
 The Worker endpoint `GET /api/packs?bbox=w,s,e,n&start=ISO&hours=72` returns a manifest (`TripPackLayer` plus `hash` and `r2Key`). The client then GETs each R2 object. Hashes are verified on write. A pack whose required layers are present and fresh is **Ready for offshore** — see [DATA_PACKS.md](./DATA_PACKS.md).
 
@@ -82,13 +82,13 @@ Mixing these — for example baking a habitat GeoTIFF on the Worker — would co
 
 ## Cloudflare data plane
 
-| Piece | Name | Role |
-| --- | --- | --- |
-| Worker | `ahanu-packs` | CORS, health, pack manifests, buoy snapshot, catch upsert, community bbox query |
-| Pages | (app shell) | Hosts the production PWA; not this Vercel preview |
-| R2 | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client. |
-| D1 | `ahanu-core` | Catch log, community metadata, pack index, device keys |
-| Durable Objects | `CommunityHub` | Bbox-scoped live reports; later, pack-build leases so two ingest crons do not write the same prefix |
+| Piece           | Name               | Role                                                                                                |
+| --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
+| Worker          | `ahanu-packs`      | CORS, health, pack manifests, buoy snapshot, catch upsert, community bbox query                     |
+| Pages           | (app shell)        | Hosts the production PWA; not this Vercel preview                                                   |
+| R2              | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client.                                         |
+| D1              | `ahanu-core`       | Catch log, community metadata, pack index, device keys                                              |
+| Durable Objects | `CommunityHub`     | Bbox-scoped live reports; later, pack-build leases so two ingest crons do not write the same prefix |
 
 Ingest adapters live in `cloudflare/src/ingest/sources.ts`. They are stubs that return metadata and **real NOAA / CMEMS URLs**. A scheduled Worker will clip, hash, and put. Until that job exists, `/api/packs` still returns a coherent Northeast manifest so the client can be built against a stable shape.
 
@@ -137,7 +137,7 @@ Go/no-go is computed from the skipper’s own `BoatLimits` (wind, sea, fuel, res
 
 ## Ahanu spirit in the UX
 
-**Ahanu** (ah-HAH-noo) is Algonquin for *He Laughs*. The boat in the domain defaults is *Laughing One*. The product should feel like a competent, slightly dry skipper who is glad to be out — not a gamified fishing app and not a military clone.
+**Ahanu** (ah-HAH-noo) is Algonquin for _He Laughs_. The boat in the domain defaults is _Laughing One_. The product should feel like a competent, slightly dry skipper who is glad to be out — not a gamified fishing app and not a military clone.
 
 - Night bridge first. Chrome stays dim; the water stays bright enough to read.
 - Sparse language. Depth in fathoms when it helps, meters in the contract, no marketing sentences on the helm.
@@ -145,3 +145,7 @@ Go/no-go is computed from the skipper’s own `BoatLimits` (wind, sea, fuel, res
 - Trust the water: show the break, the color edge, the buoy, and then get out of the way.
 
 When those are in tension with a feature request, the helm wins.
+
+## Current status
+
+What is implemented vs fixture lives in [STATUS.md](./STATUS.md). This document is the contract; STATUS is the inventory.

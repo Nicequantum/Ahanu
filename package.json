@@ -1,10 +1,12 @@
 {
-  "name": "app-builder-workspace",
+  "name": "ahanu",
+  "description": "Offline-first marine OS. Web PWA plus Cloudflare trip packs.",
+  "license": "MIT",
   "private": true,
-  "sideEffects": false,
   "type": "module",
-  "overrides": {
-    "nf3": "0.3.17"
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "dev": "vite dev --host 0.0.0.0 --port 8080",
@@ -18,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test --test-concurrency=1 --import ./tests/register-alias.ts tests/*.test.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -98,5 +101,8 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0",
     "wrangler": "^4.124.0"
+  },
+  "overrides": {
+    "nf3": "0.3.17"
   }
 }

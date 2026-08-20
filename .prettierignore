@@ -1,0 +1,17 @@
+node_modules
+dist
+.output
+.vercel
+.tanstack
+.wrangler
+.nitro
+coverage
+package-lock.json
+src/routeTree.gen.ts
+flutter
+public/__grok
+*.min.js
+artifacts
+attachments
+LICENSE
+.editorconfig
