@@ -244,7 +244,7 @@ export function ghrsstCoastwatchSst(): IngestMeta {
       },
     ],
     notes:
-      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. The no-key live path that returned bytes from this network is CoastWatch CoralTemp daily 5 km (noaacrwsstDaily), not 1 km MUR. MUR / GOES-16 stay documented probes; do not invent GHRSST if they fail.",
+      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. The no-key live path that returned a Point Judith grid inside 48 h here is PFEG jplMURSST41 subsampled to ~0.05° (stride 5) — not native 1 km. CoralTemp daily last cell can sit past 48 h; GOES-16 id is a documented 404 here. Do not invent GHRSST if a probe fails.",
   });
 }
 

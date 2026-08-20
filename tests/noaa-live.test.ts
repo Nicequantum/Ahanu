@@ -19,6 +19,7 @@ const {
   fetchLiveSst,
   sampleCsvForTests,
   SST_ENDPOINTS,
+  sstEndpointById,
   erddapChlCsvUrl,
   parseErddapChlCsv,
   chlTableToPacked,
@@ -83,6 +84,18 @@ const COOPS_SAMPLE = {
 };
 
 const START = "2026-08-20T12:00:00.000Z";
+
+function coralTemp() {
+  const ep = sstEndpointById("noaacrwsstDaily");
+  assert.ok(ep);
+  return ep;
+}
+
+function murL4() {
+  const ep = sstEndpointById("jplMURSST41");
+  assert.ok(ep);
+  return ep;
+}
 
 describe("parseNdbcLatestObs", () => {
   it("keeps Northeast stations, converts m/s and meters, drops outsiders", () => {
@@ -566,7 +579,7 @@ describe("ERDDAP SST parse", () => {
   it("builds a north-up degC grid and does not claim 1 km MUR", () => {
     const table = parseErddapSstCsv(sampleCsvForTests());
     assert.ok(table);
-    const ep = SST_ENDPOINTS[0]!;
+    const ep = coralTemp();
     const grid = sstTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
     assert.ok(grid);
     assert.equal(grid.layer, "sst");
@@ -585,7 +598,7 @@ describe("ERDDAP SST parse", () => {
   it("converts Kelvin units to degC", () => {
     const table = parseErddapSstCsv(sstCsvAt("2026-08-19T12:00:00Z", "degree_K", true));
     assert.ok(table);
-    const grid = sstTableToPacked(table!, SST_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    const grid = sstTableToPacked(table!, coralTemp(), POINT_JUDITH_CANYON_BBOX);
     assert.ok(grid);
     const v = grid.values[0]![0]!;
     assert.ok(v > 15 && v < 30, `expected degC, got ${v}`);
@@ -596,7 +609,7 @@ describe("ERDDAP SST parse", () => {
   });
 
   it("builds the CoralTemp ERDDAP CSV URL", () => {
-    const url = erddapSstCsvUrl(SST_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    const url = erddapSstCsvUrl(coralTemp(), POINT_JUDITH_CANYON_BBOX);
     assert.match(url, /noaacrwsstDaily\.csv/);
     assert.match(url, /analysed_sst/);
     assert.match(url, /39\.4/);
@@ -608,7 +621,7 @@ describe("tryLiveNoaa SST overlay", () => {
   it("paints sst source noaa when CoralTemp CSV parses", async () => {
     const csv = sstCsvAt(START);
     const fetchImpl = async (url: string) => {
-      if (url.includes("noaacrwsstDaily") || url.includes("analysed_sst")) {
+      if (url.includes("noaacrwsstDaily")) {
         return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
       }
       return new Response("no", { status: 404 });
@@ -678,7 +691,7 @@ describe("buildTripPack SST overlay", () => {
       live?: boolean;
     };
     assert.equal(body.source, "noaa");
-    assert.match(body.note ?? "", /not 1 km MUR/);
+    assert.match(body.note ?? "", /not native 1 km|not 1 km MUR/);
     assert.ok(live.manifest.sources.some((s) => s.id === "noaa-sst"));
     assert.equal(live.manifest.readyForOffshore, true);
   });
@@ -727,6 +740,67 @@ describe("buildTripPack SST overlay", () => {
     assert.equal(sst.source, "noaa");
     assert.equal(sst.updatedAt, "2026-08-17T12:00:00.000Z");
     assert.equal(live.manifest.readyForOffshore, false);
+  });
+});
+
+
+describe("fetchLiveSst 48 h picker", () => {
+  const now = new Date("2026-08-20T23:40:00.000Z");
+
+  it("selects a later public SST when the first parseable grid is older than 48 h", async () => {
+    const stale = sstCsvAt("2026-08-18T12:00:00Z");
+    const fresh = sstCsvAt("2026-08-19T09:00:00Z");
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now,
+      fetchImpl: async (url: string) => {
+        if (url.includes("noaacrwsstDaily")) return new Response(stale, { status: 200 });
+        if (url.includes("jplMURSST41")) return new Response(fresh, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+      endpoints: [coralTemp(), murL4()],
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "jplMURSST41");
+    assert.equal(sst.analysedAt, "2026-08-19T09:00:00.000Z");
+    assert.match(sst.note, /subsampled/);
+    assert.match(sst.note, /not native 1 km/);
+  });
+
+  it("keeps the newest parseable SST when every public grid is older than 48 h", async () => {
+    const older = sstCsvAt("2026-08-17T12:00:00Z");
+    const newerStale = sstCsvAt("2026-08-18T09:00:00Z");
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now,
+      fetchImpl: async (url: string) => {
+        if (url.includes("noaacrwsstDaily")) return new Response(older, { status: 200 });
+        if (url.includes("jplMURSST41")) return new Response(newerStale, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+      endpoints: [coralTemp(), murL4()],
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "jplMURSST41");
+    assert.equal(sst.analysedAt, "2026-08-18T09:00:00.000Z");
+  });
+
+  it("prefers the first in-window public SST in endpoint order", async () => {
+    const mur = sstCsvAt("2026-08-19T09:00:00Z");
+    const coral = sstCsvAt("2026-08-19T12:00:00Z");
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now,
+      fetchImpl: async (url: string) => {
+        if (url.includes("jplMURSST41")) return new Response(mur, { status: 200 });
+        if (url.includes("noaacrwsstDaily")) return new Response(coral, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+      endpoints: [murL4(), coralTemp()],
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "jplMURSST41");
+    assert.equal(sst.analysedAt, "2026-08-19T09:00:00.000Z");
   });
 });
 

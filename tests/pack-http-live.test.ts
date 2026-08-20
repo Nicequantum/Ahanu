@@ -73,7 +73,7 @@ const LIVE_LAYERS = [
 type LayerRow = { id: string; hash: string; source: string; hours?: number; updatedAt?: string };
 
 function mockNoaaSuccess(): (url: string) => Promise<Response> {
-  const sst = sampleCsvForTests();
+  const sst = sampleCsvForTests().replaceAll("2026-08-18T12:00:00Z", "2026-08-20T12:00:00Z");
   const chl = sampleChlCsvForTests();
   const ssh = sampleSshCsvForTests();
   const bathy = sampleBathyCsvForTests();

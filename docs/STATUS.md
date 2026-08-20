@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (prefer in-window public SST, 2026-08-20)
+
+`fetchLiveSst` still uses ERDDAP `last`. CoralTemp `noaacrwsstDaily` last cell here is 2026-08-18T12:00:00Z (~60 h). PFEG `jplMURSST41` last cell is 2026-08-19T09:00:00Z (~39 h), inside the 48 h Ready window. Probe order now tries MUR first. A parseable grid older than 48 h is skipped when a later public grid is in-window; timestamps stay honest. MUR is subsampled stride 5 to ~0.05° — not native 1 km. GOES-16 dataset id 404s here. Helm **Accept stale SST** remains the path if every public grid is older than 48 h. No Worker scoring. No Flutter.
+
 ## This pass (helm to live Worker, 2026-08-20)
 
 cloudflare deploy is wrangler deploy --config wrangler.toml so Wrangler 4 does not find-up parent wrangler.jsonc and run the PWA Vite build.

@@ -26,19 +26,13 @@ export interface SstEndpoint {
 }
 
 /**
- * Probe order. CoralTemp 5 km is the path that returned bytes from this
- * network (2026-08-20). MUR / GOES-16 are documented fallbacks.
+ * Probe order. Prefer a public grid whose analysis time is inside the
+ * 48 h Ready window. On 2026-08-20 evening ET, PFEG jplMURSST41 last
+ * cell was 2026-08-19T09:00:00Z; CoralTemp last cell was
+ * 2026-08-18T12:00:00Z. MUR is subsampled (stride 5) — not native 1 km.
+ * GOES-16 id stays a documented probe (404 here).
  */
 export const SST_ENDPOINTS: readonly SstEndpoint[] = [
-  {
-    id: "noaacrwsstDaily",
-    name: "NOAA Coral Reef Watch CoralTemp daily",
-    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacrwsstDaily",
-    variable: "analysed_sst",
-    nativeDeg: 0.05,
-    nativeLabel: "5 km / 0.05°",
-    stride: 1,
-  },
   {
     id: "jplMURSST41",
     name: "JPL MUR L4 (ERDDAP)",
@@ -47,6 +41,15 @@ export const SST_ENDPOINTS: readonly SstEndpoint[] = [
     nativeDeg: 0.01,
     nativeLabel: "1 km / 0.01°",
     stride: 5,
+  },
+  {
+    id: "noaacrwsstDaily",
+    name: "NOAA Coral Reef Watch CoralTemp daily",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacrwsstDaily",
+    variable: "analysed_sst",
+    nativeDeg: 0.05,
+    nativeLabel: "5 km / 0.05°",
+    stride: 1,
   },
   {
     id: "noaacwGEOHIRRSSTGoes16NRT",
@@ -245,9 +248,54 @@ export function normalizeSstTime(raw: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+/** Same band as Ready-for-offshore SST_MISSING_H. Do not invent a fresher time. */
+export const SST_SELECT_MAX_AGE_H = 48;
+
+export function sstEndpointById(id: string): SstEndpoint | undefined {
+  return SST_ENDPOINTS.find((e) => e.id === id);
+}
+
+export function sstAgeHours(updatedAt: string, nowMs: number): number {
+  const t = Date.parse(updatedAt);
+  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
+  return (nowMs - t) / 3_600_000;
+}
+
+async function ingestParsedSst(
+  ep: SstEndpoint,
+  text: string,
+  url: string,
+  bbox: PackBBox,
+): Promise<SstIngest | undefined> {
+  const table = parseErddapSstCsv(text);
+  if (!table) return undefined;
+  const grid = sstTableToPacked(table, ep, bbox);
+  if (!grid || !grid.updatedAt) return undefined;
+  const bytes = new TextEncoder().encode(text);
+  const hash = await sha256Hex(bytes);
+  const note = `${sstResolutionNote(ep)} ${grid.nx}×${grid.ny} at ${grid.updatedAt}.`;
+  grid.note = note;
+  return {
+    live: true,
+    source: "noaa",
+    dataset: ep.id,
+    url,
+    bytes: bytes.byteLength,
+    sha256: hash,
+    analysedAt: grid.updatedAt,
+    nativeLabel: ep.nativeLabel,
+    effectiveDeg: effectiveSstDeg(ep),
+    note,
+    grid,
+  };
+}
+
 /**
  * Probe public SST endpoints. Never throws. Returns undefined when every
  * path fails so the caller keeps the hashed fixture.
+ * First grid whose analysis age is ≤ 48 h wins (endpoint order). A
+ * parseable grid older than 48 h is kept only if no later public grid
+ * is inside the window; timestamps stay honest.
  */
 export async function fetchLiveSst(options: {
   bbox: PackBBox;
@@ -256,10 +304,18 @@ export async function fetchLiveSst(options: {
   endpoints?: readonly SstEndpoint[];
   errors?: string[];
   sleep?: (ms: number) => Promise<void>;
+  now?: Date | number;
 }): Promise<SstIngest | undefined> {
   const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const errors = options.errors;
   const endpoints = options.endpoints ?? SST_ENDPOINTS;
+  const nowMs =
+    options.now instanceof Date
+      ? options.now.getTime()
+      : typeof options.now === "number"
+        ? options.now
+        : Date.now();
+  let staleBest: SstIngest | undefined;
   for (const ep of endpoints) {
     const url = erddapSstCsvUrl(ep, options.bbox);
     const text = await fetchNoaaText({
@@ -273,34 +329,24 @@ export async function fetchLiveSst(options: {
       errors?.push(`sst ${ep.id}: fetch failed`);
       continue;
     }
-    const table = parseErddapSstCsv(text);
-    if (!table) {
-      errors?.push(`sst ${ep.id}: parse failed`);
+    const ingest = await ingestParsedSst(ep, text, url, options.bbox);
+    if (!ingest) {
+      errors?.push(`sst ${ep.id}: parse failed or empty grid`);
       continue;
     }
-    const grid = sstTableToPacked(table, ep, options.bbox);
-    if (!grid || !grid.updatedAt) {
-      errors?.push(`sst ${ep.id}: empty or unusable grid`);
-      continue;
+    const age = sstAgeHours(ingest.analysedAt, nowMs);
+    if (age <= SST_SELECT_MAX_AGE_H) {
+      return ingest;
     }
-    const bytes = new TextEncoder().encode(text);
-    const hash = await sha256Hex(bytes);
-    const note = `${sstResolutionNote(ep)} ${grid.nx}×${grid.ny} at ${grid.updatedAt}.`;
-    grid.note = note;
-    return {
-      live: true,
-      source: "noaa",
-      dataset: ep.id,
-      url,
-      bytes: bytes.byteLength,
-      sha256: hash,
-      analysedAt: grid.updatedAt,
-      nativeLabel: ep.nativeLabel,
-      effectiveDeg: effectiveSstDeg(ep),
-      note,
-      grid,
-    };
+    errors?.push(`sst ${ep.id}: analysis ${ingest.analysedAt} older than 48 h — trying next public grid`);
+    if (
+      !staleBest ||
+      Date.parse(ingest.analysedAt) > Date.parse(staleBest.analysedAt)
+    ) {
+      staleBest = ingest;
+    }
   }
+  if (staleBest) return staleBest;
   errors?.push("sst: all public paths failed — fixture kept");
   return undefined;
 }

@@ -748,6 +748,7 @@ export async function tryLiveNoaa(options: {
       timeoutMs: gridTimeout,
       errors,
       sleep,
+      now: options.now,
     }),
     fetchLiveChl({
       bbox: options.bbox,
@@ -845,6 +846,8 @@ export {
 } from "./noaa-gfs";
 export {
   SST_ENDPOINTS,
+  SST_SELECT_MAX_AGE_H,
+  sstEndpointById,
   erddapSstCsvUrl,
   parseErddapSstCsv,
   sstTableToPacked,
