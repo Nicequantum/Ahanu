@@ -6,6 +6,7 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
+import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
@@ -33,19 +34,20 @@ export function PacksPanel() {
   const error = useAhanu((s) => s.packError);
   const live = useAhanu((s) => s.packLive);
   const setLive = useAhanu((s) => s.setPackLive);
+  const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
+  const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   useAhanu((s) => s.packEpoch);
   const total = packs.length;
   const ok = packs.filter((p) => p.status === "ready").length;
   const pct = total ? (ok / total) * 100 : 0;
   const offshore = Boolean(ready?.ready);
+  const badge = readyOffshoreBadge(ready);
 
   return (
     <Pane title="Trip packs" kicker="Pre-departure">
       <div className="mb-3 flex items-center justify-between">
-        <Badge tone={offshore ? "go" : "caution"}>
-          {offshore ? "Ready for offshore" : ready ? "Not ready" : "No pack"}
-        </Badge>
+        <Badge tone={badge.caution ? "caution" : "go"}>{badge.long}</Badge>
         <Button
           size="sm"
           disabled={downloading}
@@ -65,6 +67,20 @@ export function PacksPanel() {
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
+      </div>
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm">Accept stale SST</p>
+          <p className="text-[11px] text-muted">
+            Present, hash-ok composite older than 24 h can pass Ready. Aid only — not permission.
+          </p>
+        </div>
+        <Switch
+          checked={Boolean(sstStaleOverride)}
+          onCheckedChange={setSstStaleOverride}
+          disabled={downloading}
+        />
       </div>
 
       <p className="mb-3 text-xs text-muted">

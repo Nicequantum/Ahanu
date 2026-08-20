@@ -101,7 +101,7 @@ Captains read temperature the way they read a canyon wall: not the number, the *
 - Nightly **MUR L4 (1 km)** is the planning field. It is complete, slightly smooth, and honest about yesterday.
 - **GOES-East L3** fills “today, this afternoon” when the sky is clear enough. Cloudy days stay on MUR.
 - Packed as a clipped Cloud-Optimized GeoTIFF plus a quantized display PNG. The plotter paints the PNG; scoring reads the COG.
-- Composite **age > 24 h → stale**. **> 48 h → missing** for the Ready-for-offshore test.
+- Composite **age > 24 h → stale**. **> 48 h → missing** for the Ready-for-offshore test. Helm **Accept stale SST** (default off) can pass a present, hash-ok file in either band with a visible warning. No body still fails.
 - Break detection (gradient, threshold in °C/nmi) is on-device. If two skippers disagree on a 0.5 °C cutoff, that is their argument, not a server flag.
 
 Chlorophyll and altimetry follow the same rule: pack the field, derive the edge at the helm.
@@ -116,7 +116,7 @@ All of the following must be true:
 
 1. **ENC clip present** for the bbox, including Harbor/Approach coverage of the departure (Point Judith, Montauk, or Newport) and Coastal coverage out to the 100-fathom curve in the box.
 2. **Bathymetry** present (COG readable).
-3. **SST composite** present and not stale (< 24 h, or < 48 h with an explicit skipper override — the client may warn; the manifest does not auto-pass).
+3. **SST composite** present and not stale (< 24 h). The helm **Accept stale SST** switch (default off, persisted) lets a present, hash-ok composite older than 24 h — including a ~48 h CoralTemp file — pass Ready with a visible warning. Missing SST (no body) still fails. The Worker manifest does not auto-pass.
 4. **Wind GRIB** and **wave GRIB** present, covering `start` … `start+hours`, cycle age ≤ 6 h.
 5. **CO-OPS window** present for the departure harbor over the same 72 h.
 6. **HMS closed areas** present (even if empty geometry — the layer file exists).
@@ -148,7 +148,7 @@ Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone
 | Symptom | Meaning | Helm behavior |
 | --- | --- | --- |
 | Layer `missing` | Ingest never wrote the key | Pack cannot be Ready if required |
-| Layer `stale` | Cycle/composite too old | Weather/SST: not Ready |
+| Layer `stale` | Cycle/composite too old | Weather: not Ready. SST: not Ready unless the skipper accepts stale SST |
 | Hash mismatch | Bytes ≠ manifest | Delete object, retry once, then fail the pack |
 | 401 on catch POST | No bearer token | Keep the catch local, `synced: false` |
 | No network mid-trip | Expected | Freeze last buoy snapshot, keep scoring on packed rasters |

@@ -16,6 +16,7 @@ import { habitatScore, zoneLabel } from "@/lib/ahanu/scoring";
 import { nearestCanyon } from "@/lib/data/canyons";
 import { SPECIES_LABELS } from "@/lib/data/species";
 import { markFishHere, useAhanu } from "@/lib/ahanu/store";
+import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { restorePackedSession } from "@/lib/ahanu/pack-client";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
 import type { PanelId } from "@/lib/ahanu/types";
@@ -158,8 +159,20 @@ function TopBar() {
         <HudChip label="SST" value={`${sstC(v.lat, v.lon, hour).toFixed(1)}°`} />
       </div>
       <Badge tone={go === "go" ? "go" : go === "caution" ? "caution" : "nogo"}>{go}</Badge>
-      <Badge tone={packReady?.ready ? "lagoon" : "caution"}>
-        {packReady?.ready ? "Offshore" : packs.length ? `${ready}/${packs.length}` : "No pack"}
+      <Badge
+        tone={
+          packReady?.ready
+            ? readyOffshoreBadge(packReady).caution
+              ? "caution"
+              : "lagoon"
+            : "caution"
+        }
+      >
+        {packReady
+          ? readyOffshoreBadge(packReady).short
+          : packs.length
+            ? `${ready}/${packs.length}`
+            : "No pack"}
       </Badge>
       <span className="hidden text-xs text-muted tabular md:inline">
         {new Date(clock).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

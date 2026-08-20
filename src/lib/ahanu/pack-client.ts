@@ -199,6 +199,26 @@ export function evidenceFromStored(
   }));
 }
 
+/** Rebuild evidence from a downloaded pack so Ready can re-run when the skipper flips SST override. */
+export function evidenceFromPackLayers(
+  manifest: TripPackManifestV1,
+  layers: { id: string; verified?: boolean; hash?: string; updatedAt?: string; hours?: number }[],
+): LayerEvidence[] {
+  return manifest.layers.map((layer) => {
+    const row = layers.find((p) => p.id === layer.id);
+    const verified = Boolean(row?.verified);
+    return {
+      id: layer.id,
+      present: verified,
+      hashExpected: layer.hash,
+      hashActual: verified ? (row?.hash ?? layer.hash) : undefined,
+      updatedAt: row?.updatedAt ?? layer.updatedAt,
+      hoursCovered: row?.hours ?? layer.hours,
+      cycleAt: manifest.generatedAt,
+    };
+  });
+}
+
 export async function restorePackedSession(): Promise<TripPackManifestV1 | null> {
   const { loadCurrentManifest, bodiesForPack } = await import("./pack-store");
   const manifest = await loadCurrentManifest();

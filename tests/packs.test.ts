@@ -132,6 +132,80 @@ describe("evaluateReadyForOffshore", () => {
     assert.ok(ready.failures.some((f) => f.includes("SST")));
   });
 
+  it("fails stale SST without skipper override", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.updatedAt = "2026-08-19T06:00:00.000Z";
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers,
+    });
+    assert.equal(ready.ready, false);
+    assert.equal(ready.sstOverrideUsed, false);
+    const sstLayer = ready.layers.find((l) => l.id === "sst")!;
+    assert.equal(sstLayer.fresh, false);
+    assert.equal(sstLayer.ok, false);
+    assert.ok(ready.failures.some((f) => f.includes("SST") && f.includes("24")));
+  });
+
+  it("passes stale SST with skipper override and warns", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.updatedAt = "2026-08-19T06:00:00.000Z";
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      sstOverride: true,
+      layers,
+    });
+    assert.equal(ready.ready, true, ready.failures.join("; "));
+    assert.equal(ready.sstOverrideUsed, true);
+    const sstLayer = ready.layers.find((l) => l.id === "sst")!;
+    assert.equal(sstLayer.present, true);
+    assert.equal(sstLayer.hashOk, true);
+    assert.equal(sstLayer.fresh, false);
+    assert.equal(sstLayer.ok, true);
+    assert.ok(ready.warnings.some((w) => w.includes("skipper override")));
+    assert.equal(ready.failures.length, 0);
+  });
+
+  it("passes present 48 h SST with override and still warns", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.updatedAt = "2026-08-18T11:00:00.000Z";
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      sstOverride: true,
+      layers,
+    });
+    assert.equal(ready.ready, true, ready.failures.join("; "));
+    assert.equal(ready.sstOverrideUsed, true);
+    assert.equal(ready.layers.find((l) => l.id === "sst")!.fresh, false);
+    assert.ok(ready.warnings.some((w) => w.includes("skipper override")));
+  });
+
+  it("still fails missing SST even with override", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.present = false;
+    sst.hashActual = undefined;
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: START,
+      sstOverride: true,
+      layers,
+    });
+    assert.equal(ready.ready, false);
+    assert.equal(ready.sstOverrideUsed, false);
+    assert.ok(ready.failures.some((f) => f.startsWith("sst:") && f.includes("missing")));
+  });
+
   it("fails when wind cycle is older than 6 h", async () => {
     const layers = await baseLayers();
     const wind = layers.find((l) => l.id === "wind")!;

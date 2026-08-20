@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (stale SST skipper override, 2026-08-20)
+
+Live CoralTemp can sit near 48 h, so Ready-for-offshore was failing SST even when the layer file was present and hash-ok. Helm **Accept stale SST** (`sstStaleOverride`, default off, persisted) lets `evaluateReadyForOffshore` pass that case with a visible warning. The SST row stays stale (`fresh` stays false). Missing SST (no body) and hash mismatch still fail. Header and Packs Ready badges switch to caution when override is what made the pack Ready. Worker `readyForOffshore` still does not auto-pass. No Worker scoring. No Flutter.
+
 ## This pass (CoastWatch SST probe, 2026-08-20)
 
 `tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key ERDDAP SST for the Point Judith box. First parseable grid paints pack layer `sst` as `source: "noaa"`. The path that returned bytes from this network is NOAA CoastWatch CoralTemp daily **5 km / 0.05°** (`noaacrwsstDaily`). That is not 1 km MUR. MUR (PFEG) and GOES-16 stay in the probe list; a 429 / 403 / parse miss keeps the hashed fixture and does not invent GHRSST. SST `updatedAt` is the analysis time so Ready-for-offshore 24 h / 48 h age rules still apply. A daily composite is used for the whole window (not hour-0-only). Tests mock fetch; one live probe skips if blocked. No Worker scoring. No Flutter. AIS stays demo.

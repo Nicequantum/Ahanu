@@ -101,9 +101,28 @@ export interface ReadyOffshoreResult {
   hoursOk: boolean;
   dayTrip: boolean;
   sstOverride: boolean;
+  /** True when skipper override is what made a stale/48h SST layer pass. */
+  sstOverrideUsed: boolean;
   layers: ReadyLayerResult[];
   failures: string[];
   warnings: string[];
+}
+
+/** Ready badge: caution when override is the only reason SST passed. */
+export function readyOffshoreBadge(result: ReadyOffshoreResult | null): {
+  ready: boolean;
+  caution: boolean;
+  short: string;
+  long: string;
+} {
+  if (!result) return { ready: false, caution: true, short: "No pack", long: "No pack" };
+  if (result.ready && result.sstOverrideUsed) {
+    return { ready: true, caution: true, short: "Offshore · stale SST", long: "Ready · stale SST" };
+  }
+  if (result.ready) {
+    return { ready: true, caution: false, short: "Offshore", long: "Ready for offshore" };
+  }
+  return { ready: false, caution: true, short: "Not ready", long: "Not ready" };
 }
 
 function overlayUpdatedAt(body: string, fallback: string): string {
@@ -177,15 +196,21 @@ export function evaluateReadyForOffshore(input: {
       reason = "hash mismatch";
     } else if (spec.id === "sst") {
       const age = ageHours(ev?.updatedAt, nowMs);
-      if (age > SST_MISSING_H) {
+      if (age > SST_STALE_H) {
+        // File exists and hashes. Age > 48 h is "missing" for Ready unless the
+        // skipper explicitly accepts stale SST. No body still fails above.
         fresh = false;
-        reason = `SST age ${age.toFixed(1)} h > 48 h (missing)`;
-      } else if (age > SST_STALE_H) {
-        fresh = sstOverride;
-        reason = sstOverride
-          ? `SST age ${age.toFixed(1)} h stale — skipper override`
-          : `SST age ${age.toFixed(1)} h > 24 h`;
-        if (sstOverride) warnings.push(reason);
+        const missingBand = age > SST_MISSING_H;
+        if (sstOverride) {
+          reason = missingBand
+            ? `SST age ${age.toFixed(1)} h > 48 h — skipper override`
+            : `SST age ${age.toFixed(1)} h stale — skipper override`;
+          warnings.push(reason);
+        } else {
+          reason = missingBand
+            ? `SST age ${age.toFixed(1)} h > 48 h (missing)`
+            : `SST age ${age.toFixed(1)} h > 24 h`;
+        }
       }
     } else if (spec.id === "wind" || spec.id === "waves") {
       const cycleAge = ageHours(ev?.cycleAt ?? ev?.updatedAt, nowMs);
@@ -205,7 +230,8 @@ export function evaluateReadyForOffshore(input: {
       }
     }
 
-    const ok = present && hashOk && fresh;
+    const sstOverridden = spec.id === "sst" && present && hashOk && !fresh && sstOverride;
+    const ok = present && hashOk && (fresh || sstOverridden);
     if (!reason) reason = ok ? "ok" : "failed";
     layers.push({
       id: spec.id,
@@ -222,11 +248,14 @@ export function evaluateReadyForOffshore(input: {
     }
   }
 
+  const sstOverrideUsed = layers.some((l) => l.id === "sst" && l.ok && !l.fresh && sstOverride);
+
   return {
     ready: hoursOk && failures.length === 0,
     hoursOk,
     dayTrip,
     sstOverride,
+    sstOverrideUsed,
     layers,
     failures,
     warnings,
