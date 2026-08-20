@@ -67,7 +67,7 @@ export function AppShell() {
     void useAhanu.persist.rehydrate();
     useAhanu.getState().setHydrated();
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw-ahanu.js").catch(() => undefined);
+      void navigator.serviceWorker.register("/sw-ahanu.js", { type: "module" }).catch(() => undefined);
     }
     void restorePackedSession().then((manifest) => {
       if (manifest) {
