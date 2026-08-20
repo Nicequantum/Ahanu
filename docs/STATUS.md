@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (float plan export, 2026-08-20)
+
+Plan and Safety panels export a dry shore-side float plan from store state (no network): vessel, departure harbor, pack bbox and canyon heads in that box, pack window, souls on board, skipper-entered emergency contacts and radios, Ready / stale-SST caution when that override is on, and the aid-not-official-ENC one-liner. Copy and Download .txt; print-friendly HTML is optional. Empty fields stay empty or “not set”. Contacts are never invented. Formatter tests are offline. No Worker scoring. No Flutter.
+
 ## This pass (CoastWatch SSH / SLA probe, 2026-08-20)
 
 `tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key ERDDAP SSH / SLA for the Point Judith box. First parseable grid paints pack layer `altimetry` as `source: "noaa"`. The path that returned a usable grid from this network is NOAA CoastWatch blended SLA daily **0.25° / ~25 km** (`noaacwBLENDEDsshDaily`, analysis 2026-08-19). That is not CMEMS L4 and not AVISO DUACS. PFEG `nesdisSSH1day` stays in the probe list (same RADS family; last time here was 2026-03-25). A 429 / 403 / parse miss keeps the hashed fixture. Altimetry does not block Ready-for-offshore. Tests mock fetch; one live probe skips if blocked. No Worker scoring. No Flutter. AIS stays demo.

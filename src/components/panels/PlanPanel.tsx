@@ -1,3 +1,4 @@
+import { FloatPlanExport } from "@/components/panels/FloatPlanExport";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -125,6 +126,8 @@ export function PlanPanel() {
           </li>
         ))}
       </ul>
+      <Separator className="my-4" />
+      <FloatPlanExport />
     </Pane>
   );
 }

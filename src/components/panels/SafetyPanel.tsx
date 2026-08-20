@@ -1,14 +1,13 @@
+import { FloatPlanExport } from "@/components/panels/FloatPlanExport";
 import { Pane, Stat } from "@/components/panels/pane";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { compass, formatCoord } from "@/lib/ahanu/geo";
+import { compass } from "@/lib/ahanu/geo";
 import { formatClock } from "@/lib/ahanu/solunar";
 import { useAhanu } from "@/lib/ahanu/store";
 import { currentAt, tideAt } from "@/lib/ahanu/tides";
-import type { EmergencyContact, FloatPlan } from "@/lib/ahanu/types";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 const KIT = [
   {
@@ -37,34 +36,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function planPlaintext(
-  plan: FloatPlan,
-  contacts: EmergencyContact[],
-  pos: string,
-  when: string,
-): string {
-  const lines = [
-    "AHANU FLOAT PLAN",
-    `Filed: ${when}`,
-    `Position: ${pos}`,
-    "",
-    `Skipper: ${plan.skipper || "—"}`,
-    `Vessel: ${plan.vessel || "—"}`,
-    `Souls on board: ${plan.souls}`,
-    `Departure: ${plan.departure || "—"}`,
-    `Return ETA: ${plan.returnEta || "—"}`,
-    `Route: ${plan.route || "—"}`,
-    `Radio: ${plan.radio || "—"}`,
-  ];
-  if (plan.notes) lines.push(`Notes: ${plan.notes}`);
-  lines.push("", "DISTRESS CONTACTS");
-  for (const c of contacts) {
-    lines.push(`${c.name} (${c.role}): ${c.phone || "add a number"}`);
-  }
-  lines.push("", "CHECKLIST (reminder — not a hull log)", "EPIRB 406", "VHF 16", "DSC");
-  return lines.join("\n");
-}
-
 export function SafetyPanel() {
   const plan = useAhanu((s) => s.floatPlan);
   const update = useAhanu((s) => s.updateFloatPlan);
@@ -73,13 +44,6 @@ export function SafetyPanel() {
   const clock = useAhanu((s) => s.clockMs);
   const tide = useMemo(() => tideAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
   const cur = useMemo(() => currentAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
-  const [copied, setCopied] = useState(false);
-
-  const summary = useMemo(
-    () =>
-      planPlaintext(plan, contacts, formatCoord(v), new Date(clock).toISOString().slice(0, 16)),
-    [plan, contacts, v, clock],
-  );
 
   return (
     <Pane title="Safety" kicker="Float plan">
@@ -114,24 +78,8 @@ export function SafetyPanel() {
           <Textarea value={plan.notes} onChange={(e) => update({ notes: e.target.value })} />
         </Field>
       </div>
-      <Button
-        variant="outline"
-        className="mt-3 w-full"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(summary);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 2000);
-          } catch {
-            setCopied(false);
-          }
-        }}
-      >
-        {copied ? "Copied" : "Copy float plan"}
-      </Button>
-      <p className="mt-3 text-xs text-muted">
-        File this with someone on the beach before you lose cell. Ahanu keeps the copy onboard.
-      </p>
+      <Separator className="my-4" />
+      <FloatPlanExport />
       <Separator className="my-4" />
       <h3 className="mb-2 text-sm font-medium">Distress</h3>
       <ul className="space-y-1 text-xs">
