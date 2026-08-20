@@ -102,7 +102,8 @@ export function fieldImage(
       url: rasterToDataUrl(r.data, r.width, r.height),
       bounds: overlayBounds(grid.bbox),
       source: (() => {
-        const layerSrc = kind === "sst" ? ocean.sstSource : undefined;
+        const layerSrc =
+          kind === "sst" ? ocean.sstSource : kind === "chl" ? ocean.chlSource : undefined;
         const src = layerSrc ?? ocean.source;
         return src === "r2" || src === "noaa" ? "packed" : "fixture";
       })(),

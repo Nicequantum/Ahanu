@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (CoastWatch chlorophyll probe, 2026-08-20)
+
+`tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key ERDDAP chlorophyll for the Point Judith box. First parseable grid paints pack layer `chlorophyll` as `source: "noaa"`. The path that returned a usable grid from this network is NOAA CoastWatch S-NPP VIIRS NRT L3 daily **4 km / 0.0375°** (`noaacwNPPVIIRSchlaDaily`). That is not 1 km VIIRS and not CMEMS L4. NOAA-20 daily and S-NPP weekly SQ stay in the probe list; PFEG `erdVHNchla8day` is North Pacific only and does not cover this box. A 429 / 403 / parse miss keeps the hashed fixture. Chlorophyll does not block Ready-for-offshore. Tests mock fetch; one live probe skips if blocked. No Worker scoring. No Flutter. AIS stays demo.
+
 ## This pass (stale SST skipper override, 2026-08-20)
 
 Live CoralTemp can sit near 48 h, so Ready-for-offshore was failing SST even when the layer file was present and hash-ok. Helm **Accept stale SST** (`sstStaleOverride`, default off, persisted) lets `evaluateReadyForOffshore` pass that case with a visible warning. The SST row stays stale (`fresh` stays false). Missing SST (no body) and hash mismatch still fail. Header and Packs Ready badges switch to caution when override is what made the pack Ready. Worker `readyForOffshore` still does not auto-pass. No Worker scoring. No Flutter.
@@ -40,10 +44,11 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - ENC Direct tile **template URL** plus ENC Online MapServer metadata. `tileservice.charts.noaa.gov` TLS failed from this host on 2026-08-20; recorded as probe, not as a chart.
 - GFS-Wave NOMADS `filter_gfswave.pl` Atlantic `atlocn.0p16` **f000** subset for the Point Judith box (~3 KB). When those bytes parse (simple-packed lat/lon, confirmed on the live 3014 B file: WIND, WDIR, HTSGW, PERPW, DIRPW), hour-0 wind (kt) and wave (ft) replace the fixture planes and the layer source is `noaa`. Hours covered is **1**. A 1 h live field does **not** stamp 72 h weather ready. Parse or network failure keeps the 72 h fixture and does not mark the layer live. A paced 72 h / 3 h series helper exists and is **off by default** (NOMADS ~10 s between files; do not run in CI).
 - CoastWatch ERDDAP SST (CoralTemp daily 5 km) for the Point Judith box when that URL returns CSV. Layer `sst` is `source: "noaa"` only then. Resolution is 5 km / 0.05° — not 1 km MUR. Analysis time drives SST age. Fetch/parse miss keeps the fixture.
+- CoastWatch ERDDAP chlorophyll (S-NPP VIIRS NRT L3 daily 4 km) for the Point Judith box when that URL returns CSV. Layer `chlorophyll` is `source: "noaa"` only then. Resolution is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS L4. Fetch/parse miss keeps the fixture. Chlorophyll does not block Ready.
 
 ### Still fixture / not done
 
-- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll / altimetry / bathymetry / contours / canyons / HMS grids and vectors stay fixture.
+- SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the CoastWatch ERDDAP probe parsed a grid (S-NPP VIIRS L3 daily 4 km, not 1 km VIIRS / CMEMS). Altimetry / bathymetry / contours / canyons / HMS grids and vectors stay fixture.
 - 72 h wind and wave **grids** unless the paced series is explicitly enabled and every f000-f072 step decodes (hour 0 may be live; hours 3-72 stay fixture or empty otherwise. NDFD not fetched. Full series is not downloaded in CI).
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.

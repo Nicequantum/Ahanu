@@ -19,6 +19,12 @@ const {
   fetchLiveSst,
   sampleCsvForTests,
   SST_ENDPOINTS,
+  erddapChlCsvUrl,
+  parseErddapChlCsv,
+  chlTableToPacked,
+  fetchLiveChl,
+  sampleChlCsvForTests,
+  CHL_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -613,6 +619,191 @@ describe("optional live SST probe", () => {
       assert.match(sst.note, /not 1 km MUR/);
     } else {
       assert.match(sst.note, /subsampled|km|°/);
+    }
+  });
+});
+
+function chlCsvAt(iso: string): string {
+  const rows = [
+    `time,altitude,latitude,longitude,chlor_a`,
+    `UTC,m,degrees_north,degrees_east,mg m^-3`,
+  ];
+  const lats = [39.4, 40.0, 40.6, 41.2];
+  const lons = [-72.8, -71.6, -70.4, -69.2];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      const v = 0.18 + (41.2 - lat) * 0.35 + Math.max(0, -70.4 - lon) * 0.08;
+      rows.push(`${iso},0.0,${lat},${lon},${v.toFixed(3)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}
+
+describe("ERDDAP chlorophyll parse", () => {
+  it("builds a north-up mg_m3 grid and does not claim 1 km VIIRS", () => {
+    const table = parseErddapChlCsv(sampleChlCsvForTests());
+    assert.ok(table);
+    const ep = CHL_ENDPOINTS[0]!;
+    const grid = chlTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.layer, "chlorophyll");
+    assert.equal(grid.source, "noaa");
+    assert.equal(grid.live, true);
+    assert.equal(grid.hoursCovered, 24);
+    assert.equal(grid.unit, "mg_m3");
+    assert.equal(grid.nx, 4);
+    assert.equal(grid.ny, 4);
+    assert.equal(grid.updatedAt, "2026-07-09T12:00:00.000Z");
+    assert.match(grid.note ?? "", /4 km|0\.0375/);
+    assert.match(grid.note ?? "", /not 1 km VIIRS/);
+    assert.match(grid.note ?? "", /not CMEMS/);
+    assert.ok((grid.values[0]![0] ?? 0) > 0 && (grid.values[0]![0] ?? 0) < 10);
+  });
+
+  it("rejects HTML error pages", () => {
+    assert.equal(parseErddapChlCsv("<html>nope</html>"), null);
+  });
+
+  it("builds the S-NPP VIIRS ERDDAP CSV URL with altitude", () => {
+    const url = erddapChlCsvUrl(CHL_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.match(url, /noaacwNPPVIIRSchlaDaily\.csv/);
+    assert.match(url, /chlor_a/);
+    assert.match(url, /39\.4/);
+    assert.match(url, /-72\.8/);
+    assert.match(url, /\[\(0\.0\)\]/);
+  });
+});
+
+describe("tryLiveNoaa chlorophyll overlay", () => {
+  it("paints chlorophyll source noaa when VIIRS CSV parses", async () => {
+    const csv = chlCsvAt("2026-07-09T12:00:00Z");
+    const fetchImpl = async (url: string) => {
+      if (url.includes("chlor_a") || url.includes("VIIRSchla")) {
+        return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.chlorophyll);
+    assert.equal(live.chlorophyll.source, "noaa");
+    assert.equal(live.chlorophyll.dataset, "noaacwNPPVIIRSchlaDaily");
+    assert.equal(live.chlorophyll.grid.source, "noaa");
+    assert.match(live.chlorophyll.note, /4 km|0\.0375/);
+    assert.doesNotMatch(live.chlorophyll.note, /1 km VIIRS L4|CMEMS L4 gap/);
+  });
+
+  it("omits chlorophyll on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.chlorophyll, undefined);
+    assert.ok(live.errors.some((e) => e.includes("chl")));
+  });
+});
+
+describe("buildTripPack chlorophyll overlay", () => {
+  it("hashes live chlorophyll and marks source noaa without blocking Ready", async () => {
+    const csv = chlCsvAt("2026-07-09T12:00:00.000Z");
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("chlor_a") || url.includes("VIIRSchla")) {
+          return new Response(csv, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const chl = live.manifest.layers.find((l) => l.id === "chlorophyll")!;
+    assert.equal(chl.source, "noaa");
+    assert.notEqual(chl.hash, fixture.manifest.layers.find((l) => l.id === "chlorophyll")!.hash);
+    assert.equal(await sha256Hex(live.bodies.chlorophyll!), chl.hash);
+    assert.equal(chl.updatedAt, "2026-07-09T12:00:00.000Z");
+    assert.equal(chl.hours, 24);
+    const body = parseLayerBody(live.bodies.chlorophyll!) as {
+      source?: string;
+      note?: string;
+      live?: boolean;
+    };
+    assert.equal(body.source, "noaa");
+    assert.match(body.note ?? "", /not 1 km VIIRS/);
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-chl"));
+    assert.equal(live.manifest.readyForOffshore, true);
+  });
+
+  it("keeps fixture chlorophyll when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "chlorophyll")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "chlorophyll")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "chlorophyll")!.source, "fixture");
+  });
+});
+
+describe("optional live chlorophyll probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let chl;
+    try {
+      chl = await fetchLiveChl({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live chlorophyll fetch threw");
+      return;
+    }
+    if (!chl) {
+      t.skip(errors.join("; ") || "live chlorophyll blocked");
+      return;
+    }
+    assert.equal(chl.source, "noaa");
+    assert.ok(chl.grid.nx >= 2 && chl.grid.ny >= 2);
+    assert.equal(chl.grid.unit, "mg_m3");
+    assert.match(chl.note, /4 km|0\.0375|km|°/);
+    assert.match(chl.note, /not 1 km VIIRS/);
+    if (chl.dataset === "noaacwNPPVIIRSchlaDaily") {
+      assert.ok(Math.abs(chl.effectiveDeg - 0.0375) < 1e-6);
     }
   });
 });

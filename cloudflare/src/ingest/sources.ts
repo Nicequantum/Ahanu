@@ -23,13 +23,7 @@
 
 export type IngestKind = "vector" | "raster" | "grib2" | "tabular" | "json" | "s57";
 
-export type IngestCadence =
-  | "static"
-  | "hourly"
-  | "6-hourly"
-  | "tidal"
-  | "daily"
-  | "weekly";
+export type IngestCadence = "static" | "hourly" | "6-hourly" | "tidal" | "daily" | "weekly";
 
 export interface IngestEndpoint {
   label: string;
@@ -54,7 +48,9 @@ export interface IngestMeta {
 
 const NORTHEAST = { west: -75.4, south: 36.4, east: -66.4, north: 42.6 } as const;
 
-function meta(partial: Omit<IngestMeta, "stub" | "defaultBbox"> & { defaultBbox?: IngestMeta["defaultBbox"] }): IngestMeta {
+function meta(
+  partial: Omit<IngestMeta, "stub" | "defaultBbox"> & { defaultBbox?: IngestMeta["defaultBbox"] },
+): IngestMeta {
   return { stub: true, defaultBbox: NORTHEAST, ...partial };
 }
 
@@ -95,10 +91,19 @@ export function noaaEnc(): IngestMeta {
       { label: "ENC product catalog (XML)", url: "https://charts.noaa.gov/ENCs/ENCProdCat.xml" },
       { label: "ENC cell distribution (S-57)", url: "https://charts.noaa.gov/ENCs/" },
       { label: "Chart downloader", url: "https://charts.noaa.gov/ENCs/ENCs.shtml" },
-      { label: "ENC Online MapServer", url: "https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer" },
+      {
+        label: "ENC Online MapServer",
+        url: "https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer",
+      },
       { label: "S-100 / S-101 product page", url: "https://marinenavigation.noaa.gov/s100.html" },
-      { label: "ENC rescheme / S-101 status", url: "https://distribution.charts.noaa.gov/ENC/rescheme/" },
-      { label: "ENC Direct raster tiles", url: "https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png" },
+      {
+        label: "ENC rescheme / S-101 status",
+        url: "https://distribution.charts.noaa.gov/ENC/rescheme/",
+      },
+      {
+        label: "ENC Direct raster tiles",
+        url: "https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png",
+      },
     ],
     notes:
       "Clip to usage bands 4–5 (Approach/Harbor) around Point Judith / Montauk / Newport plus band 3 (Coastal) out to the 100-fathom curve. S-57 is the operational encoding; S-101 is ingested in parallel as NOAA dual-issues the same cells. Re-issue weekly or on NOAA NtM.",
@@ -244,7 +249,8 @@ export function ghrsstCoastwatchSst(): IngestMeta {
 }
 
 /**
- * Copernicus Marine chlorophyll-a (ocean colour, L4 gap-filled).
+ * Copernicus Marine chlorophyll-a (ocean colour, L4 gap-filled) — documented
+ * production target. CMEMS needs a licence and is not fetched here.
  *
  * Edges in color (not the raw µg/L field) are what canyon captains read.
  * Edge detection itself is on-device; the Worker only packs the L4 grid.
@@ -252,7 +258,10 @@ export function ghrsstCoastwatchSst(): IngestMeta {
  *   Product:  OCEANCOLOUR_GLO_BGC_L4_NRT_009_102
  *   Dataset:  cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D
  *   Portal:   https://data.marine.copernicus.eu/product/OCEANCOLOUR_GLO_BGC_L4_NRT_009_102
- *   Fallback NOAA VIIRS: https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdVHNchla8day
+ *   Live no-key path (2026-08-20): CoastWatch S-NPP VIIRS NRT L3 daily 4 km
+ *     https://coastwatch.noaa.gov/erddap/griddap/noaacwNPPVIIRSchlaDaily
+ *   Fallbacks: noaacwN20VIIRSchlaDaily, noaacwNPPVIIRSSQchlaWeekly
+ *   PFEG erdVHNchla8day is North Pacific only — it does not cover Point Judith.
  */
 export function copernicusChlorophyll(): IngestMeta {
   return meta({
@@ -273,12 +282,20 @@ export function copernicusChlorophyll(): IngestMeta {
         url: "https://data.marine.copernicus.eu/",
       },
       {
-        label: "NOAA VIIRS chl-a 8-day (fallback)",
+        label: "CoastWatch S-NPP VIIRS NRT daily 4 km (no-key live)",
+        url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwNPPVIIRSchlaDaily",
+      },
+      {
+        label: "CoastWatch NOAA-20 VIIRS NRT daily 4 km",
+        url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwN20VIIRSchlaDaily",
+      },
+      {
+        label: "PFEG VIIRS 8-day (North Pacific only — not PJ)",
         url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdVHNchla8day",
       },
     ],
     notes:
-      "4 km L4 is enough for a canyon-scale color edge. Clip, COG, and keep the last 8 days so the device can fade stale colour.",
+      "CMEMS L4 is the licensed production target and is not fetched here. The no-key live path that returned a Point Judith grid is CoastWatch S-NPP VIIRS NRT L3 daily 4 km / 0.0375° (noaacwNPPVIIRSchlaDaily) — not 1 km VIIRS, not CMEMS. PFEG erdVHNchla8day does not cover the Northeast. Miss keeps the hashed fixture. Chlorophyll does not block Ready.",
   });
 }
 
@@ -388,11 +405,20 @@ export function ndbc(): IngestMeta {
     license: "US Government work (public domain) — NDBC",
     layerIds: ["buoys"],
     endpoints: [
-      { label: "Latest observations", url: "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt" },
+      {
+        label: "Latest observations",
+        url: "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt",
+      },
       { label: "Realtime stdmet", url: "https://www.ndbc.noaa.gov/data/realtime2/" },
       { label: "Measurement descriptions", url: "https://www.ndbc.noaa.gov/faq/measdes.shtml" },
-      { label: "Block Island 44097", url: "https://www.ndbc.noaa.gov/station_page.php?station=44097" },
-      { label: "Texas Tower 44066", url: "https://www.ndbc.noaa.gov/station_page.php?station=44066" },
+      {
+        label: "Block Island 44097",
+        url: "https://www.ndbc.noaa.gov/station_page.php?station=44097",
+      },
+      {
+        label: "Texas Tower 44066",
+        url: "https://www.ndbc.noaa.gov/station_page.php?station=44066",
+      },
     ],
     notes:
       "Parse latest_obs.txt, keep stations inside the trip bbox + the offshore canyon buoys even if they sit just outside a tight inshore clip. Observations older than 3 h are stale.",

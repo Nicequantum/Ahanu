@@ -36,7 +36,9 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
             ? ocean.waveSource
             : field === "sst"
               ? ocean.sstSource
-              : undefined;
+              : field === "chl"
+                ? ocean.chlSource
+                : undefined;
       return packLabel(ocean, layerSrc);
     }
     if (ocean) return "missing";

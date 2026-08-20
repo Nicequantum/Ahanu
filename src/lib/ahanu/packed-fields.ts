@@ -72,6 +72,7 @@ export interface PackedOcean {
   windSource?: PackFieldSource;
   waveSource?: PackFieldSource;
   sstSource?: PackFieldSource;
+  chlSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -212,6 +213,7 @@ export function packedOceanFromBodies(
       if (key === "windKt" && src) out.windSource = src;
       if (key === "waveFt" && src) out.waveSource = src;
       if (key === "sst" && src) out.sstSource = src;
+      if (key === "chl" && src) out.chlSource = src;
     }
   };
   takeGrid("sst", "sst");
