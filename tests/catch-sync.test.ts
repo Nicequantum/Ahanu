@@ -52,7 +52,8 @@ if (!globalThis.window.localStorage) {
   globalThis.window.localStorage = globalThis.localStorage;
 }
 
-const { hydrateAhanuStore, useAhanu } = await import("../src/lib/ahanu/store.ts");
+const { bindUnsyncedCatchRetry, hydrateAhanuStore, retryUnsyncedCatchesOnce, useAhanu } =
+  await import("../src/lib/ahanu/store.ts");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -279,5 +280,107 @@ describe("hydrateAhanuStore leftover retry", () => {
     assert.equal(calls, 0);
     assert.equal(result.attempted, 0);
     assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover")?.synced, false);
+  });
+});
+
+describe("visibility / online leftover retry", () => {
+  function leftoverWake() {
+    return { ...rec, id: "leftover-wake", synced: false as const };
+  }
+
+  function fakeTarget(visibilityState = "visible") {
+    const et = new EventTarget();
+    return Object.assign(et, { visibilityState });
+  }
+
+  function seedWake(rec = leftoverWake()) {
+    useAhanu.setState({ catches: [rec], hydrated: true });
+    return rec;
+  }
+
+  afterEach(() => {
+    globalThis.localStorage.removeItem("ahanu-device-token");
+    useAhanu.setState({ catches: [], hydrated: false });
+  });
+
+  it("one pass when the document becomes visible and a token is set", async () => {
+    const order: string[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      order.push(body.id);
+      return new Response(JSON.stringify({ ok: true, catch: { ...body, synced: true } }), {
+        status: 201,
+      });
+    }) as typeof fetch;
+    seedWake();
+    globalThis.localStorage.setItem("ahanu-device-token", "dock-token");
+    const doc = fakeTarget("visible");
+    const win = fakeTarget();
+    const unbind = bindUnsyncedCatchRetry({ document: doc, window: win });
+    doc.dispatchEvent(new Event("visibilitychange"));
+    const result = await retryUnsyncedCatchesOnce();
+    assert.deepEqual(order, ["leftover-wake"]);
+    assert.equal(result.attempted, 1);
+    assert.equal(result.synced, 1);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover-wake")?.synced, true);
+    unbind();
+  });
+
+  it("does not fetch on hidden visibilitychange or without a token", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("no", { status: 500 });
+    }) as typeof fetch;
+    seedWake();
+    const doc = fakeTarget("hidden");
+    const win = fakeTarget();
+    const unbind = bindUnsyncedCatchRetry({ document: doc, window: win });
+    globalThis.localStorage.setItem("ahanu-device-token", "dock-token");
+    doc.dispatchEvent(new Event("visibilitychange"));
+    assert.equal(calls, 0);
+    globalThis.localStorage.removeItem("ahanu-device-token");
+    doc.visibilityState = "visible";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    win.dispatchEvent(new Event("online"));
+    const result = await retryUnsyncedCatchesOnce();
+    assert.equal(calls, 0);
+    assert.equal(result.attempted, 0);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover-wake")?.synced, false);
+    unbind();
+  });
+
+  it("online retries leftovers and overlapping calls share one in-flight pass", async () => {
+    let calls = 0;
+    let inflight = 0;
+    let maxInflight = 0;
+    globalThis.fetch = (async (_input, init) => {
+      calls += 1;
+      inflight += 1;
+      maxInflight = Math.max(maxInflight, inflight);
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      await new Promise((r) => setTimeout(r, 20));
+      inflight -= 1;
+      return new Response(JSON.stringify({ ok: true, catch: { ...body, synced: true } }), {
+        status: 201,
+      });
+    }) as typeof fetch;
+    seedWake();
+    globalThis.localStorage.setItem("ahanu-device-token", "dock-token");
+    const doc = fakeTarget("visible");
+    const win = fakeTarget();
+    const unbind = bindUnsyncedCatchRetry({ document: doc, window: win });
+    win.dispatchEvent(new Event("online"));
+    doc.dispatchEvent(new Event("visibilitychange"));
+    const a = retryUnsyncedCatchesOnce();
+    const b = retryUnsyncedCatchesOnce();
+    const [first, second] = await Promise.all([a, b]);
+    assert.equal(calls, 1);
+    assert.equal(maxInflight, 1);
+    assert.equal(first.attempted, 1);
+    assert.equal(first.synced, 1);
+    assert.equal(second.synced, 1);
+    assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover-wake")?.synced, true);
+    unbind();
   });
 });

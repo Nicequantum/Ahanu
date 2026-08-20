@@ -270,18 +270,7 @@ export const useAhanu = create<AhanuState>()(
         set((s) => ({
           catches: s.catches.map((c) => (c.id === id ? { ...c, ...patch } : c)),
         })),
-      retryUnsyncedCatches: async () => {
-        const token = deviceToken();
-        if (!token) return { attempted: 0, synced: 0, failed: 0 };
-        const result = await postUnsyncedCatches(get().catches, { token });
-        if (result.synced > 0) {
-          const ok = new Set(result.records.filter((r) => r.synced).map((r) => r.id));
-          set((s) => ({
-            catches: s.catches.map((c) => (ok.has(c.id) ? { ...c, synced: true } : c)),
-          }));
-        }
-        return { attempted: result.attempted, synced: result.synced, failed: result.failed };
-      },
+      retryUnsyncedCatches: () => retryUnsyncedCatchesOnce(),
       setVessel: (v) => set((s) => ({ vessel: { ...s.vessel, ...v } })),
       tickSim: (dtMs) => {
         const s = get();
@@ -519,21 +508,70 @@ export const useAhanu = create<AhanuState>()(
   ),
 );
 
-/** One persist restore + one leftover-catch retry. Helm boot only — not a loop. */
-let hydrateInflight: Promise<{ attempted: number; synced: number; failed: number }> | null = null;
+type RetryCounts = { attempted: number; synced: number; failed: number };
 
+let retryInflight: Promise<RetryCounts> | null = null;
+let hydrateInflight: Promise<RetryCounts> | null = null;
+
+/** One leftover-catch pass. Save, hydrate, visibility, and online share this. */
+export function retryUnsyncedCatchesOnce(): Promise<RetryCounts> {
+  if (retryInflight) return retryInflight;
+  const pending = (async () => {
+    const token = deviceToken();
+    if (!token) return { attempted: 0, synced: 0, failed: 0 };
+    const result = await postUnsyncedCatches(useAhanu.getState().catches, { token });
+    if (result.synced > 0) {
+      const ok = new Set(result.records.filter((r) => r.synced).map((r) => r.id));
+      useAhanu.setState((s) => ({
+        catches: s.catches.map((c) => (ok.has(c.id) ? { ...c, synced: true } : c)),
+      }));
+    }
+    return { attempted: result.attempted, synced: result.synced, failed: result.failed };
+  })();
+  retryInflight = pending;
+  void pending.finally(() => {
+    if (retryInflight === pending) retryInflight = null;
+  });
+  return pending;
+}
+
+/** One persist restore + one leftover-catch retry. Helm boot only — not a loop. */
 export async function hydrateAhanuStore() {
   if (hydrateInflight) return hydrateInflight;
   hydrateInflight = (async () => {
     try {
       await useAhanu.persist?.rehydrate?.();
       useAhanu.getState().setHydrated();
-      return await useAhanu.getState().retryUnsyncedCatches();
+      return await retryUnsyncedCatchesOnce();
     } finally {
       hydrateInflight = null;
     }
   })();
   return hydrateInflight;
+}
+
+type WakeDoc = Pick<Document, "addEventListener" | "removeEventListener"> & {
+  visibilityState?: string;
+};
+type WakeWin = Pick<Window, "addEventListener" | "removeEventListener">;
+
+/** visibilitychange + online → one leftover-catch retry. Remove on unmount. */
+export function bindUnsyncedCatchRetry(opts?: { document?: WakeDoc; window?: WakeWin }): () => void {
+  const doc = opts?.document ?? (typeof document !== "undefined" ? document : undefined);
+  const win = opts?.window ?? (typeof window !== "undefined" ? window : undefined);
+  const onVisible = () => {
+    if (doc && doc.visibilityState !== "visible") return;
+    void retryUnsyncedCatchesOnce();
+  };
+  const onOnline = () => {
+    void retryUnsyncedCatchesOnce();
+  };
+  doc?.addEventListener("visibilitychange", onVisible);
+  win?.addEventListener("online", onOnline);
+  return () => {
+    doc?.removeEventListener("visibilitychange", onVisible);
+    win?.removeEventListener("online", onOnline);
+  };
 }
 
 export function markFishHere() {
