@@ -26,6 +26,7 @@ import {
   type PackedGrid,
 } from "./pack-fixtures";
 import {
+  GFS_HOUR0_FIXTURE_NOTE,
   gfsHour0FixtureNote,
   hour0Plane,
   mergeHour0IntoFixture,
@@ -121,6 +122,17 @@ export function capLiveErrors(errors: readonly string[] | undefined | null): str
   return out;
 }
 
+/** GFS hour-0 honesty lines. Visible on Packs; not overlay misses. */
+export function isHonestyLiveError(line: string): boolean {
+  const t = line.trim();
+  return t === GFS_HOUR0_FIXTURE_NOTE || t === gfsHour0FixtureNote("incomplete");
+}
+
+/** liveErrors that are real overlay misses (honesty notes stripped). */
+export function blockingLiveErrors(errors: readonly string[] | undefined | null): string[] {
+  return capLiveErrors(errors).filter((line) => !isHonestyLiveError(line));
+}
+
 const LIVE_MISS_PREFIX: Record<string, string> = {
   sst: "sst",
   chlorophyll: "chl",
@@ -173,7 +185,7 @@ export function canRetryLiveOverlays(input: {
   liveErrors?: readonly string[] | null;
 }): boolean {
   if (!input.live || input.downloading) return false;
-  if (input.liveErrors && input.liveErrors.length > 0) return true;
+  if (blockingLiveErrors(input.liveErrors).length > 0) return true;
   return input.layers.some(
     (l) => l.source === "fixture" && (LIVE_OVERLAY_LAYER_IDS as readonly string[]).includes(l.id),
   );
@@ -305,6 +317,8 @@ export function evaluateReadyForOffshore(input: {
   dayTrip?: boolean;
   sstOverride?: boolean;
   layers: LayerEvidence[];
+  /** Honesty notes stay visible on the pack; they never fail Ready. */
+  liveErrors?: readonly string[] | null;
 }): ReadyOffshoreResult {
   const nowMs =
     typeof input.now === "number" ? input.now : Date.parse(input.now ?? new Date().toISOString());
@@ -315,6 +329,8 @@ export function evaluateReadyForOffshore(input: {
   const layers: ReadyLayerResult[] = [];
   const failures: string[] = [];
   const warnings: string[] = [];
+  // Honesty notes (GFS hour-0 / series-off) ride liveErrors for Packs.
+  // They are not overlay misses. Real misses keep fixture bodies.
 
   if (!hoursOk) {
     failures.push(`hours ${input.hours} < 72 (day-trip override not set)`);
@@ -391,14 +407,18 @@ export function evaluateReadyForOffshore(input: {
 
   const sstOverrideUsed = layers.some((l) => l.id === "sst" && l.ok && !l.fresh && sstOverride);
 
+  // Honesty notes never become failures. A "has liveErrors → not ready"
+  // check must use blockingLiveErrors (honesty stripped). Fixture still counts,
+  // so miss lines do not AND Ready here.
+  const cleanFailures = failures.filter((f) => !isHonestyLiveError(f));
   return {
-    ready: hoursOk && failures.length === 0,
+    ready: hoursOk && cleanFailures.length === 0,
     hoursOk,
     dayTrip,
     sstOverride,
     sstOverrideUsed,
     layers,
-    failures,
+    failures: cleanFailures,
     warnings,
   };
 }
@@ -469,7 +489,13 @@ export async function buildFixturePack(options: {
     hoursCovered: l.hours,
     cycleAt: createdAt,
   }));
-  const check = evaluateReadyForOffshore({ hours, start, now: createdAt, layers: evidence });
+  const check = evaluateReadyForOffshore({
+    hours,
+    start,
+    now: createdAt,
+    layers: evidence,
+    liveErrors: options.liveErrors,
+  });
 
   const manifest: TripPackManifestV1 = {
     packId,
@@ -654,6 +680,7 @@ export async function buildTripPack(options: {
       overlayLanded: overlaysAllLanded(overlayIds),
       missingOverlayIds: LIVE_OVERLAY_LAYER_IDS.filter((id) => overlays[id] == null),
     });
+    // Honesty only — Packs still lists the line. Ready / Retry ignore it.
     if (gfsMerge.note) liveErrors = capLiveErrors([gfsMerge.note, ...liveErrors]);
   }
   return buildFixturePack({

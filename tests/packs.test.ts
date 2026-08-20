@@ -12,6 +12,7 @@ const {
   sstStaleReadyCue,
   SST_STALE_FLIP_COPY,
 } = await import("../src/lib/ahanu/pack.ts");
+const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
 const { hashesMatch, generateLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { habitatScore } = await import("../src/lib/ahanu/scoring.ts");
 const { sstC } = await import("../src/lib/ahanu/ocean.ts");
@@ -369,6 +370,51 @@ describe("sstStaleReadyCue", () => {
     assert.equal(cue.highlight, false);
     assert.equal(cue.line, null);
   });
+
+  it("live pack with only GFS_HOUR0_FIXTURE_NOTE is Ready unless SST is stale", async () => {
+    const { manifest } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
+    });
+    assert.deepEqual(manifest.liveErrors, [GFS_HOUR0_FIXTURE_NOTE]);
+    assert.equal(manifest.readyForOffshore, true);
+
+    const layers = manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.updatedAt,
+      hoursCovered: l.hours || 72,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: START,
+      layers,
+      liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
+    });
+    assert.equal(ready.ready, true, ready.failures.join("; "));
+    assert.ok(!ready.failures.some((f) => /gfs|hour-0|series off/i.test(f)));
+
+    const staleSst = layers.map((l) =>
+      l.id === "sst" ? { ...l, updatedAt: "2026-08-19T00:00:00.000Z" } : l,
+    );
+    const stale = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers: staleSst,
+      liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
+    });
+    assert.equal(stale.ready, false);
+    assert.ok(stale.failures.some((f) => f.includes("SST")));
+    assert.ok(!stale.failures.some((f) => /gfs|hour-0|series off/i.test(f)));
+  });
 });
 
 describe("packed fields — on-device scoring", () => {
@@ -622,6 +668,8 @@ const {
   capLiveErrors,
   canRetryLiveOverlays,
   liveErrorsForSession,
+  blockingLiveErrors,
+  isHonestyLiveError,
   LIVE_ERROR_CAP,
 } = await import("../src/lib/ahanu/pack.ts");
 
@@ -696,6 +744,23 @@ describe("live ingest errors on pack session", () => {
         downloading: true,
         layers: [{ id: "sst", source: "fixture" }],
         liveErrors: ["sst: fetch failed"],
+      }),
+      false,
+    );
+    assert.equal(isHonestyLiveError(GFS_HOUR0_FIXTURE_NOTE), true);
+    assert.deepEqual(blockingLiveErrors([GFS_HOUR0_FIXTURE_NOTE, "sst: fetch failed"]), [
+      "sst: fetch failed",
+    ]);
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [
+          { id: "sst", source: "noaa" },
+          { id: "wind", source: "noaa" },
+          { id: "waves", source: "noaa" },
+        ],
+        liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
       }),
       false,
     );

@@ -298,9 +298,11 @@ function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["man
     r2Prefix: manifest.r2Prefix,
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
-      "SHA-256 of pack object bytes. Buoys/tides/ENC catalog may be live public NOAA; " +
-      "GFS-Wave f000 may be hashed but does not replace 72 h wind/wave grids; SST/CMEMS stay fixture. " +
-      "ENC catalog is not official S-57. Client must re-hash. On-device scoring does not run here.",
+      "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
+      "(NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / hour-0 GFS-Wave). " +
+      "ENC catalog is a cell list, not official S-57. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
+      "Hour-0 wind/wave is painted from the NCEP subset when it parses; hours 3–72 stay fixture unless a paced series completes. " +
+      "That is not a live 72 h NOAA grid. Client must re-hash. On-device scoring does not run here.",
     liveErrors: manifest.liveErrors ?? [],
   };
 }

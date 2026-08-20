@@ -184,6 +184,7 @@ export async function downloadTripPack(options: {
     dayTrip: options.dayTrip,
     sstOverride: options.sstOverride,
     layers: evidence,
+    liveErrors: manifest.liveErrors,
   });
 
   if (Object.keys(bodies).length) {

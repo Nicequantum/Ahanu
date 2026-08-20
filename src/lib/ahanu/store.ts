@@ -391,6 +391,7 @@ export const useAhanu = create<AhanuState>()(
             start: s.packManifest.start,
             sstOverride: sstStaleOverride,
             layers: evidenceFromPackLayers(s.packManifest, s.packLayers),
+            liveErrors: s.packManifest.liveErrors,
           });
           next.packReady = result;
           next.packError = result.ready ? null : result.failures.join("; ");
