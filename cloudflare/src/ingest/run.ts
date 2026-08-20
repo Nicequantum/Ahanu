@@ -1,78 +1,177 @@
 /**
  * Ingest pipeline.
  *
- * Production ops (not runnable in this environment — no NOAA/CMEMS creds, no
- * provisioned R2):
- *   1. wrangler.toml [triggers] crons = ["15 2,8,14,20 * * *"]  (6-hourly, after cycle)
- *   2. Each adapter in sources.ts fetches, clips to bbox, writes
- *      r2://ahanu-trip-packs/packs/{packId}/{layerId}/{hash12}.{ext}
- *   3. SHA-256 of the object bytes replaces fixture hashes; D1 records the index.
- *   4. Durable Object CommunityHub can hold a pack-build lease so two crons
- *      do not write the same prefix.
+ * Cron (`15 2,8,14,20 * * *`) builds a live Point Judith trip pack
+ * (`tryLive`, `skipCache`, NOAA timeouts) and puts each layer body at
+ * `rec.r2Key` on R2 `ahanu-trip-packs` when PACKS.put exists. NOAA
+ * bytes are written when that overlay landed; hashed fixtures are
+ * written honestly when it did not. GET /api/packs never enables the
+ * 72 h GFS-Wave series. Cron reads AHANU_GFS_WAVE_SERIES / GFS_WAVE_SERIES
+ * and still leaves the series off unless those flags are set.
  *
- * Until that cron exists, this function tries public NDBC / CO-OPS / ENC
- * catalog / GFS-Wave f000 / CoastWatch ERDDAP SST, chlorophyll, and SSH (no keys), then writes
- * fixture bodies for anything the network did not return, when an R2 binding
- * is present, and is a no-op otherwise. ENC catalog is not official S-57.
- * A parsed GFS-Wave hour is hour-0 only, not a 72 h wind/wave grid. The paced
- * f000–f072 / 3 h series stays off unless AHANU_GFS_WAVE_SERIES or
- * GFS_WAVE_SERIES is set. Live SST is only the public grid that parsed
- * (CoralTemp 5 km when that path works) — not invented 1 km MUR / GHRSST.
- * Live chlorophyll is only the public grid that parsed (S-NPP VIIRS L3 daily
- * 4 km when that path works) — not invented 1 km VIIRS or CMEMS L4.
- * Live SSH is only the public grid that parsed (CoastWatch blended SLA daily
- * 0.25° when that path works) — not invented CMEMS L4 or AVISO DUACS.
- * Live HMS is only a public NMFS/NOAA closed-area KMZ or shapefile that
- * parsed and intersected the box (NE PLL KMZ when that path works) —
- * reminder overlay, not a legal determination.
- * Live bathymetry is only the public ERDDAP relief grid that parsed
- * (NCEI ETOPO 2022 15″ subsampled to ~0.033° when that path works) —
- * not official ENC. Contours are cheap 100/200-fm lines from that grid.
- * CMEMS still needs a licence and is not fetched.
+ * ENC catalog is not official S-57. Hour-0 GFS-Wave is not a 72 h grid.
+ * Live SST / chlorophyll / SSH / HMS / bathymetry / canyons are only the
+ * public grids that parsed. CMEMS is not fetched.
+ *
+ * D1 `pack_layers` is upserted only when that table already exists.
  */
-import { buildTripPack } from "../../../src/lib/ahanu/pack";
+import { buildTripPack, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
 import { gfsWaveSeriesEnabled } from "../../../src/lib/ahanu/noaa-gfs";
-import { POINT_JUDITH_CANYON_BBOX } from "./fixtures";
-import { NORTHEAST_BBOX } from "../../../src/lib/ahanu/pack-fixtures";
+import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
+import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../../src/lib/ahanu/pack-fixtures";
 
 export interface IngestEnv {
   PACKS?: {
     put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
     get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
   };
+  DB?: {
+    prepare: (query: string) => {
+      bind: (...values: unknown[]) => { run: () => Promise<unknown> };
+    };
+  };
   AHANU_GFS_WAVE_SERIES?: string;
   GFS_WAVE_SERIES?: string;
+  REGION_WEST?: string;
+  REGION_SOUTH?: string;
+  REGION_EAST?: string;
+  REGION_NORTH?: string;
 }
 
-export async function ingestFixturePack(
+export interface IngestLayerWrite {
+  id: string;
+  r2Key: string;
+  source: PackLayerRecord["source"];
+  bytes: number;
+  hash: string;
+}
+
+export interface IngestResult {
+  packId: string;
+  r2Prefix: string;
+  wrote: number;
+  source: "r2" | "memory";
+  noaa: number;
+  fixture: number;
+  layers: IngestLayerWrite[];
+  liveErrors: string[];
+  d1: boolean;
+}
+
+export interface IngestOptions {
+  bbox?: PackBBox;
+  start?: string;
+  hours?: number;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  skipCache?: boolean;
+}
+
+/** Product default: Point Judith canyon box. Env NE box is opt-in via bbox. */
+export function ingestDefaultBbox(_env?: IngestEnv): PackBBox {
+  return POINT_JUDITH_CANYON_BBOX;
+}
+
+export function layerWrites(manifest: BuiltPack["manifest"], bodies: Record<string, string>): IngestLayerWrite[] {
+  const out: IngestLayerWrite[] = [];
+  for (const layer of manifest.layers) {
+    const body = bodies[layer.id];
+    if (!body) continue;
+    out.push({
+      id: layer.id,
+      r2Key: layer.r2Key,
+      source: layer.source,
+      bytes: layer.sizeBytes,
+      hash: layer.hash,
+    });
+  }
+  return out;
+}
+
+export async function putPackObjects(
   env: IngestEnv,
-  bbox = POINT_JUDITH_CANYON_BBOX,
-  start = new Date().toISOString(),
-  hours = 72,
-): Promise<{ packId: string; wrote: number; source: "r2" | "memory" }> {
+  writes: IngestLayerWrite[],
+  bodies: Record<string, string>,
+): Promise<number> {
+  const bucket = env.PACKS;
+  if (!bucket || typeof bucket.put !== "function") return 0;
+  let wrote = 0;
+  for (const rec of writes) {
+    const body = bodies[rec.id];
+    if (!body) continue;
+    await bucket.put(rec.r2Key, body);
+    wrote += 1;
+  }
+  return wrote;
+}
+
+/**
+ * Best-effort index. Missing / unused `pack_layers` is a no-op.
+ * Do not create the table from ingest.
+ */
+export async function syncPackLayers(
+  env: IngestEnv,
+  packId: string,
+  writes: IngestLayerWrite[],
+  updatedAt: string,
+): Promise<boolean> {
+  const db = env.DB;
+  if (!db || typeof db.prepare !== "function" || writes.length === 0) return false;
+  try {
+    for (const rec of writes) {
+      await db
+        .prepare(
+          `INSERT INTO pack_layers (pack_id, layer_id, r2_key, sha256, bytes, source, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(pack_id, layer_id) DO UPDATE SET
+             r2_key=excluded.r2_key, sha256=excluded.sha256, bytes=excluded.bytes,
+             source=excluded.source, updated_at=excluded.updated_at`,
+        )
+        .bind(packId, rec.id, rec.r2Key, rec.hash, rec.bytes, rec.source, updatedAt)
+        .run();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function persistBuiltPack(env: IngestEnv, built: BuiltPack): Promise<IngestResult> {
+  const writes = layerWrites(built.manifest, built.bodies);
+  const wrote = await putPackObjects(env, writes, built.bodies);
+  const d1 = await syncPackLayers(env, built.manifest.packId, writes, built.manifest.generatedAt);
+  return {
+    packId: built.manifest.packId,
+    r2Prefix: built.manifest.r2Prefix,
+    wrote,
+    source: wrote > 0 ? "r2" : "memory",
+    noaa: writes.filter((w) => w.source === "noaa").length,
+    fixture: writes.filter((w) => w.source === "fixture").length,
+    layers: writes,
+    liveErrors: built.manifest.liveErrors ?? [],
+    d1,
+  };
+}
+
+export async function ingestFixturePack(env: IngestEnv, options: IngestOptions = {}): Promise<IngestResult> {
+  const bbox = options.bbox ?? ingestDefaultBbox(env);
+  const start = options.start ?? new Date().toISOString();
+  const hours = options.hours ?? 72;
   const seriesOn = gfsWaveSeriesEnabled(undefined, {
     AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
     GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
   });
-  const { manifest, bodies } = await buildTripPack({
+  const built = await buildTripPack({
     bbox,
     start,
     hours,
     tryLive: true,
+    skipCache: options.skipCache !== false,
+    timeoutMs: options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
+    fetchImpl: options.fetchImpl,
     gfsWaveSeries: seriesOn,
   });
-  const bucket = env.PACKS;
-  let wrote = 0;
-  if (bucket && typeof bucket.put === "function") {
-    for (const layer of manifest.layers) {
-      const body = bodies[layer.id];
-      if (!body) continue;
-      await bucket.put(layer.r2Key, body);
-      wrote += 1;
-    }
-    return { packId: manifest.packId, wrote, source: "r2" };
-  }
-  return { packId: manifest.packId, wrote: 0, source: "memory" };
+  return persistBuiltPack(env, built);
 }
 
-export { NORTHEAST_BBOX };
+export { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX };

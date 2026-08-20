@@ -55,8 +55,9 @@ new_sqlite_classes = ["CommunityHub"]
 # GET /api/packs never reads this for the series (hour-0 only).
 # GFS_WAVE_SERIES = "0"
 
-# Ingest cron is on: R2 `ahanu-trip-packs` and D1 `ahanu-core` exist (ENAM).
-# Custom domain is still reserved; deploy is workers.dev only. R2 does not
-# yet hold live ENC/GRIB/SST — cron writes fixtures until NOAA ingest lands.
+# Ingest cron is on: builds a live PJ pack (tryLive, skipCache) and puts
+# layer bodies at manifest r2Key. NOAA bytes when they landed; hashed
+# fixtures otherwise. Custom domain still reserved; workers.dev only.
+# GFS-Wave 72 h series stays off. POST /api/ingest is bearer-gated.
 [triggers]
 crons = ["15 2,8,14,20 * * *"]

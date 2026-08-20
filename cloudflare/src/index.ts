@@ -24,7 +24,7 @@ import { buildTripPack } from "../../src/lib/ahanu/pack";
 import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
-import { ingestFixturePack } from "./ingest/run";
+import { ingestFixturePack, persistBuiltPack, ingestDefaultBbox } from "./ingest/run";
 
 export type { BBox } from "./ingest/pack";
 
@@ -70,6 +70,12 @@ export interface Env {
   REGION_NORTH?: string;
   AHANU_GFS_WAVE_SERIES?: string;
   GFS_WAVE_SERIES?: string;
+  INGEST_TOKEN?: string;
+  AHANU_INGEST_TOKEN?: string;
+}
+
+interface ExecCtx {
+  waitUntil: (p: Promise<unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,8 +269,7 @@ function parseIso(raw: string | null): string {
   return d.toISOString();
 }
 
-async function buildManifest(bbox: BBox, start: string, hours: number, skipCache = false): Promise<TripPackManifest> {
-  const { manifest } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS, skipCache });
+function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["manifest"]): TripPackManifest {
   const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
     id: layer.id,
     label: layer.label,
@@ -305,24 +310,38 @@ async function layerBody(env: Env, bbox: BBox, start: string, hours: number, lay
   hash: string;
   contentType: string;
   source: "r2" | "fixture" | "noaa";
+  r2Key: string;
+  persist?: { id: string; body: string };
 } | null> {
-  const { manifest, bodies } = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS });
-  const rec = manifest.layers.find((l) => l.id === layerId);
+  const built = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS });
+  const rec = built.manifest.layers.find((l) => l.id === layerId);
   if (!rec) return null;
   const bucket = env.PACKS;
   if (bucket && typeof bucket.get === "function") {
     try {
       const obj = await bucket.get(rec.r2Key);
       if (obj) {
-        return { body: await obj.text(), hash: rec.hash, contentType: rec.contentType, source: "r2" };
+        return { body: await obj.text(), hash: rec.hash, contentType: rec.contentType, source: "r2", r2Key: rec.r2Key };
       }
     } catch {
-      /* fall through to fixture */
+      /* fall through to generated body */
     }
   }
-  const body = bodies[layerId];
+  const body = built.bodies[layerId];
   if (!body) return null;
-  return { body, hash: rec.hash, contentType: rec.contentType, source: rec.source === "noaa" ? "noaa" : "fixture" };
+  return {
+    body,
+    hash: rec.hash,
+    contentType: rec.contentType,
+    source: rec.source === "noaa" ? "noaa" : "fixture",
+    r2Key: rec.r2Key,
+    persist: { id: rec.id, body },
+  };
+}
+
+function schedulePersist(ctx: ExecCtx | undefined, work: Promise<unknown>): void {
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
+  else void work;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +460,17 @@ function requireAuth(req: Request): Response | null {
   if (!token) {
     return error(401, "unauthorized", { hint: "empty bearer token" });
   }
+  return null;
+}
+
+/** Cron is unauthenticated. HTTP ingest requires bearer; INGEST_TOKEN tightens if set. */
+function requireIngestAuth(req: Request, env: Env): Response | null {
+  const denied = requireAuth(req);
+  if (denied) return denied;
+  const secret = (env.INGEST_TOKEN ?? env.AHANU_INGEST_TOKEN ?? "").trim();
+  if (!secret) return null;
+  const token = (req.headers.get("Authorization") ?? "").slice("Bearer ".length).trim();
+  if (token !== secret) return error(401, "unauthorized", { hint: "ingest token mismatch" });
   return null;
 }
 
@@ -613,11 +643,10 @@ async function probeNdbc(): Promise<NoaaHealthProbe> {
 // ---------------------------------------------------------------------------
 
 export default {
-  async scheduled(_event: unknown, env: Env, ctx: { waitUntil: (p: Promise<unknown>) => void }): Promise<void> {
-    // Production: fetch NOAA/CMEMS, clip, hash, put R2. Here: fixture put if R2 is bound.
+  async scheduled(_event: unknown, env: Env, ctx: ExecCtx): Promise<void> {
     ctx.waitUntil(ingestFixturePack(env));
   },
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -652,7 +681,16 @@ export default {
         }
         const skipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
         const skipCache = skipRaw === "1" || skipRaw === "true" || skipRaw === "yes";
-        const manifest = await buildManifest(bboxOrErr, start, Math.round(hours), skipCache);
+        const built = await buildTripPack({
+          bbox: bboxOrErr,
+          start,
+          hours: Math.round(hours),
+          tryLive: true,
+          timeoutMs: NOAA_GRID_TIMEOUT_MS,
+          skipCache,
+        });
+        schedulePersist(ctx, persistBuiltPack(env, built));
+        const manifest = workerManifest(built.manifest);
         return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
       }
 
@@ -670,6 +708,9 @@ export default {
         if (!spec) return error(404, "unknown layer", { layer });
         const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id);
         if (!obj) return error(404, "layer body missing", { layer });
+        if (obj.persist && env.PACKS && typeof env.PACKS.put === "function") {
+          schedulePersist(ctx, env.PACKS.put(obj.r2Key, obj.persist.body));
+        }
         return new Response(obj.body, {
           status: 200,
           headers: {
@@ -715,6 +756,28 @@ export default {
           source: "ndbc-snapshot",
           buoys: snap,
         });
+      }
+
+      if ((request.method === "POST" || request.method === "GET") && path === "/api/ingest") {
+        if (request.method !== "POST") return error(405, "method not allowed", { hint: "POST /api/ingest with Authorization: Bearer" });
+        const denied = requireIngestAuth(request, env);
+        if (denied) return denied;
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
+        if (bboxOrErr instanceof Response) return bboxOrErr;
+        const start = parseIso(url.searchParams.get("start"));
+        const hoursRaw = url.searchParams.get("hours");
+        const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
+        if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+          return error(400, "hours must be 1–168");
+        }
+        const result = await ingestFixturePack(env, {
+          bbox: bboxOrErr,
+          start,
+          hours: Math.round(hours),
+          skipCache: true,
+          timeoutMs: NOAA_GRID_TIMEOUT_MS,
+        });
+        return json({ ok: true, ingest: result }, 200, { "Cache-Control": "no-store" });
       }
 
       if (request.method === "POST" && path === "/api/catches") {
