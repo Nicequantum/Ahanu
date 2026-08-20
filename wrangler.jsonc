@@ -2,8 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ahanu",
   "compatibility_date": "2026-08-20",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "nodejs_als"],
   "main": "@tanstack/react-start/server-entry",
+  "workers_dev": true,
+  "preview_urls": true,
   "observability": {
     "enabled": true
   }
