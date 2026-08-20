@@ -151,6 +151,34 @@ export function pickSmallEncZip(cells: EncCatalogCell[], maxBytes = 80_000): Enc
   return cells.find((c) => c.usage >= 5 && (c.zipBytes ?? Infinity) > 0 && (c.zipBytes ?? Infinity) <= maxBytes);
 }
 
+
+export type EncCatalogBounds = { west: number; south: number; east: number; north: number };
+
+/** Valid catalog coverage box for the aid overlay. Drops missing, NaN, or inverted. Not S-57. */
+export function encCatalogBounds(cell: {
+  west?: number;
+  south?: number;
+  east?: number;
+  north?: number;
+}): EncCatalogBounds | undefined {
+  const { west, south, east, north } = cell;
+  if (
+    typeof west !== "number" ||
+    typeof south !== "number" ||
+    typeof east !== "number" ||
+    typeof north !== "number" ||
+    !Number.isFinite(west) ||
+    !Number.isFinite(south) ||
+    !Number.isFinite(east) ||
+    !Number.isFinite(north) ||
+    west >= east ||
+    south >= north
+  ) {
+    return undefined;
+  }
+  return { west, south, east, north };
+}
+
 export function encToPackedJson(
   bbox: PackBBox,
   cells: EncCatalogCell[],
@@ -181,19 +209,23 @@ export function encToPackedJson(
         harborApproach: harbor,
         coastalTo100fm: cells.some((c) => c.usage === 3),
       },
-      cells: cells.map((c) => ({
-        id: c.id,
-        usage: c.usage,
-        name: c.name,
-        scale: c.scale,
-        status: c.status,
-        zipUrl: c.zipUrl,
-        zipBytes: c.zipBytes,
-        zipSha256: c.zipSha256,
-        edition: c.edition,
-        update: c.update,
-        issued: c.issued,
-      })),
+      cells: cells.map((c) => {
+        const box = encCatalogBounds(c);
+        return {
+          id: c.id,
+          usage: c.usage,
+          name: c.name,
+          scale: c.scale,
+          status: c.status,
+          zipUrl: c.zipUrl,
+          zipBytes: c.zipBytes,
+          zipSha256: c.zipSha256,
+          edition: c.edition,
+          update: c.update,
+          issued: c.issued,
+          ...(box ?? {}),
+        };
+      }),
     },
   };
 }

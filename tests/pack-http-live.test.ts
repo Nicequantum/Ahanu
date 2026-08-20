@@ -284,3 +284,47 @@ describe("preview pack HTTP NOAA retry", () => {
     assert.equal(live.hash, fix.hash);
   });
 });
+
+describe("preview pack HTTP live ENC catalog bounds", () => {
+  it("live catalog mock with bounds keeps west/south/east/north and paints polygons", async () => {
+    const { encCatalogFeatures } = await import("../src/lib/ahanu/packed-chart.ts");
+    const fetchImpl = mockNoaaSuccess();
+    const obj = await handlePacksRequest(
+      new Request(`http://ahanu.test/api/objects?${Q}&live=1&layer=enc`),
+      { fetchImpl },
+    );
+    assert.equal(obj.status, 200);
+    assert.equal(obj.headers.get("X-Ahanu-Source"), "noaa");
+    const body = JSON.parse(await obj.text()) as {
+      kind?: string;
+      payload?: {
+        official?: boolean;
+        source?: string;
+        cells?: {
+          id: string;
+          name?: string;
+          zipUrl?: string;
+          west?: number;
+          south?: number;
+          east?: number;
+          north?: number;
+        }[];
+      };
+    };
+    assert.equal(body.kind, "enc-clip");
+    assert.equal(body.payload?.official, false);
+    assert.equal(body.payload?.source, "noaa-enc-catalog");
+    const cell = body.payload?.cells?.find((c) => c.id === "US5PVDBB");
+    assert.ok(cell, "live catalog cell missing");
+    assert.equal(cell.west, -71.55);
+    assert.equal(cell.south, 41.325);
+    assert.equal(cell.east, -71.475);
+    assert.equal(cell.north, 41.4);
+    assert.ok(cell.zipUrl);
+    const geo = encCatalogFeatures(body.payload?.cells ?? []);
+    assert.equal(geo.features.length, 1);
+    assert.equal(geo.features[0]!.geometry.type, "Polygon");
+    assert.equal((geo.features[0]!.properties as { id?: string })?.id, "US5PVDBB");
+    assert.equal((geo.features[0]!.properties as { legal?: boolean })?.legal, false);
+  });
+});

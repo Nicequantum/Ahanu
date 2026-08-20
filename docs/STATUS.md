@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (ENC catalog aid boxes, 2026-08-20)
+
+Live packed ENC cells keep catalog west/south/east/north so Helm can paint the aid overlay boxes — catalog coverage, not official S-57.
+
 ## This pass (ERDDAP timeout + retry, 2026-08-20)
 
 Live NOAA ERDDAP grids (SST / chl / SSH / bathy), HMS, and hour-0 GFS now share an 18 s fetch with one retry on timeout / 429 / 5xx (1.5 s backoff). 404 is not retried. Two failures still keep the fixture. 72 h GFS series stays off. Tests mock fetch and sleep. No Worker scoring. No Flutter.

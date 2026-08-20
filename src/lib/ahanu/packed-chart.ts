@@ -10,6 +10,7 @@ import { CLOSED_AREAS } from "@/lib/data/regs";
 import type { Buoy } from "./types";
 import { getPackedOcean } from "./packed-fields";
 import type { PackedBuoyRow } from "./noaa-live";
+import { encCatalogBounds } from "./noaa-enc";
 
 export const ENC_AID_DISCLAIMER =
   "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
@@ -195,18 +196,7 @@ export function packedEncNote(): string | null {
 export function encCellHasBounds(
   cell: PackedEncCell,
 ): cell is PackedEncCell & { west: number; south: number; east: number; north: number } {
-  return (
-    typeof cell.west === "number" &&
-    typeof cell.south === "number" &&
-    typeof cell.east === "number" &&
-    typeof cell.north === "number" &&
-    Number.isFinite(cell.west) &&
-    Number.isFinite(cell.south) &&
-    Number.isFinite(cell.east) &&
-    Number.isFinite(cell.north) &&
-    cell.west < cell.east &&
-    cell.south < cell.north
-  );
+  return encCatalogBounds(cell) != null;
 }
 
 /** Aid overlay boxes from catalog west/south/east/north. Missing/empty/no-bounds → no features. Not official S-57. */

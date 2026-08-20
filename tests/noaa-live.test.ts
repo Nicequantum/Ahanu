@@ -328,6 +328,88 @@ describe("parseEncProductCatalog", () => {
   });
 });
 
+describe("encToPackedJson catalog bounds", () => {
+  it("keeps valid west/south/east/north and skips invalid boxes", async () => {
+    const { encToPackedJson } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const { encCatalogFeatures } = await import("../src/lib/ahanu/packed-chart.ts");
+    const packed = encToPackedJson(
+      POINT_JUDITH_CANYON_BBOX,
+      [
+        {
+          id: "US5PVDBB",
+          usage: 5,
+          name: "Block Island Sound",
+          zipUrl: "https://www.charts.noaa.gov/ENCs/US5PVDBB.zip",
+          zipBytes: 14000,
+          west: -71.55,
+          south: 41.325,
+          east: -71.475,
+          north: 41.4,
+        },
+        {
+          id: "US5NONE",
+          usage: 5,
+          name: "no box",
+          zipUrl: "https://www.charts.noaa.gov/ENCs/US5NONE.zip",
+        },
+        {
+          id: "US5BAD1",
+          usage: 5,
+          name: "inverted",
+          west: -70,
+          south: 41,
+          east: -71,
+          north: 42,
+        },
+        {
+          id: "US5BAD2",
+          usage: 5,
+          name: "nan",
+          west: Number.NaN,
+          south: 41,
+          east: -71,
+          north: 42,
+        },
+      ],
+      { catalogUrl: "https://charts.noaa.gov/ENCs/ENCProdCat.xml" },
+    );
+    const cells = (packed.payload as {
+      official?: boolean;
+      cells: {
+        id: string;
+        name?: string;
+        zipUrl?: string;
+        zipBytes?: number;
+        west?: number;
+        south?: number;
+        east?: number;
+        north?: number;
+      }[];
+    }).cells;
+    assert.equal((packed.payload as { official?: boolean }).official, false);
+    const hit = cells.find((c) => c.id === "US5PVDBB")!;
+    assert.equal(hit.west, -71.55);
+    assert.equal(hit.south, 41.325);
+    assert.equal(hit.east, -71.475);
+    assert.equal(hit.north, 41.4);
+    assert.equal(hit.zipUrl, "https://www.charts.noaa.gov/ENCs/US5PVDBB.zip");
+    assert.equal(hit.zipBytes, 14000);
+    const missing = cells.find((c) => c.id === "US5NONE")!;
+    assert.equal(missing.west, undefined);
+    assert.equal(missing.south, undefined);
+    const inverted = cells.find((c) => c.id === "US5BAD1")!;
+    assert.equal(inverted.west, undefined);
+    assert.equal(inverted.east, undefined);
+    const nan = cells.find((c) => c.id === "US5BAD2")!;
+    assert.equal(nan.west, undefined);
+    const geo = encCatalogFeatures(cells);
+    assert.equal(geo.features.length, 1);
+    assert.equal(geo.features[0]!.geometry.type, "Polygon");
+    assert.equal((geo.features[0]!.properties as { id?: string })?.id, "US5PVDBB");
+    assert.equal((geo.features[0]!.properties as { legal?: boolean })?.legal, false);
+  });
+});
+
 describe("parseCoopsWaterLevel", () => {
   it("reads latest observed height", () => {
     const obs = parseCoopsWaterLevel({ data: [{ t: "2026-08-20 18:18", v: "3.73" }] });
@@ -361,12 +443,19 @@ describe("tryLiveNoaa expanded ingest", () => {
       official?: boolean;
       live?: boolean;
       source?: string;
-      cells?: { id: string }[];
+      cells?: { id: string; west?: number; south?: number; east?: number; north?: number }[];
     };
     assert.equal(enc.official, false);
     assert.equal(enc.live, true);
     assert.equal(enc.source, "noaa-enc-catalog");
     assert.ok(enc.cells?.some((c) => c.id === "US5PVDBB"));
+    const boxed = enc.cells?.find((c) => c.id === "US5PVDBB") as
+      | { west?: number; south?: number; east?: number; north?: number }
+      | undefined;
+    assert.equal(boxed?.west, -71.55);
+    assert.equal(boxed?.south, 41.325);
+    assert.equal(boxed?.east, -71.475);
+    assert.equal(boxed?.north, 41.4);
     assert.equal(live.gfsWave.source, "nomads-gfswave");
     assert.equal(live.gfsWave.bytes, GRIB_MIN.byteLength);
     assert.match(live.gfsWave.sha256, /^[0-9a-f]{64}$/);

@@ -763,7 +763,7 @@ export {
   noaaStatusRetryable,
   isNoaaAbortError,
 } from "./noaa-http";
-export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog } from "./noaa-enc";
+export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds } from "./noaa-enc";
 export {
   gfsWaveFilterUrl,
   gfsWaveCycleCandidates,
