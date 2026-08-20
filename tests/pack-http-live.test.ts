@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
-const { buildFixturePack, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
+const { buildFixturePack, PACK_BUILDER_REV, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
 const {
   resetLiveNoaaCache,
   sampleCsvForTests,
@@ -121,7 +121,9 @@ describe("preview pack HTTP live overlays", () => {
       fetchImpl: mockNoaaSuccess(),
     });
     assert.equal(res.status, 200);
-    const man = (await res.json()) as { layers: LayerRow[] };
+    const man = (await res.json()) as { layers: LayerRow[]; builder: { rev: string } };
+    assert.equal(man.builder.rev, PACK_BUILDER_REV);
+    assert.equal(fixture.manifest.builder.rev, PACK_BUILDER_REV);
     for (const id of LIVE_LAYERS) {
       const live = man.layers.find((l) => l.id === id);
       const fix = fixture.manifest.layers.find((l) => l.id === id);

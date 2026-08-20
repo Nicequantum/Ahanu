@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 const {
   buildFixturePack,
   evaluateReadyForOffshore,
+  PACK_BUILDER_REV,
   POINT_JUDITH_CANYON_BBOX,
   REQUIRED_OFFSHORE_LAYERS,
   sha256Hex,
@@ -33,6 +34,8 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
+    assert.equal(PACK_BUILDER_REV, "gfs-hour0-merge-2026-08-20");
+    assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
       assert.ok(body && body.length > 8, `${layer.id} empty`);
@@ -318,9 +321,11 @@ describe("pack HTTP (preview/Worker shape)", () => {
     const manifest = (await res.json()) as {
       bbox: { west: number; south: number; east: number; north: number };
       hours: number;
+      builder: { rev: string };
     };
     assert.deepEqual(manifest.bbox, { west: -72.8, south: 39.4, east: -68.8, north: 41.5 });
     assert.equal(manifest.hours, 72);
+    assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
   });
 
   it("GET /api/packs then GET /api/objects verifies hash", async () => {
@@ -330,8 +335,10 @@ describe("pack HTTP (preview/Worker shape)", () => {
     const manifest = (await manRes.json()) as {
       layers: { id: string; hash: string }[];
       readyForOffshore: boolean;
+      builder: { rev: string };
     };
     assert.equal(manifest.readyForOffshore, true);
+    assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     const sst = manifest.layers.find((l) => l.id === "sst");
     assert.ok(sst);
     const objRes = await handlePacksRequest(

@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (pack builder revision, 2026-08-20)
+
+Every trip-pack manifest stamps `builder.rev` from a hand-bumped constant (`gfs-hour0-merge-2026-08-20`) so Helm / preview can tell which pack.ts produced the bytes; Packs shows it under the hashed count. Not a live git hash. No Worker scoring. No Flutter. 72 h series stays off.
+
 ## This pass (hour-0 GFS merge, 2026-08-20)
 
 Live GFS-Wave f000 no longer replaces the 72 h fixture wind/wave stack. Hour 0 is painted from the live subset; hours 3–72 stay fixture so Ready does not fail `1 h < 72 h`. Manifest notes / liveErrors say `gfs: hour-0 live; hours 3–72 fixture (series off)` and do not claim a live 72 h NOAA series. A complete paced series still stamps 72 h noaa. Series stays off by default. SST age is unchanged. No Worker scoring. No Flutter.

@@ -51,6 +51,9 @@ export const SST_STALE_H = 24;
 export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
+/** Hand-bumped when the pack merge contract changes. Not a live git hash. */
+export const PACK_BUILDER_REV = "gfs-hour0-merge-2026-08-20";
+
 export interface PackLayerRecord {
   id: PackLayerId;
   label: string;
@@ -83,6 +86,8 @@ export interface TripPackManifestV1 {
   notes: string;
   /** Live NOAA ingest misses. Empty when live is off or every overlay landed. Capped. */
   liveErrors: string[];
+  /** Which pack.ts produced these bytes. */
+  builder: { rev: string };
 }
 
 export const LIVE_ERROR_CAP = 8;
@@ -447,6 +452,7 @@ export async function buildFixturePack(options: {
         : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }]),
       ...(options.extraSources ?? []),
     ],
+    builder: { rev: PACK_BUILDER_REV },
     notes: liveIds.length
       ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses; hours 3–72 stay fixture unless a paced series completes. That is not a live 72 h NOAA grid. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h noaa when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",

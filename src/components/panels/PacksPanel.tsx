@@ -6,7 +6,7 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
-import { canRetryLiveOverlays, readyOffshoreBadge } from "@/lib/ahanu/pack";
+import { canRetryLiveOverlays, PACK_BUILDER_REV, readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 /** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
@@ -40,6 +40,7 @@ export function PacksPanel() {
   const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
   const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
+  const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
   useAhanu((s) => s.packEpoch);
   const total = packs.length;
   const ok = packs.filter((p) => p.status === "ready").length;
@@ -195,6 +196,7 @@ export function PacksPanel() {
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>
       </div>
+      <p className="mb-1 text-[11px] text-muted">builder {builderRev}</p>
       {liveErrors.length ? (
         <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
           {liveErrors.map((line, i) => (
