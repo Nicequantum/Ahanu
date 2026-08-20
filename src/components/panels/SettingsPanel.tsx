@@ -52,6 +52,7 @@ export function SettingsPanel() {
           </Button>
         ))}
       </div>
+      <p className="mb-4 text-xs text-muted">Last helm is kept on this device.</p>
       <p className="mb-2 text-[11px] tracking-widest text-faint uppercase">Own-ship</p>
       <div className="mb-3 flex flex-wrap gap-2">
         {NAV_MODES.map((m) => (

@@ -15,6 +15,7 @@ import { sstC } from "@/lib/ahanu/ocean";
 import { habitatScore, zoneLabel } from "@/lib/ahanu/scoring";
 import { nearestCanyon } from "@/lib/data/canyons";
 import { SPECIES_LABELS } from "@/lib/data/species";
+import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display-mode";
 import { markFishHere, useAhanu } from "@/lib/ahanu/store";
 import { readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { restorePackedSession } from "@/lib/ahanu/pack-client";
@@ -41,8 +42,10 @@ import {
   RotateCcw,
   Ruler,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+applyPersistedDisplayMode();
 
 const NAV: { id: Exclude<PanelId, null>; icon: typeof Layers; label: string }[] = [
   { id: "layers", icon: Layers, label: "Layers" },
@@ -77,8 +80,8 @@ export function AppShell() {
     });
   }, []);
 
-  useEffect(() => {
-    document.documentElement.dataset.mode = mode;
+  useLayoutEffect(() => {
+    applyDisplayMode(mode);
   }, [mode]);
 
   useEffect(() => {
@@ -97,7 +100,7 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="relative h-svh w-full overflow-hidden bg-abyss text-foam">
+    <div className="relative h-svh w-full overflow-hidden bg-abyss text-foam" data-mode={mode}>
       <ChartIsland />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-abyss/20 via-transparent to-abyss/25" />
       <TopBar />

@@ -31,6 +31,12 @@ import { evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type
 import { downloadTripPack as fetchTripPack, evidenceFromPackLayers } from "./pack-client";
 import { packedEpoch } from "./packed-fields";
 import { deviceToken, syncCatch } from "./catch-sync";
+import {
+  applyDisplayMode,
+  applyPersistedDisplayMode,
+  readPersistedDisplayMode,
+  writePersistedDisplayMode,
+} from "./display-mode";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -147,7 +153,7 @@ export const useAhanu = create<AhanuState>()(
       forecastHour: 0,
       species: "bigeye",
       panel: null,
-      displayMode: "night",
+      displayMode: readPersistedDisplayMode(),
       waypoints: SEED_SPOTS,
       catches: [],
       track: [{ lat: 39.905, lon: -69.695 }],
@@ -204,7 +210,11 @@ export const useAhanu = create<AhanuState>()(
         })),
       setHour: (forecastHour) => set({ forecastHour }),
       setSpecies: (species) => set({ species }),
-      setDisplayMode: (displayMode) => set({ displayMode }),
+      setDisplayMode: (displayMode) => {
+        const next = applyDisplayMode(displayMode);
+        writePersistedDisplayMode(next);
+        set({ displayMode: next });
+      },
       setMode: (mode) =>
         set((s) => ({
           vessel: {
@@ -438,6 +448,12 @@ export const useAhanu = create<AhanuState>()(
     {
       name: "ahanu-bridge-v1",
       skipHydration: true,
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const next = applyDisplayMode(state.displayMode);
+        writePersistedDisplayMode(next);
+        if (next !== state.displayMode) state.displayMode = next;
+      },
       partialize: (s) => ({
         waypoints: s.waypoints,
         catches: s.catches,
@@ -486,3 +502,5 @@ export function markFishHere() {
 }
 
 export { destination };
+
+applyPersistedDisplayMode();
