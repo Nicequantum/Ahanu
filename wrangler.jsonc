@@ -6,6 +6,9 @@
   "main": "@tanstack/react-start/server-entry",
   "workers_dev": true,
   "preview_urls": true,
+  "build": {
+    "command": "AHANU_CF=1 npx vite build"
+  },
   "observability": {
     "enabled": true
   }

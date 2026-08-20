@@ -89,13 +89,13 @@ Endpoints: `GET /health`, `GET /api/packs?west=&south=&east=&north=&hours=72`, `
 
 Root [`wrangler.jsonc`](wrangler.jsonc) is the app shell.
 
-Cloudflare's setup wizard defaults to `npx wrangler deploy`. **Leave that on the dashboard** — Workers Builds injects `CLOUDFLARE_API_TOKEN` and `WORKERS_CI`, so Vite takes the Worker path by itself. From a laptop, use:
+**Change the Cloudflare dashboard deploy command** from `npx wrangler deploy` to:
 
 ```bash
 npm run deploy:cf
 ```
 
-Same upload, plus `AHANU_CF=1`. Do not let Wrangler rewrite the `preview` script; that port is the Grok live helm.
+The wizard command skips Vite. `@tanstack/react-start/server-entry` is virtual — the Cloudflare plugin writes it during `vite build`. `deploy:cf` builds with `AHANU_CF=1` and then uploads. Do not let Wrangler rewrite the `preview` script.
 
 MapLibre stays in the browser. Habitat scoring stays on-device.
 
