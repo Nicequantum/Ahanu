@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (live canyon-head paint, 2026-08-20)
+
+Plotter already paints packed NOAA named heads (Veatch / Atlantis / Hydrographer, kind:head) plus labels from `canyonsForChart` / `canyonHeadsForLabels`; fixture axes still paint when present; missing or empty live heads invent nothing. Helm marks the layer packed via `canyonsSource`. No Worker scoring. No Flutter.
+
 ## This pass (stale SST Ready cue, 2026-08-20)
 
 Live SST composites can sit near 36 h, so Ready-for-offshore fails on age even when the layer is present and hash-ok. Packs already has **Accept stale SST** (`sstStaleOverride`, default off). When that age check is the only Ready failure (optional-layer warnings allowed), the switch row uses caution tone and one line: `SST is 36 h old — Accept stale SST to pass Ready`. The switch is not flipped and Ready is not auto-passed. Missing SST, hash mismatch, and weather-hour failures keep today's copy. No Worker scoring. No Flutter.

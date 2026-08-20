@@ -63,7 +63,7 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     return "synthetic";
   }
   if (id === "canyons") {
-    if (ocean?.canyons) return packLabel(ocean);
+    if (ocean?.canyons) return packLabel(ocean, ocean.canyonsSource);
     if (ocean) return "missing";
     return "local";
   }

@@ -81,6 +81,7 @@ export interface PackedOcean {
   hmsSource?: PackFieldSource;
   depthSource?: PackFieldSource;
   contoursSource?: PackFieldSource;
+  canyonsSource?: PackFieldSource;
   encSource?: PackFieldSource;
   source: PackFieldSource;
 }
@@ -250,7 +251,10 @@ export function packedOceanFromBodies(
   };
   takeJson("canyons", (payload) => {
     const fc = asFeatureCollection(payload);
-    if (fc) out.canyons = fc;
+    if (fc) {
+      out.canyons = fc;
+      out.canyonsSource = payloadSource(payload, packSource);
+    }
   });
   takeJson("contours", (payload) => {
     const fc = asFeatureCollection(payload);

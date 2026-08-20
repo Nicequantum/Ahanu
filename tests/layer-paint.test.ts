@@ -196,6 +196,7 @@ describe("packedGridFeatures", () => {
 
 const {
   canyonsForChart,
+  canyonHeadsForLabels,
   contoursForChart,
   hmsForChart,
   buoysForChart,
@@ -211,6 +212,11 @@ describe("packed chart layers", () => {
     const canyons = canyonsForChart();
     assert.ok(canyons.features.length > 0);
     assert.ok(canyons.features.some((f) => (f.properties as { name?: string })?.name === "Veatch"));
+    assert.ok(
+      canyons.features.some((f) => (f.properties as { kind?: string })?.kind === "axis"),
+      "fixture axes still paint when present",
+    );
+    assert.ok(canyonHeadsForLabels().some((h) => h.name === "Veatch"));
     const contours = contoursForChart();
     assert.ok(contours.c100.features.length >= 1);
     assert.equal(
@@ -391,6 +397,72 @@ describe("live bathymetry paint", () => {
     const split = contoursForChart();
     assert.ok(split.c100.features.length >= 1);
     assert.ok(split.c200.features.length >= 1, "200 fm should paint when the live grid crosses 366 m");
+  });
+});
+
+
+describe("live canyon heads paint", () => {
+  it("paints packed NOAA named kind:head points and labels — no invented axes", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const {
+      sampleCanyonsGeojsonForTests,
+      parseCanyonGazetteer,
+      clipCanyonFeatures,
+      canyonsToPackedJson,
+      CANYON_AID_NOTE,
+    } = await import("../src/lib/ahanu/noaa-canyons.ts");
+    const feats = clipCanyonFeatures(parseCanyonGazetteer(sampleCanyonsGeojsonForTests()), POINT_JUDITH_CANYON_BBOX);
+    const body = canyonsToPackedJson(feats, CANYON_AID_NOTE);
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.canyons = encodeLayerBody(body);
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(layerPaintSource("canyons"), "packed");
+    const geo = canyonsForChart();
+    const heads = geo.features.filter(
+      (f) => f.geometry?.type === "Point" && (f.properties as { kind?: string } | null)?.kind === "head",
+    );
+    const axes = geo.features.filter((f) => (f.properties as { kind?: string } | null)?.kind === "axis");
+    assert.equal(axes.length, 0, "live pack is heads only — do not invent axes");
+    const names = heads.map((f) => String((f.properties as { name?: string } | null)?.name ?? ""));
+    assert.ok(names.includes("Veatch"));
+    assert.ok(names.includes("Atlantis"));
+    assert.ok(names.includes("Hydrographer"));
+    assert.ok(names.includes("Hudson"));
+    assert.ok(!names.includes("Norfolk"), "out-of-box heads stay out");
+    const veatch = heads.find((f) => (f.properties as { name?: string } | null)?.name === "Veatch");
+    assert.ok(veatch);
+    assert.deepEqual((veatch.geometry as GeoJSON.Point).coordinates, [-69.6, 39.866667]);
+    const atlantis = heads.find((f) => (f.properties as { name?: string } | null)?.name === "Atlantis");
+    assert.ok(atlantis);
+    assert.deepEqual((atlantis.geometry as GeoJSON.Point).coordinates, [-70.2, 39.866667]);
+    const hydro = heads.find((f) => (f.properties as { name?: string } | null)?.name === "Hydrographer");
+    assert.ok(hydro);
+    assert.deepEqual((hydro.geometry as GeoJSON.Point).coordinates, [-69.05, 40.2]);
+    const labels = canyonHeadsForLabels();
+    assert.ok(labels.some((h) => h.name === "Veatch" && h.lon === -69.6 && h.lat === 39.866667));
+    assert.ok(labels.some((h) => h.name === "Atlantis" && h.lon === -70.2 && h.lat === 39.866667));
+    assert.ok(labels.some((h) => h.name === "Hydrographer" && h.lon === -69.05 && h.lat === 40.2));
+    assert.equal(labels.length, heads.length);
+  });
+
+  it("empty live canyons stay empty — no invented points", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { canyonsToPackedJson, CANYON_AID_NOTE } = await import("../src/lib/ahanu/noaa-canyons.ts");
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.canyons = encodeLayerBody(canyonsToPackedJson([], CANYON_AID_NOTE));
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(canyonsForChart().features.length, 0);
+    assert.equal(canyonHeadsForLabels().length, 0);
   });
 });
 
