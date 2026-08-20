@@ -103,7 +103,13 @@ export function fieldImage(
       bounds: overlayBounds(grid.bbox),
       source: (() => {
         const layerSrc =
-          kind === "sst" ? ocean.sstSource : kind === "chl" ? ocean.chlSource : undefined;
+          kind === "sst"
+            ? ocean.sstSource
+            : kind === "chl"
+              ? ocean.chlSource
+              : kind === "ssh"
+                ? ocean.sshSource
+                : undefined;
         const src = layerSrc ?? ocean.source;
         return src === "r2" || src === "noaa" ? "packed" : "fixture";
       })(),

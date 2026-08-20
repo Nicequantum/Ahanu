@@ -1,11 +1,11 @@
 /**
  * Public NOAA ingest (no secrets): NDBC latest_obs, CO-OPS tides, ENC product
  * catalog, a small GFS-Wave NOMADS subset, and a public CoastWatch/ERDDAP
- * SST probe, and a public CoastWatch/ERDDAP chlorophyll probe. Writes
- * fixture-shaped pack objects. Fetch failure omits that overlay so the
- * caller keeps the hashed fixture. Do not invent 1 km MUR / GHRSST or
- * 1 km VIIRS / CMEMS L4 if a coarser public grid is what arrived. Not
- * CMEMS. Not official S-57.
+ * SST probe, a public CoastWatch/ERDDAP chlorophyll probe, and a public
+ * CoastWatch/ERDDAP SSH / SLA probe. Writes fixture-shaped pack objects.
+ * Fetch failure omits that overlay so the caller keeps the hashed fixture.
+ * Do not invent 1 km MUR / GHRSST, 1 km VIIRS / CMEMS L4, or AVISO DUACS
+ * if a coarser public grid is what arrived. Not CMEMS. Not official S-57.
  *
  * Keep this file free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -38,6 +38,7 @@ import {
 import { ncepToPacked, parseNcep } from "./grid-io";
 import { fetchLiveSst, type SstIngest } from "./noaa-sst";
 import { fetchLiveChl, type ChlIngest } from "./noaa-chl";
+import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
 
 export const NDBC_LATEST_OBS_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 export const COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
@@ -315,6 +316,7 @@ export interface LiveNoaaResult {
   gfsWaveSeries?: GfsWaveSeriesGrids;
   sst?: SstIngest;
   chlorophyll?: ChlIngest;
+  altimetry?: SshIngest;
   errors: string[];
 }
 
@@ -664,7 +666,7 @@ export async function tryLiveNoaa(options: {
     : liveGfsWave(options.bbox, fetchImpl, timeoutMs, errors, options.now).then((ingest) => ({
         ingest,
       }));
-  const [buoys, tides, enc, gfs, sst, chl] = await Promise.all([
+  const [buoys, tides, enc, gfs, sst, chl, ssh] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors),
@@ -681,12 +683,19 @@ export async function tryLiveNoaa(options: {
       timeoutMs: Math.max(timeoutMs, 6000),
       errors,
     }),
+    fetchLiveSsh({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: Math.max(timeoutMs, 6000),
+      errors,
+    }),
   ]);
   if (buoys) out.buoys = buoys;
   if (tides) out.tides = tides;
   if (enc) out.enc = enc;
   if (sst) out.sst = sst;
   if (chl) out.chlorophyll = chl;
+  if (ssh) out.altimetry = ssh;
   if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
     out.gfsWaveSeries = gfs.series;
     if (gfs.ingest) out.gfsWave = gfs.ingest;
@@ -731,3 +740,11 @@ export {
   fetchLiveChl,
   sampleChlCsvForTests,
 } from "./noaa-chl";
+export {
+  SSH_ENDPOINTS,
+  erddapSshCsvUrl,
+  parseErddapSshCsv,
+  sshTableToPacked,
+  fetchLiveSsh,
+  sampleSshCsvForTests,
+} from "./noaa-ssh";

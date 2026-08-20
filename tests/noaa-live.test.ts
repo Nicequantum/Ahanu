@@ -25,6 +25,12 @@ const {
   fetchLiveChl,
   sampleChlCsvForTests,
   CHL_ENDPOINTS,
+  erddapSshCsvUrl,
+  parseErddapSshCsv,
+  sshTableToPacked,
+  fetchLiveSsh,
+  sampleSshCsvForTests,
+  SSH_ENDPOINTS,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -804,6 +810,198 @@ describe("optional live chlorophyll probe", () => {
     assert.match(chl.note, /not 1 km VIIRS/);
     if (chl.dataset === "noaacwNPPVIIRSchlaDaily") {
       assert.ok(Math.abs(chl.effectiveDeg - 0.0375) < 1e-6);
+    }
+  });
+});
+
+function sshCsvAt(iso: string, unit = "m"): string {
+  const rows = [`time,latitude,longitude,sla`, `UTC,degrees_north,degrees_east,${unit}`];
+  const lats = [39.375, 40.125, 40.625, 41.375];
+  const lons = [-72.875, -71.625, -70.375, -69.125];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      let v = 0.06 + (40.6 - lat) * 0.08 + Math.max(0, -70.4 - lon) * 0.04;
+      if (unit === "cm") v *= 100;
+      rows.push(`${iso},${lat},${lon},${v.toFixed(4)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}
+
+describe("ERDDAP SSH parse", () => {
+  it("builds a north-up cm grid and does not claim CMEMS or AVISO", () => {
+    const table = parseErddapSshCsv(sampleSshCsvForTests());
+    assert.ok(table);
+    const ep = SSH_ENDPOINTS[0]!;
+    const grid = sshTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.layer, "altimetry");
+    assert.equal(grid.source, "noaa");
+    assert.equal(grid.live, true);
+    assert.equal(grid.hoursCovered, 24);
+    assert.equal(grid.unit, "cm");
+    assert.equal(grid.nx, 4);
+    assert.equal(grid.ny, 4);
+    assert.equal(grid.updatedAt, "2026-08-19T00:00:00.000Z");
+    assert.match(grid.note ?? "", /0\.25/);
+    assert.match(grid.note ?? "", /not CMEMS/);
+    assert.match(grid.note ?? "", /not AVISO/);
+    const v = grid.values[0]![0] ?? 0;
+    assert.ok(v > 1 && v < 40, `expected cm, got ${v}`);
+  });
+
+  it("converts meter units to cm", () => {
+    const table = parseErddapSshCsv(sshCsvAt("2026-08-19T00:00:00Z", "m"));
+    assert.ok(table);
+    const grid = sshTableToPacked(table!, SSH_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    const v = grid.values[0]![0]!;
+    assert.ok(v > 1 && v < 40, `expected cm, got ${v}`);
+  });
+
+  it("rejects HTML error pages", () => {
+    assert.equal(parseErddapSshCsv("<html>nope</html>"), null);
+  });
+
+  it("builds the CoastWatch blended SLA ERDDAP CSV URL", () => {
+    const url = erddapSshCsvUrl(SSH_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX);
+    assert.match(url, /noaacwBLENDEDsshDaily\.csv/);
+    assert.match(url, /sla/);
+    assert.match(url, /39\.4/);
+    assert.match(url, /-72\.8/);
+  });
+});
+
+describe("tryLiveNoaa SSH overlay", () => {
+  it("paints altimetry source noaa when blended SLA CSV parses", async () => {
+    const csv = sshCsvAt("2026-08-19T00:00:00Z");
+    const fetchImpl = async (url: string) => {
+      if (url.includes("sla") || url.includes("BLENDEDssh") || url.includes("nesdisSSH")) {
+        return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } });
+      }
+      return new Response("no", { status: 404 });
+    };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl,
+      skipCache: true,
+    });
+    assert.ok(live.altimetry);
+    assert.equal(live.altimetry.source, "noaa");
+    assert.equal(live.altimetry.dataset, "noaacwBLENDEDsshDaily");
+    assert.equal(live.altimetry.grid.source, "noaa");
+    assert.match(live.altimetry.note, /0\.25/);
+    assert.doesNotMatch(live.altimetry.note, /CMEMS L4 gap|AVISO DUACS L4/);
+  });
+
+  it("omits altimetry on network or parse fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.altimetry, undefined);
+    assert.ok(live.errors.some((e) => e.includes("ssh")));
+  });
+});
+
+describe("buildTripPack SSH overlay", () => {
+  it("hashes live altimetry and marks source noaa without blocking Ready", async () => {
+    const csv = sshCsvAt("2026-08-19T00:00:00.000Z");
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      fetchImpl: async (url: string) => {
+        if (url.includes("sla") || url.includes("BLENDEDssh") || url.includes("nesdisSSH")) {
+          return new Response(csv, { status: 200 });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    const ssh = live.manifest.layers.find((l) => l.id === "altimetry")!;
+    assert.equal(ssh.source, "noaa");
+    assert.notEqual(ssh.hash, fixture.manifest.layers.find((l) => l.id === "altimetry")!.hash);
+    assert.equal(await sha256Hex(live.bodies.altimetry!), ssh.hash);
+    assert.equal(ssh.updatedAt, "2026-08-19T00:00:00.000Z");
+    assert.equal(ssh.hours, 24);
+    const body = parseLayerBody(live.bodies.altimetry!) as {
+      source?: string;
+      note?: string;
+      live?: boolean;
+    };
+    assert.equal(body.source, "noaa");
+    assert.match(body.note ?? "", /not CMEMS/);
+    assert.ok(live.manifest.sources.some((s) => s.id === "noaa-ssh"));
+    assert.equal(live.manifest.readyForOffshore, true);
+  });
+
+  it("keeps fixture altimetry when the probe fails", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(
+      live.manifest.layers.find((l) => l.id === "altimetry")!.hash,
+      fixture.manifest.layers.find((l) => l.id === "altimetry")!.hash,
+    );
+    assert.equal(live.manifest.layers.find((l) => l.id === "altimetry")!.source, "fixture");
+  });
+});
+
+describe("optional live SSH probe", () => {
+  it("skips when every public path is blocked", async (t) => {
+    const errors: string[] = [];
+    let ssh;
+    try {
+      ssh = await fetchLiveSsh({
+        bbox: POINT_JUDITH_CANYON_BBOX,
+        fetchImpl: globalThis.fetch,
+        timeoutMs: 8000,
+        errors,
+      });
+    } catch {
+      t.skip("live SSH fetch threw");
+      return;
+    }
+    if (!ssh) {
+      t.skip(errors.join("; ") || "live SSH blocked");
+      return;
+    }
+    assert.equal(ssh.source, "noaa");
+    assert.ok(ssh.grid.nx >= 2 && ssh.grid.ny >= 2);
+    assert.equal(ssh.grid.unit, "cm");
+    assert.match(ssh.note, /0\.25|km|°/);
+    assert.match(ssh.note, /not CMEMS/);
+    if (ssh.dataset === "noaacwBLENDEDsshDaily") {
+      assert.ok(Math.abs(ssh.effectiveDeg - 0.25) < 1e-6);
     }
   });
 });

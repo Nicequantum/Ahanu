@@ -34,20 +34,20 @@ A Montauk or Newport start uses the same flow; only the bbox origin changes. Hud
 
 Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source adapters and real NOAA/CMEMS URLs are in `cloudflare/src/ingest/sources.ts`.
 
-| Layer | Bytes | Window | Why it is in the pack |
-| --- | --- | --- | --- |
-| NOAA ENC clip | S-57 cells, Harbor/Approach/Coastal | static, weekly refresh | Legal-adjacent chart. Aid only — see Safety. |
-| Bathymetry COG | raster | static | Canyon walls, 100-fathom curve, heads. |
-| Depth contours | vector | static | Fast drawing, night-readable. |
-| Canyon axes & heads | GeoJSON | static | Veatch, Atlantis, Hydrographer, Hudson, … |
-| SST composite | MUR L4 + GOES-East gap-fill, COG | last 24 h | Water mass. Input to on-device breaks. |
-| Chlorophyll-a L4 | CMEMS (licensed, not fetched) / CoastWatch VIIRS 4 km L3 | last 24–48 h | Color. Input to on-device edges. Does not block Ready. |
-| SSH anomaly | altimetry L4 | last 24 h | Eddy / filament field under blank SST. |
-| Wind GRIB | NDFD + GFS-Wave | **72 h**, 3 h step | Go/no-go against `BoatLimits.maxWindKt`. |
-| Wave GRIB | GFS-Wave ATL 0p16 (WW3) | **72 h**, 3 h step | Go/no-go against `BoatLimits.maxWaveFt`. |
-| NDBC snapshot | JSON | ~hourly, stale after 3 h | Ground truth vs model. |
-| CO-OPS tides | JSON hi/lo + hourly | **72 h** | Harbor windows, The Race, Block Island Sound. |
-| HMS closed areas | GeoJSON | static / as published | Overlay, not a legal determination. |
+| Layer               | Bytes                                                         | Window                   | Why it is in the pack                                        |
+| ------------------- | ------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
+| NOAA ENC clip       | S-57 cells, Harbor/Approach/Coastal                           | static, weekly refresh   | Legal-adjacent chart. Aid only — see Safety.                 |
+| Bathymetry COG      | raster                                                        | static                   | Canyon walls, 100-fathom curve, heads.                       |
+| Depth contours      | vector                                                        | static                   | Fast drawing, night-readable.                                |
+| Canyon axes & heads | GeoJSON                                                       | static                   | Veatch, Atlantis, Hydrographer, Hudson, …                    |
+| SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
+| Chlorophyll-a L4    | CMEMS (licensed, not fetched) / CoastWatch VIIRS 4 km L3      | last 24–48 h             | Color. Input to on-device edges. Does not block Ready.       |
+| SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |
+| Wind GRIB           | NDFD + GFS-Wave                                               | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
+| Wave GRIB           | GFS-Wave ATL 0p16 (WW3)                                       | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWaveFt`.                     |
+| NDBC snapshot       | JSON                                                          | ~hourly, stale after 3 h | Ground truth vs model.                                       |
+| CO-OPS tides        | JSON hi/lo + hourly                                           | **72 h**                 | Harbor windows, The Race, Block Island Sound.                |
+| HMS closed areas    | GeoJSON                                                       | static / as published    | Overlay, not a legal determination.                          |
 
 **Not in the pack:** habitat score, temperature-break polylines, chlorophyll edges, solunar, marks, tracks, catch history, AIS. The first four are derived on the device from SST/chl/SSH + clock. The rest is user data.
 
@@ -77,12 +77,12 @@ The Worker does not decide go/no-go. The device compares each forecast hour to t
 Hour-0 (f000) may paint when tryLive is on. The full series is a separate path.
 It stays off so CI and GET /api/packs never pull about 25 NOMADS files.
 
-| How | What happens |
-| --- | --- |
-| buildTripPack({ tryLive: true, gfsWaveSeries: true }) | Fetch f000-f072, about 10 s between files (GFS_WAVE_PACE_MS). |
-| gfsWaveSeries: { enabled: true, hours: [0, 3, 6], paceMs: 0 } | Tests and short clips. Fake fetchImpl. |
-| env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1 | Read by Worker cron ingestFixturePack only. |
-| Worker [vars] GFS_WAVE_SERIES | Same cron flag. Do not enable on GET /api/packs. |
+| How                                                           | What happens                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| buildTripPack({ tryLive: true, gfsWaveSeries: true })         | Fetch f000-f072, about 10 s between files (GFS_WAVE_PACE_MS). |
+| gfsWaveSeries: { enabled: true, hours: [0, 3, 6], paceMs: 0 } | Tests and short clips. Fake fetchImpl.                        |
+| env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1              | Read by Worker cron ingestFixturePack only.                   |
+| Worker [vars] GFS_WAVE_SERIES                                 | Same cron flag. Do not enable on GET /api/packs.              |
 
 NOMADS pacing: about 10 seconds between subset files, about 4 minutes for 25 hours.
 A failed or missing step must not claim 72 h. hoursCovered is the contiguous prefix from hour 0 (hour 0 alone is 1 h).
@@ -90,7 +90,6 @@ Fixture wind/wave stay when the series is off or empty.
 
 Cron (15 2,8,14,20 * * *) remains commented in cloudflare/wrangler.toml until R2 ahanu-trip-packs and D1 ahanu-core exist.
 Uncommenting the trigger without the env flag still leaves the series off.
-
 
 ---
 
@@ -123,7 +122,7 @@ All of the following must be true:
 7. **Every required object’s hash verifies** against the manifest.
 8. **Hours ≥ 72** unless the skipper is explicitly packing a day-trip inshore box (client UX, not the Worker).
 
-Chlorophyll, altimetry, buoys, and canyon labels make a pack *better*. They do not block Ready. A skipper may still leave without them; the UI should say so in one line, not a modal essay.
+Chlorophyll, altimetry, buoys, and canyon labels make a pack _better_. They do not block Ready. A skipper may still leave without them; the UI should say so in one line, not a modal essay.
 
 A pack that is Ready is still an aid. Official ENC, a lookout, and a float plan are not in R2.
 
@@ -145,22 +144,21 @@ Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone
 
 ## Failure modes the client must handle
 
-| Symptom | Meaning | Helm behavior |
-| --- | --- | --- |
-| Layer `missing` | Ingest never wrote the key | Pack cannot be Ready if required |
-| Layer `stale` | Cycle/composite too old | Weather: not Ready. SST: not Ready unless the skipper accepts stale SST |
-| Hash mismatch | Bytes ≠ manifest | Delete object, retry once, then fail the pack |
-| 401 on catch POST | No bearer token | Keep the catch local, `synced: false` |
-| No network mid-trip | Expected | Freeze last buoy snapshot, keep scoring on packed rasters |
+| Symptom             | Meaning                    | Helm behavior                                                           |
+| ------------------- | -------------------------- | ----------------------------------------------------------------------- |
+| Layer `missing`     | Ingest never wrote the key | Pack cannot be Ready if required                                        |
+| Layer `stale`       | Cycle/composite too old    | Weather: not Ready. SST: not Ready unless the skipper accepts stale SST |
+| Hash mismatch       | Bytes ≠ manifest           | Delete object, retry once, then fail the pack                           |
+| 401 on catch POST   | No bearer token            | Keep the catch local, `synced: false`                                   |
+| No network mid-trip | Expected                   | Freeze last buoy snapshot, keep scoring on packed rasters               |
 
 Never block logging a catch on the network. The logbook is user data; it belongs on the boat first.
-
 
 ---
 
 ## Production ingest ops (not claimed done)
 
-Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), a NOMADS GFS-Wave `atlocn.0p16` f000 subset, a CoastWatch / ERDDAP SST probe, and a CoastWatch / ERDDAP chlorophyll probe. Hour-0 wind/wave is painted only when the subset parses; that is not a 72 h grid and does not satisfy Ready-for-offshore weather coverage. The paced f000-f072 / 3 h series is implemented and off by default (see above). SST is painted `source: "noaa"` only when a public ERDDAP CSV parses. The path that returned bytes here is CoralTemp daily 5 km (`noaacrwsstDaily`) — not 1 km MUR / GHRSST. Chlorophyll is painted `source: "noaa"` only when a public ERDDAP CSV parses. The path that returned a Point Judith grid here is CoastWatch S-NPP VIIRS NRT L3 daily 4 km / 0.0375° (`noaacwNPPVIIRSchlaDaily`) — not 1 km VIIRS, not CMEMS L4. `erdVHNchla8day` is North Pacific only and does not cover this box. Chlorophyll does not block Ready. MUR / GOES-16 / extra chl paths stay documented probes; a miss keeps the hashed fixture. Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`; it does not enable the series. CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
+Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), a NOMADS GFS-Wave `atlocn.0p16` f000 subset, a CoastWatch / ERDDAP SST probe, a CoastWatch / ERDDAP chlorophyll probe, and a CoastWatch / ERDDAP SSH / SLA probe. Hour-0 wind/wave is painted only when the subset parses; that is not a 72 h grid and does not satisfy Ready-for-offshore weather coverage. The paced f000-f072 / 3 h series is implemented and off by default (see above). SST is painted `source: "noaa"` only when a public ERDDAP CSV parses. The path that returned bytes here is CoralTemp daily 5 km (`noaacrwsstDaily`) — not 1 km MUR / GHRSST. Chlorophyll is painted `source: "noaa"` only when a public ERDDAP CSV parses. The path that returned a Point Judith grid here is CoastWatch S-NPP VIIRS NRT L3 daily 4 km / 0.0375° (`noaacwNPPVIIRSchlaDaily`) — not 1 km VIIRS, not CMEMS L4. `erdVHNchla8day` is North Pacific only and does not cover this box. Chlorophyll does not block Ready. SSH / SLA is painted `source: "noaa"` only when a public ERDDAP CSV parses. The path that returned a Point Judith grid here is CoastWatch blended SLA daily 0.25° / ~25 km (`noaacwBLENDEDsshDaily`) — not CMEMS L4, not AVISO DUACS. PFEG `nesdisSSH1day` is the documented fallback. Altimetry does not block Ready. MUR / GOES-16 / extra chl / extra SSH paths stay documented probes; a miss keeps the hashed fixture. Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`; it does not enable the series. CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
 
 Until a scheduled Worker writes R2:
 

@@ -293,3 +293,29 @@ describe("live chlorophyll daily paint", () => {
     assert.equal(img.source, "packed");
   });
 });
+
+describe("live SSH daily paint", () => {
+  it("marks packed noaa and samples the daily field past hour 0", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { sampleSshCsvForTests, parseErddapSshCsv, sshTableToPacked, SSH_ENDPOINTS } =
+      await import("../src/lib/ahanu/noaa-ssh.ts");
+    const table = parseErddapSshCsv(sampleSshCsvForTests())!;
+    const grid = sshTableToPacked(table, SSH_ENDPOINTS[0]!, POINT_JUDITH_CANYON_BBOX)!;
+    const { bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    bodies.altimetry = encodeLayerBody(grid);
+    setPackedOcean(packedOceanFromBodies(bodies));
+    assert.equal(layerPaintSource("altimetry"), "packed");
+    const at0 = samplePackedKind("ssh", 40.125, -71.625, 0);
+    const at36 = samplePackedKind("ssh", 40.125, -71.625, 36);
+    assert.ok(at0 != null);
+    assert.equal(at36, at0);
+    const img = fieldImage("ssh", 12, 8, 6);
+    assert.ok(img);
+    assert.equal(img.source, "packed");
+  });
+});

@@ -350,7 +350,7 @@ export async function buildFixturePack(options: {
       ...(options.extraSources ?? []),
     ],
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). Chlorophyll does not block Ready. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). Chlorophyll and altimetry do not block Ready. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
@@ -412,6 +412,10 @@ export async function buildTripPack(options: {
     if (live.chlorophyll?.grid) {
       overlays.chlorophyll = encodeLayerBody(live.chlorophyll.grid);
       extraSources.push({ id: "noaa-chl", name: live.chlorophyll.note });
+    }
+    if (live.altimetry?.grid) {
+      overlays.altimetry = encodeLayerBody(live.altimetry.grid);
+      extraSources.push({ id: "noaa-ssh", name: live.altimetry.note });
     }
     if (live.gfsWave || series) {
       const painted = Boolean(

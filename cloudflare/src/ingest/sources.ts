@@ -305,10 +305,12 @@ export function copernicusChlorophyll(): IngestMeta {
  * Captains use SSH to see the eddy / filament field that SST alone can hide
  * under a blank sky. L4 gridded NRT, not along-track.
  *
- *   CMEMS L4:   SEALEVEL_GLO_PHY_L4_NRT_008_046
+ *   CMEMS L4:   SEALEVEL_GLO_PHY_L4_NRT_008_046 (licensed, not fetched)
  *               https://data.marine.copernicus.eu/product/SEALEVEL_GLO_PHY_L4_NRT_008_046
- *   NOAA SSH:   https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day
- *   AVISO:      https://www.aviso.altimetry.fr/
+ *   Live no-key path (2026-08-20): CoastWatch blended SLA daily 0.25°
+ *     https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily
+ *   Fallback:   https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day
+ *   AVISO:      documented only — not fetched. Do not invent DUACS.
  *   CCAR viewer (reference, not ingest): https://ccar.colorado.edu/altimetry
  */
 export function altimetry(): IngestMeta {
@@ -322,17 +324,24 @@ export function altimetry(): IngestMeta {
     layerIds: ["altimetry"],
     endpoints: [
       {
-        label: "CMEMS SEALEVEL L4 NRT",
+        label: "CMEMS SEALEVEL L4 NRT (licensed, not fetched)",
         url: "https://data.marine.copernicus.eu/product/SEALEVEL_GLO_PHY_L4_NRT_008_046",
       },
       {
-        label: "NOAA NESDIS SSH 1-day (ERDDAP)",
+        label: "CoastWatch blended SLA daily 0.25° (no-key live)",
+        url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily",
+      },
+      {
+        label: "NOAA NESDIS SSH 1-day (PFEG ERDDAP)",
         url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day",
       },
-      { label: "AVISO altimetry", url: "https://www.aviso.altimetry.fr/" },
+      {
+        label: "AVISO altimetry (documented only — not fetched)",
+        url: "https://www.aviso.altimetry.fr/",
+      },
     ],
     notes:
-      "Pack SLA + geostrophic UV if present. 0.25° is acceptable; do not interpolate on the Worker — the device renderer handles it.",
+      "CMEMS L4 / AVISO DUACS are licensed production targets and are not fetched here. The no-key live path that returned a Point Judith grid is CoastWatch blended SLA daily 0.25° / ~25 km (noaacwBLENDEDsshDaily) — not CMEMS, not AVISO. PFEG nesdisSSH1day is the documented fallback (same RADS family; time here lagged). Miss keeps the hashed fixture. Altimetry does not block Ready. Pack SLA in cm. Do not interpolate on the Worker.",
   });
 }
 

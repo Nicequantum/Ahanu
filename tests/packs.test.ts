@@ -13,9 +13,8 @@ const { hashesMatch, generateLayerBody } = await import("../src/lib/ahanu/pack-f
 const { habitatScore } = await import("../src/lib/ahanu/scoring.ts");
 const { sstC } = await import("../src/lib/ahanu/ocean.ts");
 const { gribAt, scoreGoNoGo } = await import("../src/lib/ahanu/grib.ts");
-const { packedOceanFromBodies, setPackedOcean, clearPackedOcean, samplePackedKind } = await import(
-  "../src/lib/ahanu/packed-fields.ts"
-);
+const { packedOceanFromBodies, setPackedOcean, clearPackedOcean, samplePackedKind } =
+  await import("../src/lib/ahanu/packed-fields.ts");
 const { VEATCH_HEAD, DEFAULT_BOAT } = await import("../src/lib/ahanu/constants.ts");
 
 const DATE = new Date(2026, 7, 20, 12, 0, 0);
@@ -229,6 +228,15 @@ describe("evaluateReadyForOffshore", () => {
     assert.ok(ready.warnings.some((w) => w.startsWith("chlorophyll")));
   });
 
+  it("does not block on missing altimetry", async () => {
+    const layers = await baseLayers();
+    const ssh = layers.find((l) => l.id === "altimetry")!;
+    ssh.present = false;
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers });
+    assert.equal(ready.ready, true, ready.failures.join("; "));
+    assert.ok(ready.warnings.some((w) => w.startsWith("altimetry")));
+  });
+
   it("does not trust a worker boolean (ignored input)", async () => {
     const layers = await baseLayers();
     layers.find((l) => l.id === "enc")!.present = false;
@@ -295,7 +303,10 @@ describe("pack HTTP (preview/Worker shape)", () => {
   it("GET /api/packs with no query defaults to the Point Judith canyon box", async () => {
     const res = await handlePacksRequest(new Request("http://ahanu.test/api/packs"));
     assert.equal(res.status, 200);
-    const manifest = (await res.json()) as { bbox: { west: number; south: number; east: number; north: number }; hours: number };
+    const manifest = (await res.json()) as {
+      bbox: { west: number; south: number; east: number; north: number };
+      hours: number;
+    };
     assert.deepEqual(manifest.bbox, { west: -72.8, south: 39.4, east: -68.8, north: 41.5 });
     assert.equal(manifest.hours, 72);
   });
@@ -304,11 +315,16 @@ describe("pack HTTP (preview/Worker shape)", () => {
     const q = "west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=2026-08-20T12:00:00.000Z";
     const manRes = await handlePacksRequest(new Request("http://ahanu.test/api/packs?" + q));
     assert.equal(manRes.status, 200);
-    const manifest = (await manRes.json()) as { layers: { id: string; hash: string }[]; readyForOffshore: boolean };
+    const manifest = (await manRes.json()) as {
+      layers: { id: string; hash: string }[];
+      readyForOffshore: boolean;
+    };
     assert.equal(manifest.readyForOffshore, true);
     const sst = manifest.layers.find((l) => l.id === "sst");
     assert.ok(sst);
-    const objRes = await handlePacksRequest(new Request("http://ahanu.test/api/objects?" + q + "&layer=sst"));
+    const objRes = await handlePacksRequest(
+      new Request("http://ahanu.test/api/objects?" + q + "&layer=sst"),
+    );
     assert.equal(objRes.status, 200);
     const body = await objRes.text();
     const hash = await sha256Hex(body);
@@ -337,11 +353,19 @@ describe("pack HTTP (preview/Worker shape)", () => {
     assert.equal(fix.status, 200);
     assert.equal(live.status, 200);
     const fixMan = (await fix.json()) as { layers: { id: string; hash: string; source: string }[] };
-    const liveMan = (await live.json()) as { layers: { id: string; hash: string; source: string }[] };
+    const liveMan = (await live.json()) as {
+      layers: { id: string; hash: string; source: string }[];
+    };
     assert.equal(fixMan.layers.find((l) => l.id === "buoys")!.source, "fixture");
     assert.equal(liveMan.layers.find((l) => l.id === "buoys")!.source, "noaa");
-    assert.notEqual(fixMan.layers.find((l) => l.id === "buoys")!.hash, liveMan.layers.find((l) => l.id === "buoys")!.hash);
-    assert.equal(fixMan.layers.find((l) => l.id === "sst")!.hash, liveMan.layers.find((l) => l.id === "sst")!.hash);
+    assert.notEqual(
+      fixMan.layers.find((l) => l.id === "buoys")!.hash,
+      liveMan.layers.find((l) => l.id === "buoys")!.hash,
+    );
+    assert.equal(
+      fixMan.layers.find((l) => l.id === "sst")!.hash,
+      liveMan.layers.find((l) => l.id === "sst")!.hash,
+    );
   });
 
   it("POST /api/catches without bearer is 401", async () => {
