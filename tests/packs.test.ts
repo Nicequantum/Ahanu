@@ -9,6 +9,8 @@ const {
   POINT_JUDITH_CANYON_BBOX,
   REQUIRED_OFFSHORE_LAYERS,
   sha256Hex,
+  sstStaleReadyCue,
+  SST_STALE_FLIP_COPY,
 } = await import("../src/lib/ahanu/pack.ts");
 const { hashesMatch, generateLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { habitatScore } = await import("../src/lib/ahanu/scoring.ts");
@@ -257,6 +259,115 @@ describe("evaluateReadyForOffshore", () => {
     layers.find((l) => l.id === "enc")!.present = false;
     const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers });
     assert.equal(ready.ready, false);
+  });
+});
+
+describe("sstStaleReadyCue", () => {
+  async function baseLayers() {
+    const { manifest } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    return manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.updatedAt,
+      hoursCovered: l.hours || 72,
+      cycleAt: START,
+    }));
+  }
+
+  it("highlights when the only Ready failure is SST age", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.updatedAt = "2026-08-19T00:00:00.000Z";
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers,
+    });
+    assert.equal(ready.ready, false);
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, true);
+    assert.equal(cue.line, `SST is 36 h old — ${SST_STALE_FLIP_COPY}`);
+    assert.match(cue.line ?? "", /Accept stale SST to pass Ready/);
+  });
+
+  it("still highlights SST age plus optional-layer warnings", async () => {
+    const layers = await baseLayers();
+    layers.find((l) => l.id === "sst")!.updatedAt = "2026-08-19T00:00:00.000Z";
+    layers.find((l) => l.id === "chlorophyll")!.present = false;
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers,
+    });
+    assert.equal(ready.ready, false);
+    assert.ok(ready.warnings.some((w) => w.startsWith("chlorophyll")));
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, true);
+    assert.match(cue.line ?? "", /SST is 36 h old/);
+  });
+
+  it("does not offer just-flip copy when SST is missing", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.present = false;
+    sst.hashActual = undefined;
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers });
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, false);
+    assert.equal(cue.line, null);
+    assert.doesNotMatch(JSON.stringify(cue), /Accept stale SST to pass Ready/);
+  });
+
+  it("does not offer just-flip copy on SST hash mismatch", async () => {
+    const layers = await baseLayers();
+    const sst = layers.find((l) => l.id === "sst")!;
+    sst.hashActual = "0".repeat(sst.hashExpected!.length);
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers });
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, false);
+    assert.equal(cue.line, null);
+    assert.doesNotMatch(JSON.stringify(cue), /Accept stale SST to pass Ready/);
+  });
+
+  it("does not highlight when weather hours also fail", async () => {
+    const layers = await baseLayers();
+    layers.find((l) => l.id === "sst")!.updatedAt = "2026-08-19T00:00:00.000Z";
+    layers.find((l) => l.id === "wind")!.hoursCovered = 1;
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers,
+    });
+    assert.ok(ready.failures.some((f) => f.startsWith("wind:")));
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, false);
+    assert.equal(cue.line, null);
+  });
+
+  it("does not highlight after skipper override makes Ready", async () => {
+    const layers = await baseLayers();
+    layers.find((l) => l.id === "sst")!.updatedAt = "2026-08-19T00:00:00.000Z";
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      sstOverride: true,
+      layers,
+    });
+    assert.equal(ready.ready, true);
+    const cue = sstStaleReadyCue(ready);
+    assert.equal(cue.highlight, false);
+    assert.equal(cue.line, null);
   });
 });
 

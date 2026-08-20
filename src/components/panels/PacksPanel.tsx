@@ -6,7 +6,7 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
-import { canRetryLiveOverlays, PACK_BUILDER_REV, readyOffshoreBadge } from "@/lib/ahanu/pack";
+import { canRetryLiveOverlays, PACK_BUILDER_REV, readyOffshoreBadge, sstStaleReadyCue } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 /** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
@@ -49,6 +49,7 @@ export function PacksPanel() {
   const pct = total ? (ok / total) * 100 : 0;
   const offshore = Boolean(ready?.ready);
   const badge = readyOffshoreBadge(ready);
+  const sstCue = sstStaleReadyCue(ready);
   const retryLive = canRetryLiveOverlays({
     live: Boolean(live),
     downloading,
@@ -81,11 +82,18 @@ export function PacksPanel() {
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
       </div>
 
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div
+        className={
+          sstCue.highlight
+            ? "mb-3 flex items-center justify-between gap-3 rounded-lg bg-caution/15 px-3 py-2"
+            : "mb-3 flex items-center justify-between gap-3"
+        }
+      >
         <div>
-          <p className="text-sm">Accept stale SST</p>
-          <p className="text-[11px] text-muted">
-            Present, hash-ok composite older than 24 h can pass Ready. Aid only — not permission.
+          <p className={sstCue.highlight ? "text-sm text-caution" : "text-sm"}>Accept stale SST</p>
+          <p className={sstCue.highlight ? "text-[11px] text-caution" : "text-[11px] text-muted"}>
+            {sstCue.line ??
+              "Present, hash-ok composite older than 24 h can pass Ready. Aid only — not permission."}
           </p>
         </div>
         <Switch

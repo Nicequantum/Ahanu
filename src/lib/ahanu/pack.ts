@@ -228,6 +228,44 @@ export function readyOffshoreBadge(result: ReadyOffshoreResult | null): {
   return { ready: false, caution: true, short: "Not ready", long: "Not ready" };
 }
 
+/** Copy shown only when SST age is the sole Ready block (hash-ok, body present). */
+export const SST_STALE_FLIP_COPY = "Accept stale SST to pass Ready";
+
+const SST_AGE_REASON = /SST age ([\d.]+) h/;
+
+/**
+ * Highlight Accept stale SST when Ready fails only on SST age.
+ * Warnings (optional layers) are allowed. Hash / missing / weather hours are not.
+ * Does not flip the switch and does not change Ready.
+ */
+export function sstStaleReadyCue(result: ReadyOffshoreResult | null): {
+  highlight: boolean;
+  line: string | null;
+} {
+  if (!result || result.ready) return { highlight: false, line: null };
+
+  const sst = result.layers.find((l) => l.id === "sst");
+  if (!sst?.present || !sst.hashOk || sst.fresh || sst.ok) {
+    return { highlight: false, line: null };
+  }
+
+  const ageMatch = sst.reason.match(SST_AGE_REASON);
+  const age = ageMatch ? Number(ageMatch[1]) : Number.NaN;
+  if (!Number.isFinite(age)) return { highlight: false, line: null };
+  if (!result.hoursOk) return { highlight: false, line: null };
+
+  const otherRequiredFail = result.layers.some((l) => l.required && l.id !== "sst" && !l.ok);
+  if (otherRequiredFail) return { highlight: false, line: null };
+
+  const otherFailures = result.failures.filter((f) => !/^sst:/i.test(f));
+  if (otherFailures.length) return { highlight: false, line: null };
+
+  return {
+    highlight: true,
+    line: `SST is ${Math.round(age)} h old — ${SST_STALE_FLIP_COPY}`,
+  };
+}
+
 function overlayUpdatedAt(body: string, fallback: string): string {
   const parsed = parseLayerBody(body);
   if (parsed && parsed.kind === "grid") {

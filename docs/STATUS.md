@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (stale SST Ready cue, 2026-08-20)
+
+Live SST composites can sit near 36 h, so Ready-for-offshore fails on age even when the layer is present and hash-ok. Packs already has **Accept stale SST** (`sstStaleOverride`, default off). When that age check is the only Ready failure (optional-layer warnings allowed), the switch row uses caution tone and one line: `SST is 36 h old — Accept stale SST to pass Ready`. The switch is not flipped and Ready is not auto-passed. Missing SST, hash mismatch, and weather-hour failures keep today's copy. No Worker scoring. No Flutter.
+
 ## This pass (tide harbor persist, 2026-08-20)
 
 Safety / HUD harbor pick (Newport / Quonset / Montauk) is kept on this device (`ahanu-tide-harbor`); reload restores it if that station is still packed, else Newport. Missing pack does not invent water levels. No Worker scoring. No Flutter.
