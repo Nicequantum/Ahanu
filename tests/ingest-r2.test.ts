@@ -137,5 +137,75 @@ describe("ingest R2 persist", () => {
     assert.equal(result.d1, false);
     assert.equal(store.get("packs/packtest/buoys/ab.json"), "{}");
   });
+
+  it("reports d1 true when pack_layers upserts", async () => {
+    const rows: unknown[][] = [];
+    const result = await persistBuiltPack(
+      {
+        PACKS: {
+          put: async () => {},
+        },
+        DB: {
+          prepare: (query: string) => ({
+            bind: (...values: unknown[]) => ({
+              run: async () => {
+                if (!query.includes("INSERT INTO pack_layers")) {
+                  throw new Error(`unexpected sql: ${query}`);
+                }
+                rows.push(values);
+                return { success: true };
+              },
+            }),
+          }),
+        },
+      },
+      {
+        manifest: {
+          packId: "packtest",
+          version: 1,
+          bbox: POINT_JUDITH_CANYON_BBOX,
+          start: START,
+          hours: 72,
+          generatedAt: START,
+          readyForOffshore: false,
+          layers: [
+            {
+              id: "buoys",
+              label: "buoys",
+              sizeMb: 0,
+              sizeBytes: 2,
+              status: "ready",
+              updatedAt: START,
+              hours: 3,
+              hash: "ab",
+              r2Key: "packs/packtest/buoys/ab.json",
+              contentType: "application/json",
+              format: "json",
+              source: "noaa",
+            },
+          ],
+          totalBytes: 2,
+          totalMb: 0,
+          r2Prefix: "packs/packtest",
+          sources: [],
+          notes: "",
+          liveErrors: [],
+          builder: { rev: "test" },
+        },
+        bodies: { buoys: "{}" },
+      },
+    );
+    assert.equal(result.d1, true);
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0], [
+      "packtest",
+      "buoys",
+      "packs/packtest/buoys/ab.json",
+      "ab",
+      2,
+      "noaa",
+      START,
+    ]);
+  });
 });
 

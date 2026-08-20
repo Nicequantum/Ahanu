@@ -97,6 +97,23 @@ describe("parseNdbcLatestObs", () => {
     assert.equal(block.updatedAt, "2026-08-20T16:40:00.000Z");
     assert.ok(!rows.some((b) => b.id === "99999"));
   });
+
+  it("uses a 4-digit year as-is and still pivots two-digit 26 to 2026", () => {
+    // Same real NDBC stations/coords as NDBC_SAMPLE; only the year field width changes.
+    const mixed = `#STN     LAT      LON  YY MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  PTDY  ATMP  WTMP  DEWP  VIS  TIDE
+#text    deg      deg   yr mo dy hr mn degT m/s  m/s     m   sec   sec degT   hPa   hPa  degC  degC  degC  nmi    ft
+44097    40.967 -71.126 2026 08 20 16 40  210  5.2  6.8   1.0     8   5.4 200 1016.5 +0.0  22.1  21.8    MM   MM    MM
+44017    40.693 -72.049 26 08 20 16 40  200  4.8  6.1   1.1     7   5.1 195 1016.2 -0.1  21.8  21.4    MM   MM    MM
+`;
+    const rows = parseNdbcLatestObs(mixed, POINT_JUDITH_CANYON_BBOX);
+    const four = rows.find((b) => b.id === "44097");
+    const two = rows.find((b) => b.id === "44017");
+    assert.ok(four);
+    assert.ok(two);
+    assert.equal(four.updatedAt, "2026-08-20T16:40:00.000Z");
+    assert.equal(two.updatedAt, "2026-08-20T16:40:00.000Z");
+    assert.ok(!four.updatedAt?.startsWith("3926"));
+  });
 });
 
 describe("parseCoopsPredictions", () => {

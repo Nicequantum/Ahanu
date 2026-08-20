@@ -151,7 +151,8 @@ function keepNdbc(id: string, lat: number, lon: number, bbox?: PackBBox): boolea
 }
 
 function yymmddToIso(yy: string, mo: string, dd: string, hh: string, mm: string): string {
-  const year = Number(yy) < 70 ? 2000 + Number(yy) : 1900 + Number(yy);
+  const n = Number(yy);
+  const year = yy.trim().length >= 4 || n >= 100 ? n : n < 70 ? 2000 + n : 1900 + n;
   const pad = (s: string) => s.padStart(2, "0");
   return `${year}-${pad(mo)}-${pad(dd)}T${pad(hh)}:${pad(mm)}:00.000Z`;
 }
