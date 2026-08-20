@@ -241,6 +241,35 @@ describe("pack HTTP (preview/Worker shape)", () => {
     assert.equal(hash, sst!.hash);
   });
 
+  it("GET /api/packs stays fixture unless live=1", async () => {
+    const q = "west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=2026-08-20T12:00:00.000Z";
+    const fix = await handlePacksRequest(new Request("http://ahanu.test/api/packs?" + q));
+    const live = await handlePacksRequest(
+      new Request("http://ahanu.test/api/packs?" + q + "&live=1"),
+      {
+        fetchImpl: async (url: string) => {
+          if (url.includes("latest_obs")) {
+            return new Response(
+              `#STN LAT LON YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES PTDY ATMP WTMP DEWP VIS TIDE
+44097 40.967 -71.126 26 08 20 16 40 210 5.2 6.8 1.0 8 5.4 200 1016.5 +0.0 22.1 21.8 MM MM MM
+`,
+              { status: 200 },
+            );
+          }
+          return new Response("no", { status: 404 });
+        },
+      },
+    );
+    assert.equal(fix.status, 200);
+    assert.equal(live.status, 200);
+    const fixMan = (await fix.json()) as { layers: { id: string; hash: string; source: string }[] };
+    const liveMan = (await live.json()) as { layers: { id: string; hash: string; source: string }[] };
+    assert.equal(fixMan.layers.find((l) => l.id === "buoys")!.source, "fixture");
+    assert.equal(liveMan.layers.find((l) => l.id === "buoys")!.source, "noaa");
+    assert.notEqual(fixMan.layers.find((l) => l.id === "buoys")!.hash, liveMan.layers.find((l) => l.id === "buoys")!.hash);
+    assert.equal(fixMan.layers.find((l) => l.id === "sst")!.hash, liveMan.layers.find((l) => l.id === "sst")!.hash);
+  });
+
   it("POST /api/catches without bearer is 401", async () => {
     const res = await handlePacksRequest(
       new Request("http://ahanu.test/api/catches", {

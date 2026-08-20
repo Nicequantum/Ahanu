@@ -153,6 +153,7 @@ export interface TripPackLayer {
   r2Key: string;
   contentType: string;
   format: string;
+  source?: "fixture" | "r2" | "noaa";
 }
 
 export interface TripPackManifest {
@@ -272,6 +273,7 @@ async function buildManifest(bbox: BBox, start: string, hours: number): Promise<
     r2Key: layer.r2Key,
     contentType: layer.contentType,
     format: layer.format,
+    source: layer.source,
   }));
   return {
     packId: manifest.packId,
@@ -287,8 +289,9 @@ async function buildManifest(bbox: BBox, start: string, hours: number): Promise<
     r2Prefix: manifest.r2Prefix,
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
-      "SHA-256 of pack object bytes. Buoys/tides may be live NDBC/CO-OPS; ENC/GRIB/SST remain fixtures. " +
-      "Client must re-hash after download. On-device scoring does not run here.",
+      "SHA-256 of pack object bytes. Buoys/tides/ENC catalog may be live public NOAA; " +
+      "GFS-Wave f000 may be hashed but does not replace 72 h wind/wave grids; SST/CMEMS stay fixture. " +
+      "ENC catalog is not official S-57. Client must re-hash. On-device scoring does not run here.",
   };
 }
 

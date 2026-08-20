@@ -217,6 +217,7 @@ export async function buildFixturePack(options: {
   createdAt?: string;
   /** Encoded layer bodies that replace fixtures (live NOAA, tests). */
   overlays?: Partial<Record<string, string>>;
+  extraSources?: { id: string; name: string }[];
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -281,14 +282,17 @@ export async function buildFixturePack(options: {
     totalBytes,
     totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
     r2Prefix,
-    sources: liveIds.length
-      ? [
-          { id: "fixture", name: "Hashed fixture objects (not live ENC/GRIB/SST)" },
-          { id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` },
-        ]
-      : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }],
+    sources: [
+      ...(liveIds.length
+        ? [
+            { id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" },
+            { id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` },
+          ]
+        : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }]),
+      ...(options.extraSources ?? []),
+    ],
     notes: liveIds.length
-      ? "Fixture grids plus live NDBC/CO-OPS where fetch succeeded. ENC is still a fixture cell list, not S-57. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. GFS-Wave f000 may be fetched+hashed but does not replace 72 h wind/wave grids. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
@@ -308,6 +312,7 @@ export async function buildTripPack(options: {
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
   const start = options.start ?? new Date().toISOString();
   const overlays: Record<string, string> = {};
+  const extraSources: { id: string; name: string }[] = [];
   if (options.tryLive) {
     const { tryLiveNoaa, encodeLiveLayer } = await import("./noaa-live");
     const live = await tryLiveNoaa({
@@ -319,6 +324,13 @@ export async function buildTripPack(options: {
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
+    if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
+    if (live.gfsWave) {
+      extraSources.push({
+        id: "nomads-gfswave",
+        name: `GFS-Wave f000 hashed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, not a 72 h grid)`,
+      });
+    }
   }
   return buildFixturePack({
     bbox,
@@ -326,5 +338,6 @@ export async function buildTripPack(options: {
     hours,
     createdAt: options.createdAt,
     overlays: Object.keys(overlays).length ? overlays : undefined,
+    extraSources: extraSources.length ? extraSources : undefined,
   });
 }

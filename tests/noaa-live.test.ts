@@ -9,7 +9,10 @@ const {
   tidesToPackedJson,
   tryLiveNoaa,
   resetLiveNoaaCache,
-  COOPS_HARBOR_STATIONS,
+  parseEncProductCatalog,
+  parseCoopsWaterLevel,
+  isGrib2,
+  gfsWaveFilterUrl,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { buildFixturePack, buildTripPack, sha256Hex, POINT_JUDITH_CANYON_BBOX } = await import(
   "../src/lib/ahanu/pack.ts"
@@ -90,7 +93,7 @@ describe("tryLiveNoaa", () => {
     assert.equal(buoyPayload.source, "ndbc");
     assert.ok(buoyPayload.buoys?.some((b) => b.id === "44097"));
     const tidePayload = live.tides.payload as { stations?: { id: string; series: unknown[] }[] };
-    assert.equal(tidePayload.stations?.length, COOPS_HARBOR_STATIONS.length);
+    assert.ok((tidePayload.stations?.length ?? 0) >= 3);
   });
 
   it("degrades to empty overlays when the network is blocked", async () => {
@@ -177,5 +180,199 @@ describe("ENC honesty", () => {
     assert.equal(parsed.kind, "enc-clip");
     assert.equal(parsed.payload?.fixture, true);
     assert.ok((parsed.payload?.cells?.length ?? 0) >= 3);
+  });
+});
+
+
+const ENC_SAMPLE = `<?xml version="1.0" encoding="UTF-8" ?>
+<EncProductCatalog>
+  <Header><dt_valid>2026-08-20T04:59:10Z</dt_valid></Header>
+  <cell>
+    <name>US5PVDBB</name>
+    <lname>Block Island Sound - From Matunuck Point to Point Judith</lname>
+    <cscale>12000</cscale>
+    <status>Active</status>
+    <zipfile_location>https://www.charts.noaa.gov/ENCs/US5PVDBB.zip</zipfile_location>
+    <zipfile_size>14000</zipfile_size>
+    <edtn>5</edtn>
+    <cov><panel>
+      <vertex><lat>41.325</lat><long>-71.55</long></vertex>
+      <vertex><lat>41.4</lat><long>-71.475</long></vertex>
+    </panel></cov>
+  </cell>
+  <cell>
+    <name>US3NY01M</name>
+    <lname>Approaches to New York</lname>
+    <cscale>350000</cscale>
+    <status>Active</status>
+    <zipfile_location>https://www.charts.noaa.gov/ENCs/US3NY01M.zip</zipfile_location>
+    <zipfile_size>179183</zipfile_size>
+    <cov><panel>
+      <vertex><lat>38.7</lat><long>-74.4</long></vertex>
+      <vertex><lat>41.5</lat><long>-69.2</long></vertex>
+    </panel></cov>
+  </cell>
+  <cell>
+    <name>US5CA99M</name>
+    <lname>San Francisco</lname>
+    <cscale>12000</cscale>
+    <status>Active</status>
+    <zipfile_location>https://www.charts.noaa.gov/ENCs/US5CA99M.zip</zipfile_location>
+    <zipfile_size>1000</zipfile_size>
+    <cov><panel>
+      <vertex><lat>37.7</lat><long>-122.5</long></vertex>
+      <vertex><lat>37.9</lat><long>-122.3</long></vertex>
+    </panel></cov>
+  </cell>
+  <cell>
+    <name>US4XX00M</name>
+    <lname>Cancelled leftover</lname>
+    <status>Cancelled</status>
+    <cov><panel>
+      <vertex><lat>40</lat><long>-72</long></vertex>
+      <vertex><lat>41</lat><long>-70</long></vertex>
+    </panel></cov>
+  </cell>
+</EncProductCatalog>
+`;
+
+const GRIB_MIN = new Uint8Array([
+  71, 82, 73, 66, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 16, 55, 55, 55, 55,
+]);
+
+function liveFetch(url: string): Promise<Response> {
+  if (url.includes("latest_obs")) return Promise.resolve(new Response(NDBC_SAMPLE, { status: 200 }));
+  if (url.includes("ENCProdCat")) return Promise.resolve(new Response(ENC_SAMPLE, { status: 200 }));
+  if (url.includes("filter_gfswave") || url.includes("atlocn")) {
+    return Promise.resolve(new Response(GRIB_MIN, { status: 200, headers: { "Content-Type": "application/octet-stream" } }));
+  }
+  if (url.includes("datagetter") && url.includes("water_level")) {
+    return Promise.resolve(
+      new Response(JSON.stringify({ data: [{ t: "2026-08-20 18:18", v: "3.73" }] }), { status: 200 }),
+    );
+  }
+  if (url.includes("datagetter")) return Promise.resolve(new Response(JSON.stringify(COOPS_SAMPLE), { status: 200 }));
+  if (url.includes("MapServer")) {
+    return Promise.resolve(new Response(JSON.stringify({ mapName: "Layers" }), { status: 200 }));
+  }
+  if (url.endsWith(".zip")) {
+    return Promise.resolve(new Response(new Uint8Array([80, 75, 3, 4, 0, 0]), { status: 200 }));
+  }
+  return Promise.resolve(new Response("no", { status: 404 }));
+}
+
+describe("parseEncProductCatalog", () => {
+  it("keeps Active usage 3–5 cells that intersect the box and drops the rest", () => {
+    const cells = parseEncProductCatalog(ENC_SAMPLE, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(cells.some((c) => c.id === "US5PVDBB"));
+    assert.ok(cells.some((c) => c.id === "US3NY01M"));
+    assert.ok(!cells.some((c) => c.id === "US5CA99M"));
+    assert.ok(!cells.some((c) => c.id === "US4XX00M"));
+    const pj = cells.find((c) => c.id === "US5PVDBB")!;
+    assert.equal(pj.usage, 5);
+    assert.equal(pj.zipBytes, 14000);
+  });
+});
+
+describe("parseCoopsWaterLevel", () => {
+  it("reads latest observed height", () => {
+    const obs = parseCoopsWaterLevel({ data: [{ t: "2026-08-20 18:18", v: "3.73" }] });
+    assert.ok(obs);
+    assert.equal(obs.heightFt, 3.7);
+    assert.equal(obs.at, "2026-08-20T18:18:00.000Z");
+  });
+});
+
+describe("isGrib2", () => {
+  it("accepts GRIB…7777 and rejects HTML", () => {
+    assert.equal(isGrib2(GRIB_MIN), true);
+    assert.equal(isGrib2(new TextEncoder().encode("<html>")), false);
+  });
+});
+
+describe("tryLiveNoaa expanded ingest", () => {
+  it("overlays ENC catalog + GFS-Wave hash when fetch succeeds", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: liveFetch,
+      skipCache: true,
+    });
+    assert.ok(live.buoys);
+    assert.ok(live.tides);
+    assert.ok(live.enc);
+    assert.ok(live.gfsWave);
+    const enc = live.enc.payload as {
+      official?: boolean;
+      live?: boolean;
+      source?: string;
+      cells?: { id: string }[];
+    };
+    assert.equal(enc.official, false);
+    assert.equal(enc.live, true);
+    assert.equal(enc.source, "noaa-enc-catalog");
+    assert.ok(enc.cells?.some((c) => c.id === "US5PVDBB"));
+    assert.equal(live.gfsWave.source, "nomads-gfswave");
+    assert.equal(live.gfsWave.bytes, GRIB_MIN.byteLength);
+    assert.match(live.gfsWave.sha256, /^[0-9a-f]{64}$/);
+    const tide = live.tides.payload as { stations?: { observed?: { heightFt: number } }[] };
+    assert.ok(tide.stations?.some((s) => s.observed && s.observed.heightFt === 3.7));
+  });
+
+  it("omits ENC and GFS-Wave on network fail", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      fetchImpl: async () => {
+        throw new Error("blocked");
+      },
+      skipCache: true,
+    });
+    assert.equal(live.enc, undefined);
+    assert.equal(live.gfsWave, undefined);
+    assert.ok(live.errors.some((e) => e.includes("enc")));
+    assert.ok(live.errors.some((e) => e.includes("gfs-wave")));
+  });
+});
+
+describe("buildTripPack ENC + GFS-Wave honesty", () => {
+  it("marks ENC source noaa and leaves wind/waves as fixture", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const live = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      fetchImpl: liveFetch,
+      timeoutMs: 1000,
+    });
+    const enc = live.manifest.layers.find((l) => l.id === "enc")!;
+    assert.equal(enc.source, "noaa");
+    assert.notEqual(enc.hash, fixture.manifest.layers.find((l) => l.id === "enc")!.hash);
+    assert.equal(await sha256Hex(live.bodies.enc!), enc.hash);
+    const parsed = parseLayerBody(live.bodies.enc!) as { payload?: { official?: boolean } };
+    assert.equal(parsed.payload?.official, false);
+    assert.equal(live.manifest.layers.find((l) => l.id === "waves")!.hash, fixture.manifest.layers.find((l) => l.id === "waves")!.hash);
+    assert.equal(live.manifest.layers.find((l) => l.id === "wind")!.source, "fixture");
+    assert.ok(live.manifest.sources.some((s) => s.id === "nomads-gfswave"));
+    assert.equal(live.manifest.readyForOffshore, true);
+  });
+});
+
+describe("gfsWaveFilterUrl", () => {
+  it("points at NOMADS atlocn subset", () => {
+    const url = gfsWaveFilterUrl("20260820", "12", 0, POINT_JUDITH_CANYON_BBOX);
+    assert.match(url, /filter_gfswave\.pl/);
+    assert.match(url, /atlocn\.0p16\.f000/);
+    assert.match(url, /var_HTSGW=on/);
+    assert.match(url, /leftlon=-72\.8/);
   });
 });

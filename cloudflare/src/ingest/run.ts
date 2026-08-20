@@ -10,10 +10,11 @@
  *   4. Durable Object CommunityHub can hold a pack-build lease so two crons
  *      do not write the same prefix.
  *
- * Until that cron exists, this function tries public NDBC/CO-OPS (no keys),
- * then writes fixture bodies for anything the network did not return, when
- * an R2 binding is present, and is a no-op otherwise. Do not pretend live
- * ENC / GRIB / SST objects exist in the bucket.
+ * Until that cron exists, this function tries public NDBC / CO-OPS / ENC
+ * catalog / GFS-Wave f000 (no keys), then writes fixture bodies for anything
+ * the network did not return, when an R2 binding is present, and is a no-op
+ * otherwise. ENC catalog is not official S-57. A hashed GFS-Wave hour is not
+ * a 72 h wind/wave grid. Do not pretend live SST / CMEMS / full GRIB exist.
  */
 import { buildTripPack } from "../../../src/lib/ahanu/pack";
 import { POINT_JUDITH_CANYON_BBOX } from "./fixtures";

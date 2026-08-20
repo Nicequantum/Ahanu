@@ -1,11 +1,11 @@
 /**
  * Same-origin pack HTTP for the Vite / Nitro preview.
  * Shape matches ahanu-packs: GET /api/packs, GET /api/objects, POST /api/catches.
- * Production marine bytes still leave Cloudflare R2 — this is the fixture loop.
+ * Production marine bytes still leave Cloudflare R2. Preview stays fixture unless ?live=1.
  */
 
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
-import { buildFixturePack, type PackBBox } from "./pack";
+import { buildFixturePack, buildTripPack, type PackBBox } from "./pack";
 import { specForLayer } from "./pack-fixtures";
 import type { CatchRecord, SpeciesId } from "./types";
 
@@ -72,6 +72,11 @@ function parseBbox(url: URL): PackBBox | Response {
   return { ...POINT_JUDITH_CANYON_BBOX };
 }
 
+function wantLive(url: URL): boolean {
+  const v = (url.searchParams.get("live") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 function parseStartHours(url: URL): { start: string; hours: number } | Response {
   const startRaw = url.searchParams.get("start");
   const start = startRaw && !Number.isNaN(Date.parse(startRaw)) ? new Date(startRaw).toISOString() : new Date().toISOString();
@@ -83,7 +88,10 @@ function parseStartHours(url: URL): { start: string; hours: number } | Response 
   return { start, hours: Math.round(hours) };
 }
 
-export async function handlePacksRequest(request: Request): Promise<Response> {
+export async function handlePacksRequest(
+  request: Request,
+  opts?: { fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response> },
+): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -93,8 +101,17 @@ export async function handlePacksRequest(request: Request): Promise<Response> {
     if (bbox instanceof Response) return bbox;
     const win = parseStartHours(url);
     if (win instanceof Response) return win;
-    const { manifest } = await buildFixturePack({ bbox, start: win.start, hours: win.hours });
-    return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId });
+    const built = wantLive(url)
+      ? await buildTripPack({
+          bbox,
+          start: win.start,
+          hours: win.hours,
+          tryLive: true,
+          timeoutMs: 8000,
+          fetchImpl: opts?.fetchImpl,
+        })
+      : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
+    return json(built.manifest, 200, { "X-Ahanu-Pack-Id": built.manifest.packId });
   }
 
   if (request.method === "GET" && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
@@ -105,14 +122,23 @@ export async function handlePacksRequest(request: Request): Promise<Response> {
     const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
-    const { bodies, manifest } = await buildFixturePack({ bbox, start: win.start, hours: win.hours });
-    const body = bodies[spec.id];
+    const built = wantLive(url)
+      ? await buildTripPack({
+          bbox,
+          start: win.start,
+          hours: win.hours,
+          tryLive: true,
+          timeoutMs: 8000,
+          fetchImpl: opts?.fetchImpl,
+        })
+      : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
+    const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
-    const rec = manifest.layers.find((l) => l.id === spec.id);
+    const rec = built.manifest.layers.find((l) => l.id === spec.id);
     return text(body, spec.contentType, {
       ETag: rec ? `"${rec.hash}"` : "",
       "X-Ahanu-Hash": rec?.hash ?? "",
-      "X-Ahanu-Source": "fixture",
+      "X-Ahanu-Source": rec?.source ?? "fixture",
     });
   }
 

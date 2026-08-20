@@ -22,10 +22,14 @@ export type PackFieldSource = "fixture" | "r2" | "noaa";
 
 export interface EncClip {
   fixture: boolean;
+  live?: boolean;
+  official?: boolean;
+  source?: string;
   note: string;
   bbox?: PackBBox;
   coverage?: { harborApproach: string[]; coastalTo100fm: boolean };
-  cells: { id: string; usage: number; name: string }[];
+  cells: { id: string; usage: number; name: string; zipUrl?: string; zipBytes?: number; zipSha256?: string }[];
+  tiles?: { template: string; legal?: boolean; probe?: string };
 }
 
 export interface PackedTideWindow {
@@ -120,7 +124,7 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
 function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSource {
   if (payload && typeof payload === "object") {
     const p = payload as { live?: boolean; source?: string; fixture?: boolean };
-    if (p.source === "ndbc" || p.source === "coops" || p.live) return "noaa";
+    if (p.source === "ndbc" || p.source === "coops" || p.source === "noaa-enc-catalog" || p.live) return "noaa";
     if (p.fixture) return "fixture";
   }
   return fallback;

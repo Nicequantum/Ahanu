@@ -12,7 +12,7 @@ import { getPackedOcean } from "./packed-fields";
 import type { PackedBuoyRow } from "./noaa-live";
 
 export const ENC_AID_DISCLAIMER =
-  "ENC in this pack is a fixture cell list, not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
+  "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
 
 function emptyFc(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
