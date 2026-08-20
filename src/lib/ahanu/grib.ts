@@ -2,7 +2,7 @@ import { coastLon, isLand, shelfBreakLon } from "./bathymetry";
 import { DEFAULT_BOAT, FORECAST_HOURS } from "./constants";
 import { haversineNm } from "./geo";
 import type { ForecastHour, GoNoGo, LatLon } from "./types";
-import { samplePackedKind } from "./packed-fields";
+import { samplePackedDir, samplePackedKind, samplePackedPeriod, samplePackedWaveDir } from "./packed-fields";
 
 export interface GribPoint {
   windKt: number;
@@ -119,13 +119,19 @@ export function gribAt(lat: number, lon: number, hour: number): GribPoint {
   const syn = syntheticGrib(lat, lon, hour);
   const packedWind = samplePackedKind("windKt", lat, lon, hour);
   const packedWave = samplePackedKind("waveFt", lat, lon, hour);
-  if (packedWind == null && packedWave == null) return syn;
+  const packedDir = samplePackedDir(lat, lon, hour);
+  const packedPeriod = samplePackedPeriod(lat, lon, hour);
+  const packedWaveDir = samplePackedWaveDir(lat, lon, hour);
+  if (packedWind == null && packedWave == null && packedDir == null && packedPeriod == null) return syn;
   return {
     ...syn,
     windKt: packedWind ?? syn.windKt,
+    windDir: packedDir ?? syn.windDir,
     gustKt: packedWind != null ? packedWind * 1.18 : syn.gustKt,
     waveFt: packedWave ?? syn.waveFt,
     swellFt: packedWave != null ? packedWave * 0.7 : syn.swellFt,
+    swellDir: packedWaveDir ?? syn.swellDir,
+    periodS: packedPeriod ?? syn.periodS,
   };
 }
 

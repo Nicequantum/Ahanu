@@ -144,7 +144,7 @@ export async function downloadTripPack(options: {
         hashExpected: layer.hash,
         hashActual,
         updatedAt: layer.updatedAt,
-        hoursCovered: layer.hours || manifest.hours,
+        hoursCovered: layer.hours,
         cycleAt: manifest.generatedAt,
       });
     } catch {
@@ -155,7 +155,7 @@ export async function downloadTripPack(options: {
         hashExpected: layer.hash,
         hashActual: hashActual || undefined,
         updatedAt: layer.updatedAt,
-        hoursCovered: layer.hours || manifest.hours,
+        hoursCovered: layer.hours,
         cycleAt: manifest.generatedAt,
       });
     }
@@ -194,7 +194,7 @@ export function evidenceFromStored(
     hashExpected: layer.hash,
     hashActual: actualHashes[layer.id],
     updatedAt: layer.updatedAt,
-    hoursCovered: layer.hours || manifest.hours,
+    hoursCovered: layer.hours,
     cycleAt: manifest.generatedAt,
   }));
 }

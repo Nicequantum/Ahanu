@@ -147,6 +147,14 @@ export interface PackedGrid {
   hours: number[];
   unit: string;
   values: number[][];
+  live?: boolean;
+  source?: string;
+  fixture?: boolean;
+  note?: string;
+  dirValues?: number[][];
+  dirUnit?: string;
+  periodValues?: number[][];
+  periodUnit?: string;
 }
 
 export interface PackedJson {

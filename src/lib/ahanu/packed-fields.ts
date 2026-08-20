@@ -13,6 +13,10 @@ export interface SampleGrid {
   ny: number;
   hours: number[];
   values: number[][];
+  live?: boolean;
+  source?: PackFieldSource;
+  dirValues?: number[][];
+  periodValues?: number[][];
 }
 
 export type PackFieldId = "sst" | "chl" | "ssh" | "depth" | "windKt" | "waveFt";
@@ -57,6 +61,8 @@ export interface PackedOcean {
   enc?: EncClip;
   buoySource?: PackFieldSource;
   tideSource?: PackFieldSource;
+  windSource?: PackFieldSource;
+  waveSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -118,6 +124,10 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
     ny: g.ny,
     hours: g.hours,
     values: g.values,
+    live: g.live,
+    source: g.source === "noaa" || g.live ? "noaa" : g.source === "r2" ? "r2" : undefined,
+    dirValues: g.dirValues,
+    periodValues: g.periodValues,
   };
 }
 
@@ -183,7 +193,12 @@ export function packedOceanFromBodies(
     const parsed = parseLayerBody(raw);
     if (!parsed) return;
     const g = gridFromBody(parsed);
-    if (g) out[key] = g;
+    if (g) {
+      out[key] = g;
+      const src = g.source ?? (g.live ? "noaa" : undefined);
+      if (key === "windKt" && src) out.windSource = src;
+      if (key === "waveFt" && src) out.waveSource = src;
+    }
   };
   takeGrid("sst", "sst");
   takeGrid("chlorophyll", "chl");
@@ -239,8 +254,12 @@ export function packedHasChart(kind: "canyons" | "contours" | "hms" | "buoys" | 
   return Boolean(packed[kind]);
 }
 
-function hourIndex(grid: SampleGrid, hour: number): number {
-  if (grid.hours.length === 1) return 0;
+function hourIndex(grid: SampleGrid, hour: number): number | null {
+  if (!grid.hours.length) return null;
+  if (grid.hours.length === 1) {
+    if (grid.live) return Math.abs(hour - grid.hours[0]!) <= 1.5 ? 0 : null;
+    return 0;
+  }
   let best = 0;
   let bestD = Infinity;
   for (let i = 0; i < grid.hours.length; i++) {
@@ -250,6 +269,8 @@ function hourIndex(grid: SampleGrid, hour: number): number {
       best = i;
     }
   }
+  const step = Math.abs(grid.hours[1]! - grid.hours[0]!) / 2;
+  if (bestD > Math.max(1.5, step)) return null;
   return best;
 }
 
@@ -273,7 +294,9 @@ export function samplePacked(grid: SampleGrid, lat: number, lon: number, hour = 
   const y1 = Math.max(0, Math.min(grid.ny - 1, y0 + 1));
   const tx = fx - x0;
   const ty = fy - y0;
-  const plane = grid.values[hourIndex(grid, hour)];
+  const hi = hourIndex(grid, hour);
+  if (hi == null) return null;
+  const plane = grid.values[hi];
   if (!plane) return null;
   const at = (x: number, y: number) => plane[y * grid.nx + x] ?? 0;
   const v =
@@ -318,4 +341,62 @@ export function packedGridFeatures(
     }
   }
   return { type: "FeatureCollection", features };
+}
+
+function lerpAngle(a: number, b: number, t: number): number {
+  const d = ((b - a + 540) % 360) - 180;
+  return (a + d * t + 360) % 360;
+}
+
+function samplePlane(
+  grid: SampleGrid,
+  plane: number[] | undefined,
+  lat: number,
+  lon: number,
+  hour: number,
+  angle: boolean,
+): number | null {
+  if (!plane) return null;
+  if (hourIndex(grid, hour) == null) return null;
+  const { west, east, south, north } = grid.bbox;
+  if (lat < south || lat > north || lon < west || lon > east) return null;
+  const fx = grid.nx === 1 ? 0 : ((lon - west) / (east - west)) * (grid.nx - 1);
+  const fy = grid.ny === 1 ? 0 : ((north - lat) / (north - south)) * (grid.ny - 1);
+  const x0 = Math.max(0, Math.min(grid.nx - 1, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(grid.ny - 1, Math.floor(fy)));
+  const x1 = Math.max(0, Math.min(grid.nx - 1, x0 + 1));
+  const y1 = Math.max(0, Math.min(grid.ny - 1, y0 + 1));
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const at = (x: number, y: number) => plane[y * grid.nx + x] ?? 0;
+  if (!angle) {
+    return at(x0, y0) * (1 - tx) * (1 - ty) + at(x1, y0) * tx * (1 - ty) + at(x0, y1) * (1 - tx) * ty + at(x1, y1) * tx * ty;
+  }
+  const top = lerpAngle(at(x0, y0), at(x1, y0), tx);
+  const bot = lerpAngle(at(x0, y1), at(x1, y1), tx);
+  return lerpAngle(top, bot, ty);
+}
+
+export function samplePackedDir(lat: number, lon: number, hour = 0): number | null {
+  const g = packed?.windKt;
+  if (!g) return null;
+  const hi = hourIndex(g, hour);
+  if (hi == null) return null;
+  return samplePlane(g, g.dirValues?.[hi], lat, lon, hour, true);
+}
+
+export function samplePackedPeriod(lat: number, lon: number, hour = 0): number | null {
+  const g = packed?.waveFt;
+  if (!g) return null;
+  const hi = hourIndex(g, hour);
+  if (hi == null) return null;
+  return samplePlane(g, g.periodValues?.[hi], lat, lon, hour, false);
+}
+
+export function samplePackedWaveDir(lat: number, lon: number, hour = 0): number | null {
+  const g = packed?.waveFt;
+  if (!g) return null;
+  const hi = hourIndex(g, hour);
+  if (hi == null) return null;
+  return samplePlane(g, g.dirValues?.[hi], lat, lon, hour, true);
 }

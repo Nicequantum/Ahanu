@@ -26,6 +26,7 @@ import {
   isGrib2,
   type GfsWaveIngest,
 } from "./noaa-gfs";
+import { ncepToPacked, parseNcep } from "./grid-io";
 
 export const NDBC_LATEST_OBS_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 export const COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
@@ -484,6 +485,9 @@ async function liveGfsWave(
       continue;
     }
     const hash = await sha256Hex(bytes);
+    const parsed = parseNcep(bytes);
+    const packed = ncepToPacked(parsed);
+    const hasField = Boolean(packed.windKt || packed.waveFt);
     return {
       live: true,
       source: "nomads-gfswave",
@@ -494,7 +498,11 @@ async function liveGfsWave(
       bytes: bytes.byteLength,
       sha256: hash,
       contentType: "application/wmo-grib",
-      note: GFS_WAVE_NOTE,
+      note: hasField
+        ? "NCEP Atlantic 0p16 f000 parsed — hour-0 wind/wave only, not a 72 h grid."
+        : GFS_WAVE_NOTE,
+      parsed: hasField ? packed : undefined,
+      parseError: hasField ? undefined : parsed.error ?? "no wind/wave fields",
     };
   }
   errors.push("gfs-wave: fetch failed");
@@ -504,7 +512,7 @@ async function liveGfsWave(
 /**
  * Fetch public NOAA overlays. Any failure is recorded and that layer is
  * omitted (caller keeps the fixture). Never throws. Does not replace
- * 72 h wind/wave fixture grids with a single GFS-Wave hour.
+ * 72 h wind/wave fixture grids with a single hour unless that hour parses.
  */
 export async function tryLiveNoaa(options: {
   bbox: PackBBox;

@@ -9,8 +9,10 @@ import {
   clampBbox,
   cycleStamp,
   DEFAULT_PACK_HOURS,
+  encodeLayerBody,
   generateLayerBody,
   hashesMatch,
+  parseLayerBody,
   PACK_LAYER_SPECS,
   POINT_JUDITH_CANYON_BBOX,
   REQUIRED_OFFSHORE_LAYERS,
@@ -102,6 +104,20 @@ export interface ReadyOffshoreResult {
   layers: ReadyLayerResult[];
   failures: string[];
   warnings: string[];
+}
+
+function overlayCoverHours(body: string, fallback: number): number {
+  const parsed = parseLayerBody(body);
+  if (parsed && parsed.kind === "grid") {
+    const hs = parsed.hours ?? [];
+    if (hs.length <= 1) return 1;
+    return Math.max(...hs);
+  }
+  if (parsed && "payload" in parsed) {
+    const hours = (parsed.payload as { hours?: number })?.hours;
+    if (typeof hours === "number" && Number.isFinite(hours)) return hours;
+  }
+  return fallback;
 }
 
 export function ageHours(updatedAt: string | undefined, nowMs: number): number {
@@ -233,9 +249,10 @@ export async function buildFixturePack(options: {
   const liveIds: string[] = [];
 
   for (const spec of PACK_LAYER_SPECS) {
-    const layerHours = spec.hours === 0 ? 0 : Math.max(spec.hours, hours);
     const overlay = overlays[spec.id];
     const body = overlay ?? generateLayerBody(spec.id, bbox, start, hours);
+    const fallbackHours = spec.hours === 0 ? 0 : Math.max(spec.hours, hours);
+    const layerHours = overlay ? overlayCoverHours(overlay, fallbackHours) : fallbackHours;
     const source: PackLayerRecord["source"] = overlay ? "noaa" : "fixture";
     if (overlay) liveIds.push(spec.id);
     const hash = await sha256Hex(body);
@@ -265,7 +282,7 @@ export async function buildFixturePack(options: {
     hashExpected: l.hash,
     hashActual: l.hash,
     updatedAt: l.updatedAt,
-    hoursCovered: l.hours || hours,
+    hoursCovered: l.hours,
     cycleAt: createdAt,
   }));
   const check = evaluateReadyForOffshore({ hours, start, now: createdAt, layers: evidence });
@@ -292,7 +309,7 @@ export async function buildFixturePack(options: {
       ...(options.extraSources ?? []),
     ],
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. GFS-Wave f000 may be fetched+hashed but does not replace 72 h wind/wave grids. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog). ENC catalog is a cell list, not official S-57. Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
   };
 
@@ -321,14 +338,20 @@ export async function buildTripPack(options: {
       hours,
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
+      skipCache: Boolean(options.fetchImpl),
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
     if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
     if (live.gfsWave) {
+      if (live.gfsWave.parsed?.windKt) overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
+      if (live.gfsWave.parsed?.waveFt) overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
+      const painted = Boolean(live.gfsWave.parsed?.windKt || live.gfsWave.parsed?.waveFt);
       extraSources.push({
         id: "nomads-gfswave",
-        name: `GFS-Wave f000 hashed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, not a 72 h grid)`,
+        name: painted
+          ? `GFS-Wave f000 parsed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, hour-0 only)`
+          : `GFS-Wave f000 hashed ${live.gfsWave.sha256.slice(0, 12)} (${live.gfsWave.bytes} B, parse failed — fixture grids kept)`,
       });
     }
   }

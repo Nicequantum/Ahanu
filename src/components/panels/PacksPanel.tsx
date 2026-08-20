@@ -61,15 +61,15 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            Buoys, tides, ENC catalog, GFS-Wave hour-0 probe. SST and 72 h wind/wave stay fixtures.
+            Buoys, tides, ENC catalog, and hour-0 wind/wave when the NCEP subset parses. SST and the 72 h series stay fixtures.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA does not fetch 72 h
-        SST or GRIB grids and does not claim official ENC. Client re-checks hashes after download.
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA paints hour-0 wind/wave only when those bytes parse; it does not fetch a 72 h
+        series and does not claim official ENC. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>

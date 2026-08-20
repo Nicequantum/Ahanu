@@ -140,7 +140,7 @@ Never block logging a catch on the network. The logbook is user data; it belongs
 
 ## Production ingest ops (not claimed done)
 
-Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), and a NOMADS GFS-Wave `atlocn.0p16` f000 subset (hashed, not a 72 h paint grid). Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`. GHRSST / CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
+Public no-key ingest that **does** run when the network allows: NDBC `latest_obs`, CO-OPS predictions + latest water level, NOAA ENC product catalog (cell list, not official S-57), and a NOMADS GFS-Wave `atlocn.0p16` f000 subset. Hour-0 wind/wave is painted only when the subset parses; that is not a 72 h grid and does not satisfy Ready-for-offshore weather coverage. Failure falls back to hashed fixtures. Preview `/api/packs` stays deterministic fixtures unless `?live=1`. Worker `buildTripPack({ tryLive: true })` overlays live layers as `source: "noaa"`. GHRSST / CMEMS / NDFD / production R2 still do not exist here. `/api/packs` and `/api/objects` serve hashed bodies so the client loop (download → SHA-256 verify → IndexedDB → on-device Ready-for-offshore → paint/score/go-no-go) is real.
 
 Until a scheduled Worker writes R2:
 

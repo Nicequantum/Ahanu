@@ -3,10 +3,12 @@
  * One Atlantic 0p16 hour is a few KB for the Point Judith box.
  * A full 72 h / 3 h pack is ~25 files and needs cron pacing — do not
  * replace the 72 h fixture wind/wave grids with a single f000 clip.
+ * Hour 0 may be painted when the subset parses.
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
 import type { PackBBox } from "./pack-fixtures";
+import type { Hour0Packed } from "./grid-io";
 
 export const GFS_WAVE_FILTER_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl";
 export const GFS_WAVE_PROD_DIR = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/";
@@ -28,6 +30,8 @@ export interface GfsWaveIngest {
   sha256: string;
   contentType: string;
   note: string;
+  parsed?: Hour0Packed;
+  parseError?: string;
 }
 
 export function ymdUtc(d: Date): string {
@@ -83,4 +87,46 @@ export function isGrib2(bytes: Uint8Array): boolean {
 }
 
 export const GFS_WAVE_NOTE =
-  "NOMADS GFS-Wave atlocn.0p16 f000 subset fetched and hashed. Not a 72 h grid — helm wind/wave paint stays on the fixture until cron packs the full step-3 series.";
+  "NOMADS GFS-Wave atlocn.0p16 f000 subset. Hour-0 wind/wave paint only when the file parses; that is not a 72 h grid.";
+
+export const GFS_WAVE_PACE_MS = 10_000;
+
+export function gfsWaveSeriesHours(maxHour = 72, step = 3): number[] {
+  const out: number[] = [];
+  for (let h = 0; h <= maxHour; h += step) out.push(h);
+  return out;
+}
+
+/** Off unless enabled. Paces ~10 s between files. Do not call from CI. */
+export async function fetchGfsWaveSeries(options: {
+  bbox: PackBBox;
+  ymd: string;
+  cc: string;
+  hours?: number[];
+  fetchImpl: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+  paceMs?: number;
+  enabled: boolean;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<{ hour: number; url: string; bytes: Uint8Array }[]> {
+  if (!options.enabled) return [];
+  const hours = options.hours ?? gfsWaveSeriesHours();
+  const pace = options.paceMs ?? GFS_WAVE_PACE_MS;
+  const sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const out: { hour: number; url: string; bytes: Uint8Array }[] = [];
+  for (let i = 0; i < hours.length; i++) {
+    if (i > 0 && pace > 0) await sleep(pace);
+    const hour = hours[i]!;
+    const url = gfsWaveFilterUrl(options.ymd, options.cc, hour, options.bbox);
+    try {
+      const res = await options.fetchImpl(url);
+      if (!res.ok) continue;
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.byteLength < 16 || buf.byteLength > GFS_WAVE_MAX_BYTES) continue;
+      if (!isGrib2(buf)) continue;
+      out.push({ hour, url, bytes: buf });
+    } catch {
+      /* skip this hour */
+    }
+  }
+  return out;
+}
