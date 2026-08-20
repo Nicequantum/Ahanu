@@ -216,6 +216,18 @@ export function isTempBreak(
   return sstGradient(lat, lon, hour) >= TEMP_BREAK_C_PER_NM * s;
 }
 
+const COLOR_EDGE_PER_NM = 0.045;
+
+export function isColorEdge(
+  lat: number,
+  lon: number,
+  hour = 0,
+  sensitivity = 1,
+): boolean {
+  const s = Math.max(0.15, sensitivity);
+  return chlGradient(lat, lon, hour) >= COLOR_EDGE_PER_NM * s;
+}
+
 type RGB = [number, number, number];
 
 function lerpRGB(a: RGB, b: RGB, t: number): RGB {

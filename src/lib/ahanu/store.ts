@@ -43,6 +43,9 @@ const TROLL_PATH = (() => {
 
 const STEAM_PATH = [POINT_JUDITH, { lat: 40.55, lon: -70.85 }, VEATCH_HEAD];
 
+/** Real-time accumulator for GRIB playback (not persisted). */
+let playAcc = 0;
+
 export interface AhanuState {
   vessel: VesselState;
   layers: Record<LayerId, { visible: boolean; opacity: number }>;
@@ -65,6 +68,10 @@ export interface AhanuState {
   breakSensitivity: number;
   clockMs: number;
   hydrated: boolean;
+  forecastPlaying: boolean;
+  nmeaGateway: boolean;
+  replayT: number | null;
+  safetyDepthM: number;
   setPanel: (p: PanelId) => void;
   toggleLayer: (id: LayerId) => void;
   setOpacity: (id: LayerId, opacity: number) => void;
@@ -92,6 +99,10 @@ export interface AhanuState {
   setArticle: (id: string | null) => void;
   setRipple: (r: AhanuState["markRipple"]) => void;
   setHydrated: () => void;
+  setPlaying: (v: boolean) => void;
+  setNmeaGateway: (v: boolean) => void;
+  setReplayT: (t: number | null) => void;
+  setSafetyDepth: (m: number) => void;
 }
 
 const defaultVessel = (): VesselState => ({
@@ -145,6 +156,10 @@ export const useAhanu = create<AhanuState>()(
       breakSensitivity: 1,
       clockMs: Date.parse("2026-08-20T21:40:00Z"),
       hydrated: false,
+      forecastPlaying: false,
+      nmeaGateway: false,
+      replayT: null,
+      safetyDepthM: 10,
       setPanel: (panel) => set({ panel }),
       toggleLayer: (id) =>
         set((s) => ({
@@ -190,8 +205,21 @@ export const useAhanu = create<AhanuState>()(
       setVessel: (v) => set((s) => ({ vessel: { ...s.vessel, ...v } })),
       tickSim: (dtMs) => {
         const s = get();
+        let hour = s.forecastHour;
+        let playing = s.forecastPlaying;
+        if (playing) {
+          playAcc += dtMs;
+          if (playAcc >= 1600) {
+            playAcc = 0;
+            hour = hour + 3;
+            if (hour > 72) {
+              hour = 0;
+              playing = false;
+            }
+          }
+        }
         if (!s.vessel.simulating || s.vessel.anchored) {
-          set({ clockMs: s.clockMs + dtMs });
+          set({ clockMs: s.clockMs + dtMs, forecastHour: hour, forecastPlaying: playing });
           return;
         }
         const hours = (dtMs / 3600000) * 48;
@@ -229,6 +257,8 @@ export const useAhanu = create<AhanuState>()(
         set({
           simT: t,
           clockMs: s.clockMs + dtMs * 12,
+          forecastHour: hour,
+          forecastPlaying: playing,
           track: nextTrack,
           vessel: {
             ...s.vessel,
@@ -291,6 +321,13 @@ export const useAhanu = create<AhanuState>()(
       setArticle: (articleId) => set({ articleId, panel: "knowledge" }),
       setRipple: (markRipple) => set({ markRipple }),
       setHydrated: () => set({ hydrated: true }),
+      setPlaying: (forecastPlaying) => {
+        if (forecastPlaying) playAcc = 0;
+        set({ forecastPlaying });
+      },
+      setNmeaGateway: (nmeaGateway) => set({ nmeaGateway }),
+      setReplayT: (replayT) => set({ replayT, followShip: replayT == null }),
+      setSafetyDepth: (safetyDepthM) => set({ safetyDepthM }),
     }),
     {
       name: "ahanu-bridge-v1",
@@ -305,6 +342,8 @@ export const useAhanu = create<AhanuState>()(
         species: s.species,
         layers: s.layers,
         packLayers: s.packLayers,
+        nmeaGateway: s.nmeaGateway,
+        safetyDepthM: s.safetyDepthM,
       }),
     },
   ),

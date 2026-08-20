@@ -14,6 +14,16 @@
  */
 
 import { listIngestSources } from "./ingest/sources";
+import {
+  buildTripPack,
+  clampBbox,
+  NORTHEAST,
+  REQUIRED_OFFSHORE_LAYERS,
+  specForLayer,
+  type BBox,
+} from "./ingest/pack";
+
+export type { BBox } from "./ingest/pack";
 
 /** Binding shapes — structural stand-ins for Cloudflare runtime types. */
 interface D1Prepared {
@@ -42,9 +52,9 @@ interface DoState {
 }
 
 export interface Env {
-  PACKS: unknown;
-  DB: D1Binding;
-  COMMUNITY: DoNamespace;
+  PACKS?: unknown;
+  DB?: D1Binding;
+  COMMUNITY?: DoNamespace;
   SERVICE?: string;
   REGION_WEST?: string;
   REGION_SOUTH?: string;
@@ -138,13 +148,6 @@ export interface TripPackLayer {
   format: string;
 }
 
-export interface BBox {
-  west: number;
-  south: number;
-  east: number;
-  north: number;
-}
-
 export interface TripPackManifest {
   packId: string;
   version: 1;
@@ -161,7 +164,6 @@ export interface TripPackManifest {
   notes: string;
 }
 
-const NORTHEAST: BBox = { west: -75.4, south: 36.4, east: -66.4, north: 42.6 };
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -186,25 +188,18 @@ function error(status: number, message: string, extra?: Record<string, unknown>)
   return json({ error: message, ...extra }, status, { "Cache-Control": "no-store" });
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+function envBbox(env: Env): BBox {
+  const west = Number(env.REGION_WEST);
+  const south = Number(env.REGION_SOUTH);
+  const east = Number(env.REGION_EAST);
+  const north = Number(env.REGION_NORTH);
+  if ([west, south, east, north].every((n) => Number.isFinite(n))) {
+    return clampBbox({ west, south, east, north });
+  }
+  return NORTHEAST;
 }
 
-function clampBbox(b: BBox): BBox {
-  const west = Math.min(b.west, b.east);
-  const east = Math.max(b.west, b.east);
-  const south = Math.min(b.south, b.north);
-  const north = Math.max(b.south, b.north);
-  return {
-    west: Math.max(-180, Math.min(180, west)),
-    east: Math.max(-180, Math.min(180, east)),
-    south: Math.max(-90, Math.min(90, south)),
-    north: Math.max(-90, Math.min(90, north)),
-  };
-}
-
-function parseBbox(raw: string | null, fallback: BBox): BBox | Response {
+function parseBboxCsv(raw: string | null, fallback: BBox): BBox | Response {
   if (!raw || raw.trim() === "") return fallback;
   const parts = raw.split(",").map((s) => Number(s.trim()));
   if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
@@ -215,6 +210,34 @@ function parseBbox(raw: string | null, fallback: BBox): BBox | Response {
     return error(400, "bbox has zero area");
   }
   return clampBbox({ west, south, east, north });
+}
+
+function parseCoord(raw: string | null): number | undefined {
+  if (raw === null || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
+/**
+ * Accepts `west`/`south`/`east`/`north` (preferred) or legacy `bbox=w,s,e,n`.
+ * Empty individual params fall through to `bbox`, then to the Northeast default.
+ */
+function parseBboxFromUrl(url: URL, fallback: BBox): BBox | Response {
+  const west = parseCoord(url.searchParams.get("west"));
+  const south = parseCoord(url.searchParams.get("south"));
+  const east = parseCoord(url.searchParams.get("east"));
+  const north = parseCoord(url.searchParams.get("north"));
+  const provided = [west, south, east, north].filter((n) => n !== undefined);
+  if (provided.length > 0) {
+    if (provided.length !== 4 || [west, south, east, north].some((n) => n === undefined || Number.isNaN(n))) {
+      return error(400, "west, south, east, north must all be finite numbers");
+    }
+    if (east === west || north === south) {
+      return error(400, "bbox has zero area");
+    }
+    return clampBbox({ west: west as number, south: south as number, east: east as number, north: north as number });
+  }
+  return parseBboxCsv(url.searchParams.get("bbox"), fallback);
 }
 
 function inBbox(lat: number, lon: number, b: BBox): boolean {
@@ -228,100 +251,40 @@ function parseIso(raw: string | null): string {
   return d.toISOString();
 }
 
-function cycleStamp(startIso: string): string {
-  const d = new Date(startIso);
-  const h = Math.floor(d.getUTCHours() / 6) * 6;
-  const c = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h));
-  const y = c.getUTCFullYear();
-  const m = String(c.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(c.getUTCDate()).padStart(2, "0");
-  const hh = String(c.getUTCHours()).padStart(2, "0");
-  return `${y}${m}${day}${hh}`;
-}
-
-type LayerSpec = {
-  id: string;
-  label: string;
-  hours: number;
-  /** Nominal megabytes for the full Northeast box; scaled by bbox area. */
-  baseMb: number;
-  format: string;
-  contentType: string;
-  ext: string;
-};
-
-/**
- * Source layers only. Habitat, temp_breaks, and chl_edges are derived on
- * the device from SST / chlorophyll rasters and are intentionally absent.
- */
-const PACK_LAYERS: LayerSpec[] = [
-  { id: "enc", label: "NOAA ENC cells (clipped)", hours: 0, baseMb: 52, format: "s57-zip", contentType: "application/zip", ext: "zip" },
-  { id: "bathymetry", label: "Bathymetry (COG)", hours: 0, baseMb: 38, format: "cog", contentType: "image/tiff", ext: "tif" },
-  { id: "contours", label: "Depth contours", hours: 0, baseMb: 6.4, format: "geojsonseq", contentType: "application/geo+json-seq", ext: "geojsonl" },
-  { id: "canyons", label: "Canyon axes & heads", hours: 0, baseMb: 0.28, format: "geojson", contentType: "application/geo+json", ext: "geojson" },
-  { id: "sst", label: "SST composite (MUR / CoastWatch)", hours: 24, baseMb: 14.2, format: "cog", contentType: "image/tiff", ext: "tif" },
-  { id: "chlorophyll", label: "Chlorophyll-a L4", hours: 24, baseMb: 5.6, format: "cog", contentType: "image/tiff", ext: "tif" },
-  { id: "altimetry", label: "SSH anomaly", hours: 24, baseMb: 2.1, format: "cog", contentType: "image/tiff", ext: "tif" },
-  { id: "wind", label: "NDFD + GFS-Wave wind GRIB", hours: 72, format: "grib2", contentType: "application/wmo-grib", ext: "grib2", baseMb: 7.8 },
-  { id: "waves", label: "GFS-Wave / WW3 GRIB", hours: 72, format: "grib2", contentType: "application/wmo-grib", ext: "grib2", baseMb: 11.4 },
-  { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", baseMb: 0.04 },
-  { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", baseMb: 0.12 },
-  { id: "hms_zones", label: "HMS closed areas", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", baseMb: 0.18 },
-];
-
-function bboxAreaFactor(b: BBox): number {
-  const ne = (NORTHEAST.east - NORTHEAST.west) * (NORTHEAST.north - NORTHEAST.south);
-  const area = Math.max(0.05, (b.east - b.west) * (b.north - b.south));
-  return Math.min(1.35, Math.max(0.18, area / ne));
-}
-
 async function buildManifest(bbox: BBox, start: string, hours: number): Promise<TripPackManifest> {
-  const cycle = cycleStamp(start);
-  const factor = bboxAreaFactor(bbox);
-  const bboxKey = `${bbox.west.toFixed(3)}_${bbox.south.toFixed(3)}_${bbox.east.toFixed(3)}_${bbox.north.toFixed(3)}`;
-  const packId = (await sha256Hex(`ahanu|${bboxKey}|${cycle}|${hours}`)).slice(0, 16);
-  const r2Prefix = `packs/${packId}`;
-  const generatedAt = new Date().toISOString();
-
-  const layers: TripPackLayer[] = [];
-  for (const spec of PACK_LAYERS) {
-    const layerHours = spec.hours === 0 ? 0 : Math.max(spec.hours, hours);
-    const identity = `${spec.id}|${bboxKey}|${cycle}|${layerHours}|${spec.format}`;
-    const hash = await sha256Hex(identity);
-    const sizeBytes = Math.round(spec.baseMb * factor * 1024 * 1024);
-    layers.push({
-      id: spec.id,
-      label: spec.label,
-      sizeMb: Math.round((sizeBytes / (1024 * 1024)) * 100) / 100,
-      sizeBytes,
+  const built = await buildTripPack({ bbox, start, hours });
+  const layers: TripPackLayer[] = built.layers.map((layer) => {
+    const spec = specForLayer(layer.id);
+    return {
+      id: layer.id,
+      label: spec?.label ?? layer.id,
+      sizeMb: Math.round((layer.bytes / (1024 * 1024)) * 100) / 100,
+      sizeBytes: layer.bytes,
       status: "ready",
-      updatedAt: generatedAt,
-      hours: layerHours,
-      hash,
-      r2Key: `${r2Prefix}/${spec.id}/${hash.slice(0, 12)}.${spec.ext}`,
-      contentType: spec.contentType,
-      format: spec.format,
-    });
-  }
+      updatedAt: built.createdAt,
+      hours: layer.hours,
+      hash: layer.sha256,
+      r2Key: layer.r2Key,
+      contentType: spec?.contentType ?? "application/octet-stream",
+      format: spec?.format ?? "bin",
+    };
+  });
 
-  const totalBytes = layers.reduce((n, l) => n + l.sizeBytes, 0);
-  const required = new Set(["enc", "bathymetry", "sst", "wind", "waves", "tides", "hms_zones"]);
-  const readyForOffshore = layers
-    .filter((l) => required.has(l.id))
-    .every((l) => l.status === "ready");
+  const required = new Set(REQUIRED_OFFSHORE_LAYERS);
+  const readyForOffshore = layers.filter((l) => required.has(l.id)).every((l) => l.status === "ready");
 
   return {
-    packId,
+    packId: built.packId,
     version: 1,
-    bbox,
-    start,
-    hours,
-    generatedAt,
+    bbox: built.bbox,
+    start: built.start,
+    hours: built.hours,
+    generatedAt: built.createdAt,
     readyForOffshore,
     layers,
-    totalBytes,
-    totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
-    r2Prefix,
+    totalBytes: built.totalBytes,
+    totalMb: Math.round((built.totalBytes / (1024 * 1024)) * 10) / 10,
+    r2Prefix: built.r2Prefix,
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
       "Identity hashes (bbox + cycle + layer). On-device scoring does not run here. " +
@@ -468,7 +431,7 @@ function parseCatch(body: unknown): CatchRecord | string {
     lon: b.lon,
     at: new Date(b.at).toISOString(),
     released: b.released,
-    synced: true,
+    synced: false,
   };
   if (typeof b.userId === "string") rec.userId = b.userId;
   if (typeof b.lengthIn === "number") rec.lengthIn = b.lengthIn;
@@ -481,17 +444,27 @@ function parseCatch(body: unknown): CatchRecord | string {
   return rec;
 }
 
+/**
+ * D1 insert stub. Missing / unbound / unprovisioned DB is a no-op: the
+ * worker still 201s the record so the helm can keep a local log. `synced`
+ * is true only when the statement actually ran.
+ */
 async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
+  const db = env.DB;
+  if (!db || typeof db.prepare !== "function") {
+    return { ...rec, synced: false };
+  }
   try {
-    await env.DB.prepare(
-      `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-       ON CONFLICT(id) DO UPDATE SET
-         species=excluded.species, lat=excluded.lat, lon=excluded.lon, at=excluded.at,
-         length_in=excluded.length_in, weight_lb=excluded.weight_lb, released=excluded.released,
-         notes=excluded.notes, sst_c=excluded.sst_c, depth_m=excluded.depth_m,
-         conditions=excluded.conditions, synced=1`,
-    )
+    await db
+      .prepare(
+        `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         ON CONFLICT(id) DO UPDATE SET
+           species=excluded.species, lat=excluded.lat, lon=excluded.lon, at=excluded.at,
+           length_in=excluded.length_in, weight_lb=excluded.weight_lb, released=excluded.released,
+           notes=excluded.notes, sst_c=excluded.sst_c, depth_m=excluded.depth_m,
+           conditions=excluded.conditions, synced=1`,
+      )
       .bind(
         rec.id,
         rec.userId ?? null,
@@ -508,10 +481,10 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
         rec.conditions ?? null,
       )
       .run();
+    return { ...rec, synced: true };
   } catch {
-    // D1 schema may not be provisioned in preview; the upsert still returns as synced.
+    return { ...rec, synced: false };
   }
-  return rec;
 }
 
 // ---------------------------------------------------------------------------
@@ -544,12 +517,17 @@ export class CommunityHub {
 async function communityFor(env: Env, bbox: BBox): Promise<CommunityReport[]> {
   let extras: CommunityReport[] = [];
   try {
-    const id = env.COMMUNITY.idFromName("northeast-shelf");
-    const stub = env.COMMUNITY.get(id);
-    const res = await stub.fetch("https://community/reports");
-    if (res.ok) {
-      const payload = (await res.json()) as { reports?: CommunityReport[] };
-      extras = payload.reports ?? [];
+    const ns = env.COMMUNITY;
+    if (!ns || typeof ns.idFromName !== "function") {
+      extras = SEED_REPORTS;
+    } else {
+      const id = ns.idFromName("northeast-shelf");
+      const stub = ns.get(id);
+      const res = await stub.fetch("https://community/reports");
+      if (res.ok) {
+        const payload = (await res.json()) as { reports?: CommunityReport[] };
+        extras = payload.reports ?? [];
+      }
     }
   } catch {
     extras = SEED_REPORTS;
@@ -588,16 +566,26 @@ export default {
       }
 
       if (request.method === "GET" && path === "/api/packs") {
-        const bboxOrErr = parseBbox(url.searchParams.get("bbox"), NORTHEAST);
+        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
         if (bboxOrErr instanceof Response) return bboxOrErr;
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");
-        const hours = hoursRaw ? Number(hoursRaw) : 72;
+        const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
         if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
           return error(400, "hours must be 1–168");
         }
         const manifest = await buildManifest(bboxOrErr, start, Math.round(hours));
         return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
+      }
+
+      if (request.method === "GET" && path === "/api/sources") {
+        const sources = listIngestSources();
+        return json({
+          count: sources.length,
+          scoring: "on-device-only",
+          notes: "Adapters return metadata and real upstream URLs. The Worker packages bytes; it does not score habitat.",
+          sources,
+        });
       }
 
       if (request.method === "GET" && path === "/api/buoys") {
@@ -626,7 +614,7 @@ export default {
       }
 
       if (request.method === "GET" && path === "/api/community") {
-        const bboxOrErr = parseBbox(url.searchParams.get("bbox"), NORTHEAST);
+        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
         if (bboxOrErr instanceof Response) return bboxOrErr;
         const reports = await communityFor(env, bboxOrErr);
         return json({ bbox: bboxOrErr, count: reports.length, reports });

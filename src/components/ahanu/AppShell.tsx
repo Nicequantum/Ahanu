@@ -1,11 +1,15 @@
 import { ChartMap } from "@/components/chartplotter/ChartMap";
 import { PanelBody } from "@/components/ahanu/Panels";
+import { CompassTape } from "@/components/ahanu/CompassTape";
+import { MarkBurst } from "@/components/ahanu/MarkBurst";
+import { NmeaRail } from "@/components/ahanu/NmeaRail";
+import { Onboarding } from "@/components/ahanu/Onboarding";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { compass, formatCoord, metersToFathoms, metersToFeet, pathLengthNm } from "@/lib/ahanu/geo";
+import { compass, formatCoord, measureSummary, metersToFathoms, metersToFeet } from "@/lib/ahanu/geo";
 import { gribAt, scoreGoNoGo } from "@/lib/ahanu/grib";
 import { sstC } from "@/lib/ahanu/ocean";
 import { habitatScore, zoneLabel } from "@/lib/ahanu/scoring";
@@ -27,8 +31,11 @@ import {
   MapPinned,
   Moon,
   Package,
+  Pause,
+  Play,
   Settings,
   Sparkles,
+  RotateCcw,
   Ruler,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -83,6 +90,8 @@ export function AppShell() {
       <ChartMap />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-abyss/20 via-transparent to-abyss/25" />
       <TopBar />
+      <MarkBurst />
+      <Onboarding />
       <nav className="absolute top-16 left-2 z-20 hidden w-14 flex-col items-center gap-1 rounded-2xl bg-surface/90 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md md:flex">
         {NAV.map((n) => (
           <button
@@ -179,14 +188,22 @@ function InstrumentBar() {
   const drop = useAhanu((s) => s.dropAnchor);
   const weigh = useAhanu((s) => s.weighAnchor);
   const score = habitatScore(v.lat, v.lon, species, hour, new Date(useAhanu.getState().clockMs));
-  const nm = useMemo(() => (measure.points.length >= 2 ? pathLengthNm(measure.points) : 0), [measure.points]);
+  const summary = useMemo(() => measureSummary(measure.points), [measure.points]);
   const [live, setLive] = useState(false);
+  const playing = useAhanu((s) => s.forecastPlaying);
+  const setPlaying = useAhanu((s) => s.setPlaying);
+  const replayT = useAhanu((s) => s.replayT);
+  const setReplayT = useAhanu((s) => s.setReplayT);
+  const nmea = useAhanu((s) => s.nmeaGateway);
   useEffect(() => setLive(true), []);
 
   return (
     <div className="absolute right-2 bottom-16 left-2 z-30 flex flex-col gap-2 md:bottom-3 md:left-[4.25rem]">
       <div className="flex items-center gap-3 rounded-2xl bg-surface/90 px-3 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md">
         <span className="text-[10px] tracking-widest text-faint uppercase">+{hour}h</span>
+        <IconBtn title={playing ? "Pause forecast" : "Play 72h"} onClick={() => setPlaying(!playing)} active={playing}>
+          {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+        </IconBtn>
         {live ? (
           <Slider className="flex-1" min={0} max={72} step={3} value={[hour]} onValueChange={([h]) => setHour(h ?? 0)} />
         ) : (
@@ -208,6 +225,13 @@ function InstrumentBar() {
           <IconBtn title="Anchor" onClick={v.anchored ? weigh : drop} active={v.anchored}>
             <Anchor className="size-4" />
           </IconBtn>
+          <IconBtn
+            title="Replay track"
+            onClick={() => setReplayT(replayT == null ? 0 : null)}
+            active={replayT != null}
+          >
+            <RotateCcw className="size-4" />
+          </IconBtn>
           <Button
             className="ml-1"
             onClick={() => {
@@ -219,11 +243,32 @@ function InstrumentBar() {
           </Button>
         </div>
       </div>
+      {nmea && (
+        <div className="hidden md:block">
+          <NmeaRail />
+        </div>
+      )}
+      <CompassTape heading={v.heading} cog={v.cog} className="hidden md:block" />
       {measure.active && (
         <p className="rounded-xl bg-elevated px-3 py-1.5 text-xs text-muted">
-          Tap the chart to measure. {measure.points.length} pts
-          {nm ? ` · ${nm.toFixed(2)} nm` : ""}. Right-click drops a waypoint.
+          Tap the chart to measure. {summary.legs} legs
+          {summary.nm ? ` · ${summary.nm.toFixed(2)} nm · ${summary.bearing.toFixed(0)}° ${compass(summary.bearing)}` : ""}.
+          Right-click drops a waypoint.
         </p>
+      )}
+      {live && replayT != null && (
+        <div className="hidden items-center gap-3 rounded-xl bg-surface/90 px-3 py-1.5 shadow-[0_0_0_1px_var(--color-line)] md:flex">
+          <span className="text-[10px] tracking-widest text-faint uppercase">Replay</span>
+          <Slider
+            className="flex-1"
+            min={0}
+            max={100}
+            step={1}
+            value={[Math.round((replayT ?? 1) * 100)]}
+            onValueChange={([n]) => setReplayT((n ?? 100) >= 99 ? null : (n ?? 0) / 100)}
+          />
+          <span className="text-[10px] text-muted">{replayT == null ? "live" : `${Math.round(replayT * 100)}%`}</span>
+        </div>
       )}
     </div>
   );

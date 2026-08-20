@@ -2,13 +2,16 @@ import { useEffect, useRef } from "react";
 import { REGION } from "@/lib/ahanu/constants";
 import { contourLines, landPolygon } from "@/lib/ahanu/bathymetry";
 import { fieldUrl, habitatUrl, overlayBounds } from "@/lib/ahanu/rasters";
-import { isTempBreak, sstC } from "@/lib/ahanu/ocean";
+import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
 import { CANYONS } from "@/lib/data/canyons";
 import { BUOYS } from "@/lib/data/buoys";
 import { CLOSED_AREAS } from "@/lib/data/regs";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
+import { aisGeo, aisTargets } from "@/lib/data/ais";
+import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
+import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
+import { replayAt } from "@/lib/ahanu/replay";
 import { useAhanu } from "@/lib/ahanu/store";
-import { formatCoord } from "@/lib/ahanu/geo";
 
 const BOUNDS: [[number, number], [number, number], [number, number], [number, number]] =
   overlayBounds();
@@ -48,11 +51,15 @@ function closedGeo(): GeoJSON.FeatureCollection {
   };
 }
 
-function breaksGeo(hour: number, sensitivity: number): GeoJSON.FeatureCollection {
+function samplePoints(
+  test: (lat: number, lon: number) => boolean,
+  hour: number,
+  step = 0.28,
+): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
-  for (let lat = 37.4; lat <= 41.0; lat += 0.28) {
-    for (let lon = -74.6; lon <= -67.4; lon += 0.28) {
-      if (isTempBreak(lat, lon, hour, sensitivity)) {
+  for (let lat = 37.4; lat <= 41.0; lat += step) {
+    for (let lon = -74.6; lon <= -67.4; lon += step) {
+      if (test(lat, lon)) {
         features.push({
           type: "Feature",
           properties: { sst: sstC(lat, lon, hour) },
@@ -62,6 +69,14 @@ function breaksGeo(hour: number, sensitivity: number): GeoJSON.FeatureCollection
     }
   }
   return { type: "FeatureCollection", features };
+}
+
+function breaksGeo(hour: number, sensitivity: number) {
+  return samplePoints((lat, lon) => isTempBreak(lat, lon, hour, sensitivity), hour, 0.28);
+}
+
+function colorEdgeGeo(hour: number, sensitivity: number) {
+  return samplePoints((lat, lon) => isColorEdge(lat, lon, hour, sensitivity), hour, 0.32);
 }
 
 function lineGeo(pts: { lat: number; lon: number }[]): GeoJSON.FeatureCollection {
@@ -83,6 +98,37 @@ function lineGeo(pts: { lat: number; lon: number }[]): GeoJSON.FeatureCollection
   };
 }
 
+function windLines(hour: number): GeoJSON.FeatureCollection {
+  const src = windBarbGeo(hour);
+  return {
+    type: "FeatureCollection",
+    features: src.features.flatMap((f) => {
+      if (f.geometry.type !== "Point") return [];
+      const [lon, lat] = f.geometry.coordinates as [number, number];
+      const dir = Number(f.properties?.windDir ?? 0);
+      const kt = Number(f.properties?.windKt ?? 0);
+      const tip = destination({ lat, lon }, dir, 0.28 + kt * 0.018);
+      return [
+        {
+          type: "Feature" as const,
+          properties: f.properties ?? {},
+          geometry: {
+            type: "LineString" as const,
+            coordinates: [
+              [lon, lat],
+              [tip.lon, tip.lat],
+            ],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+function emptyFc(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
 export function ChartMap() {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -101,6 +147,11 @@ export function ChartMap() {
   const ripple = useAhanu((s) => s.markRipple);
   const mode = useAhanu((s) => s.displayMode);
   const sens = useAhanu((s) => s.breakSensitivity);
+  const boat = useAhanu((s) => s.boat);
+  const clock = useAhanu((s) => s.clockMs);
+  const aisTick = Math.floor(clock / 20000);
+  const replayT = useAhanu((s) => s.replayT);
+  const catches = useAhanu((s) => s.catches);
 
   useEffect(() => {
     let dead = false;
@@ -225,6 +276,59 @@ export function ChartMap() {
           },
         });
 
+        map.addSource("chl-edges", { type: "geojson", data: colorEdgeGeo(hour, sens) });
+        map.addLayer({
+          id: "chl-edges",
+          type: "circle",
+          source: "chl-edges",
+          paint: {
+            "circle-radius": 2,
+            "circle-color": "#4ecdc4",
+            "circle-opacity": 0,
+          },
+        });
+
+        map.addSource("waves", { type: "geojson", data: waveFieldGeo(hour) });
+        map.addLayer({
+          id: "waves",
+          type: "circle",
+          source: "waves",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["get", "waveFt"], 2, 3, 12, 10],
+            "circle-color": [
+              "match",
+              ["get", "go"],
+              "go",
+              "#6bcb8b",
+              "caution",
+              "#e0b15a",
+              "#e06b5a",
+            ],
+            "circle-opacity": 0,
+          },
+        });
+
+        map.addSource("wind", { type: "geojson", data: windLines(hour) });
+        map.addLayer({
+          id: "wind",
+          type: "line",
+          source: "wind",
+          paint: { "line-color": "#e6eef2", "line-width": 1.2, "line-opacity": 0 },
+        });
+
+        map.addSource("route", { type: "geojson", data: steamRouteGeo() });
+        map.addLayer({
+          id: "route",
+          type: "line",
+          source: "route",
+          paint: {
+            "line-color": "#e4b56a",
+            "line-width": 1.4,
+            "line-dasharray": [2, 2],
+            "line-opacity": 0.85,
+          },
+        });
+
         map.addSource("track", { type: "geojson", data: lineGeo(track) });
         map.addLayer({
           id: "track",
@@ -242,6 +346,21 @@ export function ChartMap() {
             "line-width": 1.4,
             "line-dasharray": [2, 2],
           },
+        });
+
+        map.addSource("range", { type: "geojson", data: emptyFc() });
+        map.addLayer({
+          id: "range",
+          type: "line",
+          source: "range",
+          paint: { "line-color": "#4ecdc4", "line-width": 1, "line-opacity": 0.35, "line-dasharray": [4, 3] },
+        });
+        map.addSource("anchor", { type: "geojson", data: emptyFc() });
+        map.addLayer({
+          id: "anchor",
+          type: "line",
+          source: "anchor",
+          paint: { "line-color": "#e06b5a", "line-width": 1.4, "line-opacity": 0 },
         });
 
         map.addSource("spots", {
@@ -289,6 +408,45 @@ export function ChartMap() {
           },
         });
 
+        map.addSource("ais", { type: "geojson", data: aisGeo(aisTargets(clock, hour)) });
+        map.addLayer({
+          id: "ais",
+          type: "circle",
+          source: "ais",
+          paint: {
+            "circle-radius": ["match", ["get", "type"], "tanker", 5, "cargo", 4.5, "tug", 3.5, 3.2],
+            "circle-color": [
+              "match",
+              ["get", "type"],
+              "fishing",
+              "#e4b56a",
+              "tanker",
+              "#e06b5a",
+              "cargo",
+              "#e06b5a",
+              "tug",
+              "#8aa0ab",
+              "#4ecdc4",
+            ],
+            "circle-opacity": 0,
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#071016",
+          },
+        });
+
+        map.addSource("catches", { type: "geojson", data: emptyFc() });
+        map.addLayer({
+          id: "catches",
+          type: "circle",
+          source: "catches",
+          paint: {
+            "circle-radius": 5,
+            "circle-color": "#e4b56a",
+            "circle-stroke-width": 2,
+            "circle-stroke-color": "#e6eef2",
+          },
+        });
+
         const shipEl = document.createElement("div");
         shipEl.className = "ownship-mark";
         shipEl.style.cssText =
@@ -297,7 +455,6 @@ export function ChartMap() {
         shipRef.current = new maplibregl.Marker({ element: shipEl, rotationAlignment: "map" })
           .setLngLat([vessel.lon, vessel.lat])
           .addTo(map);
-        shipEl.style.transform += "";
 
         const MAJOR = new Set([
           "hudson",
@@ -313,14 +470,15 @@ export function ChartMap() {
         labelRefs.current.forEach((m) => m.remove());
         labelRefs.current = CANYONS.filter((c) => MAJOR.has(c.id) || MAJOR.has(c.name.toLowerCase().split(" ")[0]!)).map(
           (c) => {
-          const el = document.createElement("div");
-          el.style.cssText =
-            "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
-          el.textContent = c.name.replace(" Canyon", "");
-          return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
-            .setLngLat([c.head.lon, c.head.lat])
-            .addTo(map!);
-        });
+            const el = document.createElement("div");
+            el.style.cssText =
+              "font:500 10px Outfit,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#e4b56a;text-shadow:0 1px 6px #071016,0 0 8px #071016;white-space:nowrap;pointer-events:none;";
+            el.textContent = c.name.replace(" Canyon", "");
+            return new maplibregl.Marker({ element: el, anchor: "left", offset: [12, -8] })
+              .setLngLat([c.head.lon, c.head.lat])
+              .addTo(map!);
+          },
+        );
         BUOYS.forEach((b) => {
           const el = document.createElement("div");
           el.title = `${b.id} ${b.name}`;
@@ -383,11 +541,29 @@ export function ChartMap() {
     vis("canyon-axis", layers.canyons.visible, 0.75);
     vis("canyon-heads", layers.canyons.visible, 1);
     vis("breaks", layers.temp_breaks.visible, 0.85);
+    vis("chl-edges", layers.chl_edges.visible, 0.8);
     vis("hms", layers.hms_zones.visible, layers.hms_zones.opacity);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
+    vis("route", layers.routes.visible, 0.85);
+    vis("wind", layers.wind.visible, 0.8);
+    vis("waves", layers.waves.visible, 0.45);
+    vis("ais", layers.ais.visible, 0.9);
+    vis("community", layers.spots.visible, 0.55);
     if (map.getLayer("hms")) {
       map.setPaintProperty("hms", "fill-opacity", layers.hms_zones.visible ? layers.hms_zones.opacity : 0);
+    }
+    if (map.getLayer("wind")) {
+      map.setPaintProperty("wind", "line-opacity", layers.wind.visible ? layers.wind.opacity : 0);
+    }
+    if (map.getLayer("waves")) {
+      map.setPaintProperty("waves", "circle-opacity", layers.waves.visible ? layers.waves.opacity : 0);
+    }
+    if (map.getLayer("ais")) {
+      map.setPaintProperty("ais", "circle-opacity", layers.ais.visible ? layers.ais.opacity : 0);
+    }
+    if (map.getLayer("chl-edges")) {
+      map.setPaintProperty("chl-edges", "circle-opacity", layers.chl_edges.visible ? 0.8 : 0);
     }
   }, [layers]);
 
@@ -404,7 +580,19 @@ export function ChartMap() {
     upd("habitat", habitatUrl(species, hour, new Date(useAhanu.getState().clockMs), 120, 82));
     const br = map.getSource("breaks") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
     br?.setData?.(breaksGeo(hour, sens));
+    const ce = map.getSource("chl-edges") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    ce?.setData?.(colorEdgeGeo(hour, sens));
+    const wind = map.getSource("wind") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    wind?.setData?.(windLines(hour));
+    const waves = map.getSource("waves") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    waves?.setData?.(waveFieldGeo(hour));
   }, [hour, species, sens]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const src = map?.getSource("ais") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    src?.setData?.(aisGeo(aisTargets(clock, hour)));
+  }, [aisTick, hour]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -433,16 +621,44 @@ export function ChartMap() {
 
   useEffect(() => {
     const map = mapRef.current;
+    const src = map?.getSource("catches") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    src?.setData?.({
+      type: "FeatureCollection",
+      features: catches.map((c) => ({
+        type: "Feature" as const,
+        properties: { species: c.species },
+        geometry: { type: "Point" as const, coordinates: [c.lon, c.lat] },
+      })),
+    });
+  }, [catches]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     shipRef.current?.setLngLat([vessel.lon, vessel.lat]);
     const el = shipRef.current?.getElement();
     if (el) el.style.transform = `rotate(${vessel.heading}deg)`;
-    if (follow && map) {
+    if (follow && map && replayT == null) {
       map.easeTo({ center: [vessel.lon, vessel.lat], duration: 400, essential: true });
     }
-    if (vessel.anchor && map && map.getSource("anchor") == null) {
-      /* noop — circle handled visually via marker */
+    const range = map?.getSource("range") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    const nm = Math.max(4, (vessel.sog || boat.trollKt) * 2);
+    range?.setData?.(circleRingGeo(vessel, nm, 64));
+    const anc = map?.getSource("anchor") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    if (vessel.anchor) {
+      anc?.setData?.(circleRingGeo(vessel.anchor, vessel.anchorRadiusM / 1852, 48));
+      if (map?.getLayer("anchor")) map.setPaintProperty("anchor", "line-opacity", 0.9);
+    } else if (map?.getLayer("anchor")) {
+      map.setPaintProperty("anchor", "line-opacity", 0);
     }
-  }, [vessel, follow]);
+  }, [vessel, follow, boat, replayT]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (replayT == null || !map) return;
+    const frame = replayAt(track, catches, replayT);
+    map.easeTo({ center: [frame.pos.lon, frame.pos.lat], duration: 200, essential: true });
+    shipRef.current?.setLngLat([frame.pos.lon, frame.pos.lat]);
+  }, [replayT, track, catches]);
 
   useEffect(() => {
     if (!ripple || !mapRef.current) return;

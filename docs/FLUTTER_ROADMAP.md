@@ -1,6 +1,6 @@
 # Flutter roadmap
 
-There is **no Flutter code in this repository**. This file is a phase plan, not a description of work already done. The runnable client is the web PWA. Native exists only as an intention: the same marine OS, on the helm, with MapLibre GL native and a local NMEA gateway.
+There is **a Dart domain package** at [`flutter/`](../flutter/README.md) (`ahanu_domain`) that mirrors `src/lib/ahanu` types, geo, NMEA checksum, and habitat weights. It is not a running helm. The runnable client is the web PWA. Native remains an intention: the same marine OS, on the helm, with MapLibre GL native and a local NMEA gateway.
 
 The constraint that makes the port feasible is the domain in `src/lib/ahanu`. Freeze it. Port it. Do not grow a second ocean.
 

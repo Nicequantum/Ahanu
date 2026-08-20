@@ -275,4 +275,160 @@ Radio manners: you do not need to announce every yellowfin on 16. A working chan
 
 The generous version of this job is that we are on the same 100-fathom curve, we all left Judith or Montauk in the same window, and the fish are not infinite. A released white is a fish that might crash a dredge in September. A released school bluefin is how the category stays open. A bled, iced yellowfin is respect for the animal you did keep. Laugh when it goes right. Be quiet and efficient when it goes wrong. That is boatside manners. The dock will know either way.`,
   },
+  {
+    id: "trolling-spread-ilanters",
+    title: "Six-line Ilander and spreader-bar spread",
+    category: "trolling",
+    minutes: 7,
+    tags: ["trolling", "ilander", "spreader-bar", "yellowfin", "shotgun", "dredge", "50-100-fathom"],
+    body: `The 50–100 fathom slide — 90 to 185 metres — is the yellowfin troll that actually pays the fuel bill on a Galilee Saturday. You do not need twelve rods. You need six that swim at 7.2 to 7.6 knots, a staggered triangle, and the discipline not to keep adding lines until the cockpit is a snare. Atlantis west wall at first light, Veatch’s 80-to-105, Hydrographer’s corner when the wrap is on: same spread, same speed, same argument. Under 6.8 the bars sag and the ballyhoo drown. Over 8.0 the Ilanders blow out. Find 7.4 on a clean sea and stay there until the drag screams.
+
+Layout from the transom out. Two shorts: flat lines, 20 to 40 feet of white water, horse ballyhoo naked or an Ilander in pink/white on 50-wides. Two longs: 60 to 90 feet, one 36-inch squid bar with a stinger ballyhoo and one swimming Ilander, 50s or an 80 if the fish have been large. Shotgun, 110 to 150 feet, the dark one — purple/black or a pack-bait bar — that is the fish you did not see coming. Sixth rod is a mid rigger or a center if you have one: 48-inch green or pink bar. That is six. A squid dredge is not a rod. Pull one, 4 to 6 fathoms down, 50 to 70 feet back, off a clip, not off a reel you hoped to fish. A bird or a short chain on the other corner if the sea is kind. If you are shorthanded, skip the second teaser before you skip the shotgun.
+
+Speed is SOG plus current, not a tach number you liked in June. A 1.2-knot set on Veatch west wall will turn 7.4 through the water into 6.2 over the ground; the fish care about the bait. Watch the bars. If they skip, slow a tenth. If they sag, bump it. 7.2 on a leftover, 7.4 when the sea is a highway, 7.6 if you need them to swim in a head chop. Turns are slow. A hard-over wheel wraps the shotgun around the rigger and turns a six-line spread into a twenty-minute cutaway. On a hookup, clear shorts first, then longs, shotgun last unless the shotgun is the one bent. Do not run over the dredge.
+
+Colors follow the water, not the catalog. Green water and a chlorophyll edge — Atlantis when the overlay is a lime smear on the 100 — green/yellow Ilanders, olive pack-bait bars, a chartreuse stinger. Blue water, 24–26°C, the Stream’s manners on Hydro or a Hudson ring edge: pink/white is the default yellowfin color, a blue/white Ilander on one long, shotgun in purple/black so something in the spread still looks like a squid at 100 feet. Dawn and last light, darken the shotgun and the dredge. Noon in clean blue, you can go brighter on the shorts. Change the ignored bait after ninety minutes, not the whole spread after twenty. You will not know what worked.
+
+Sit the slide, not the name. 50 to 100 fathoms under the keel, 7.4 knots, pink and green according to the color under the bow, and leave the 200-fathom dump — 365 metres — for after dark. A six-line spread with a dredge in 3-foot southwest is a working machine. A six-line spread you tried to make ten because the boat next to you had twelve is how you spend 0940 cutting mono out of a rigger.`,
+  },
+  {
+    id: "live-bait-canyon-yellowfin",
+    title: "Live bait for yellowfin on the slide",
+    category: "bait",
+    minutes: 7,
+    tags: ["yellowfin", "live-bait", "bluefish", "scup", "squid", "kite", "circle-hooks", "50-wide"],
+    body: `Live yellowfin on the canyon slide is the program you switch to when the Ilanders have been ignored for two hours and the sounder is still a smear of bait on the 60–90 fathom shoulder — 110 to 165 metres. Atlantis west wall, Veatch 80s, Hydrographer’s corner: same water as the troll, slower boat, a live bluefish or a scup or a squid that is actually alive. This is not the lump well. This is the slide. Two rods, maybe a kite, 1.5 to 3 knots along the contour. You cannot tend six live baits and a twelve-rod memory in a 3-foot sea with three people.
+
+Bait in August is a logistics problem before it is a fishing problem. Bluefish you caught on the 30-fathom lumps on the way out will live in a round well if the water is moving and the load is not a bucket of knives. Scup are tougher and they are legal bait; they also die in a warm well faster than people admit. Squid is the canyon currency and the hardest to keep — darkness, cold water, no crowding, and a well that does not chew them on the baffles. August surface water on the 100 is 23–26°C. That is tuna water and a bait-killing bath. Pump, chill if you can, and do not put forty squid in a well built for a dozen. Dead bait on a live-bait rod is a trolling program you already tried. Hook a squid through the point of the mantle, a scup or a small blue through the nose or the shoulder, 7/0 to 9/0 circle, 80-pound leader.
+
+Kite versus flat line is a fish-height decision. A kite puts the bait on the surface in a panic, skipping, which is what yellowfin expect a baitfish to look like when it is about to die. Worth it when they are up — birds, slashes, a sounder smear in the top twenty metres. A 50-wide, enough kite line that the bait is 60 to 100 feet off the corner, not under the rigger, and a crew member who will actually fly it instead of watching the plotter. Flat line is the other honest program: slow-troll or drift the slide, bait 40 to 80 feet back, a small egg if they are marking at 8 to 12 fathoms, none if they are boiling. When they crash, do not reef the circle. Let them eat, come tight, and pick up the 50. A 50-wide is enough reel for a 40- to 80-pound yellowfin. An 80 is the one you grab if the mark was a slab.
+
+Do not high-speed troll a live bluefish at 7 knots. That is how you kill bait and catch nothing. Do not put a J-hook in a live bait on a 23–25°C edge where whites are in the mix — non-offset circle, same as the billfish rule, and you will thank yourself at the transom. The 27-inch CFL still applies. Measure, bleed what you keep, ice it. If they will not eat the live one after an honest hour on a smear, clip the Ilanders back on and admit you are in a trolling day. The slide does not owe you a well bite just because you caught scup at 0500 off Block.
+
+Keep the boat on the contour. 50 to 100 fathoms, along the wall, not a lazy circle that walks you into 30 fathoms of nothing. If three boats are already live-baiting the corner, you are the fourth boat. Set up down-current. A kite line across someone else’s spread is a conversation you will lose on the radio and at the dock. Night on the slide is a hybrid you should not pretend to do with two people: dump-and-wind for eyes on the nearby 100, or keep a live one out, not both as a hero act. Pick.`,
+  },
+  {
+    id: "reading-a-break",
+    title: "How to sit a 1–2°C break",
+    category: "reading-water",
+    minutes: 7,
+    tags: ["sst", "chlorophyll", "ssh", "break", "filament", "yellowfin", "bigeye"],
+    body: `A 1–2°C SST break with a chlorophyll edge and an SSH filament on the same wall is the day you actually left Galilee for. Not a pastel. Not a 0.4°C blush the Tuesday composite invented. A hull-sensor jump of a degree in a boat length, green-brown on one side of the spread and blue on the other, and altimetry that says a filament is pinned to Veatch west wall or Atlantis head. Sit it. Crossing it at 7 knots because the next canyon looked prettier on the plotter is how you fish empty blue all afternoon and still tell the dock you looked around.
+
+Do not troll the pretty blue. The pretty blue is what the magazine photograph is made of and it is often empty. Yellowfin, whites, and mahi sit the dirty side of clean — the inshore or upwelled edge where 23–24°C green is leaning on 25–26°C blue, chlorophyll is a gradient not a soup, and bait is confused. Bigeye at night cheat cooler, 20–22°C, still on the break, still not in the middle of the blue blob. If you drive into 27°C ink because it looked like the Stream, you will troll a long way. Come back to the seam. A 1°C wall is enough. A 2°C wall is a highway. A 3°C wall with a chlorophyll edge and a warm filament on Atlantis head is why you cancelled the dentist.
+
+How to sit it: along it. Put the warm on one side of the spread and the cool on the other. Watch the hull like a tachometer. 24.1, 24.1, 24.3, 25.6 — you just crossed. Turn, set up, put the dirty water under the port teasers and the clean under the shotgun, or the reverse if that is where the bait is. Speed 7.2 to 7.6 if you are on yellowfin. At night the same seam on the 100-fathom curve — 185 metres — is the dump-and-wind track. Zigzagging across a 2-degree wall every ten minutes is a way to hook the one fish that was on the edge and then spend an hour finding it again.
+
+SSH tells you whether the break is a stall or a traveler. A filament with a modest positive anomaly wrapped on Hydrographer’s corner will sit for two days; that is the troll. A bullseye warm-core ring on Hudson is a different animal — fish the edge, not the inside, unless the inside is suddenly full of marlin. Negative SSH and 19°C on Veatch in August is eyes and albacore, not a yellowfin spread. Overlay altimetry, SST, and chlorophyll together, then believe the bow. Yesterday’s 1 km GHRSST is a library card. The hull is the book.
+
+If the break walks, walk with it. Southwest wind shoves warm water up onto the 80s — 145 metres. A northwester after the 36-hour front pulls it back off the wall. The GPS number from Thursday is a souvenir by Saturday. Come up to the contour, look at color, look at temp, look at the sounder, and then decide whether the number still deserves you. The plotter is a library. The water is the book.`,
+  },
+  {
+    id: "weather-window-front-36h",
+    title: "The 36-hour front in WAVEWATCH",
+    category: "weather",
+    minutes: 8,
+    tags: ["weather", "wavewatch", "front", "galilee", "window", "swell", "grib"],
+    body: `The on-device WAVEWATCH story for this August window is not mysterious. Hours 0–24: fair southwest, 10 to 16 knots, 2 to 4 feet, the kind of sea Laughing One will cruise at 21 knots without a conversation. Hours 24–40: a front, peaking near hour 36, 22 to 30 knots, 7 to 11 feet on the open slope, wind veering southwest toward west and northwest. Hours 48–72: cleaning, leftover sea, the breeze going WNW then laying down. That is the 72-hour grid. Believe it until the buoys lie in the other direction — 44017, 44008, 44025, 44066 — and then believe the buoys. Period is the adult in the room: 4-foot at 5 seconds is a beating; 5-foot at 10 seconds is a highway.
+
+When to leave Galilee. You leave in the fair 0–24 if the steam is 105 to 130 miles and you want first light on Atlantis or Veatch. A 0200 Thursday departure puts you on the 100 at dawn, gives you a day and a night, and puts you inside the 50-fathom curve before the front is a problem if you are honest about hour 36. You do not leave at 1800 on Friday into a building southwest because Saturday morning “might still be 4 feet.” Hour 36 on the open slope is 8 to 11 feet and 25 knots. Laughing One’s limits are 24 knots of wind and 7 feet. The score will be Fire. The score does not steam.
+
+When to stay. If the departure already sits inside the 24–40 envelope, you stay. A 6-foot leftover at the sea buoy is not a canyon forecast; the slope will be worse, Hudson worse still, and Point Judith inlet on an ebb against that southwest is its own sport. If you are already out and the panel turns caution at hour 30, you leave the canyon earlier than your pride wanted. Fish the morning. Be inside Block Island Sound before the front is on 71°W. Western buoys see it first — the passage walks west to east, roughly two and a half hours per degree of longitude — and that is the gift of paying attention.
+
+Leftover southwest versus northwest clearance is the whole inbound. After the front, the sea does not lie down because the wind did. Southwest leftover for a day and a half is a head sea home to Judith if you run the rhumb. Northwest clearance after passage — wind 300, then laying down through hours 48–72 — is the gift of the summer: you fish clean water on the cleaning side, and the leftover is from astern or the quarter. Plan the inbound rhumb for the leftover you actually have. Montauk can be a lee. Judith can be a washing machine. Fuel math on a head sea is not the 28 gph you planned at 21 knots.
+
+Check the weather panel at the dock, at Block, at the 50, and before you commit to the overnight. The 36-hour front is on the grid every time you open this trip. It is not a surprise. Treat it like a sea buoy you have to pass, not like a rumor. There will be another break after hour 48. There will not be another boat if you punch hour 36 on Veatch west wall in 30 knots of southwest.`,
+  },
+  {
+    id: "swordfish-deep-drop",
+    title: "Swordfish: 1,500-fathom drop and the night drift",
+    category: "species",
+    minutes: 8,
+    tags: ["swordfish", "deep-drop", "night-drift", "electric-reel", "squid", "light-stick", "1500-fathom"],
+    body: `Daytime deep-drop and night drift are both swordfish and they are not the same fishery. Night: suspend squid and belly on the 100 to 400 metre edges — 55 to 220 fathoms — chem lights, strobes, a slow drift or a dump-and-wind, the program a lot of Rhode Island boats already know. Day: you are on the 1,500-fathom fingers, 2,700 to 2,800 metres, down the axis of Veatch or Atlantis or the south drop of Hydrographer, with 10 to 20 pounds of lead, a light, a squid, and an electric reel because your rotator cuff is not a commercial winch. Surface can read 26°C. The fish is in 12–18°C dark, on or near the bottom of a wall, and it will not come up to look at an Ilander.
+
+Gear for the 1,500-fathom drop. Dedicated electric or an 80-wide you are willing to spend the morning with, 80- to 130-pound braid, a long topshot, 300-pound swivel, a 10- to 20-pound lead on a slider or a breakaway — 10 in a kind current, 15 as the default, 20 when the Stream or a ring is running 2 to 3 knots and the line will not go down. Light stick or a battery deep-drop light that actually fires at 4,000 feet. Squid, or a strip of tuna belly, on a stout circle. Leader long enough that the light is not in the bait’s face and short enough to handle at the rail. Harness on. A 20-pound lead in a 3-knot set is how people go over.
+
+The drift is the fishery. You do not anchor in 1,500 fathoms. Set up up-current of the finger, drop, and manage the boat so the line stays fishable. Do the math before the lead hits: if the set is going to walk you off the contour in six minutes, you need a shorter drop, a heavier lead, or a different finger. Veatch’s south finger, Atlantis’s deep axis, Hydro’s offshore prongs — pick a wall, not a GPS joke from a forum. Bite is a tap then a heavy then a reel that is no longer just current. Come tight. Electrics burn if you stall them against a fish that wants 2,700 metres. Know the manual override. 47 inches lower jaw fork length, HMS permit, bag that has been one per person not to exceed four a vessel. Measure LJFL, not a hopeful CFL along the body. Shorts go back with the light still on the leader if you can manage it.
+
+Night versus day on the same trip is the grown-up version. Dump-and-wind or suspend after dark on the 100 for eyes and the odd night sword, then two honest drops at dawn on the 1,500-fathom finger before you clip the tuna bars on. If the current is impossible, skip the drop. A 15-pound lead skipping under the transom is not a fishery, and it is a way to spool a reel into a bird’s nest you will still be picking at Block.
+
+Safety with spooling belongs in the cockpit briefing. Braid at that depth is a lot of stored energy. A backlash on the drop will dump a professional mess; a hookup that takes drag while the clicker is off will spool you to the knot if you are looking at the sounder. Clicker on. Thumb ready. Gloves. Bill control at the boat — a green sword in the day still has a bill. Do not deep-drop alone on a pitching deck. The Monument east of Hydrographer is a plotter overlay, not a suggestion, if your finger-walk takes you toward Oceanographer. Recreational rod-and-reel is generally not a longline closure. A 1,500-fathom drop in monument water is still monument water.`,
+  },
+  {
+    id: "white-marlin-weed",
+    title: "August white marlin on the weed",
+    category: "species",
+    minutes: 6,
+    tags: ["white-marlin", "weedline", "plastics", "30-wide", "circle-hooks", "release", "hydrographer"],
+    body: `August white marlin on the Northeast canyons live on weedlines and on 23–25°C edges, and they will embarrass a tuna spread that never came off the 100. Hydrographer’s corner, Welker on the slide east, Atlantis when a clean 24°C ribbon sits on the 50-to-80 fathom water — 90 to 145 metres — with sargassum strung along the current. They like the clean side of the color and they like a small bait. This is not a 10-inch Ilander day. This is 30-wides, small plastics, naked ballyhoo, and a crew that already decided the fish is a release.
+
+Tackle: 20s and 30s are honest; a 50 is heavy. Small plastics — 3- to 6-inch squids, little Ilanders, feathers, a tiny chugger — on the riggers and the shotgun. Naked or lightly dressed ballyhoo on the flats. Speed 6.5 to 7.3 knots along the weed, not through it. A squid dredge still earns its keep; whites love a dredge more than they love your tuna bar. Circle hooks on the natural baits because that is the federal requirement in billfish water, and because a J-hook in a white is a gut-hook you then have to deal with at the transom. When one crashes, drop back, come tight, do not reef a circle. Drag that can land a 60- to 80-pound fish while it still has a pulse, not a tuna-drag you built because a yellowfin might eat the same bait.
+
+Weedline manners. Troll the seam, pitch when you raise color, and do not gaff the first mahi of the school if a white is in the mix — you will put the billfish down and then you will have a cooler of schoolies and a story about the one that jumped. Leave the weed a little fish in it. The next line is 300 to 600 yards down-current. Hydro in 24–25°C with a chlorophyll edge and scattered sargassum is a white-marlin factory some August afternoons; it is also mahi water and the occasional yellowfin in the same spread. Keep a 30 ready and a 50 ready and know which one you are picking up.
+
+Release handling is the whole point. Atlantic whites are catch-and-release. No gaff. Leader, fish in the water, hook out or cut close, revive at the transom until the color is a color and it kicks. A white dumped over the side with twenty feet of wind-on hanging is not a release. Roundscale look like whites and also go back. A small blue looks like a problem and also goes back. Photograph the dorsal spots and the rounded lobes, then fish again. Offset “circles” you bent in the shop are J-hooks with a story. The joy is a white in 24°C water on a 30, weed on the starboard, sun on Hydro’s wall, after you left Judith at 0200. Keep it joyful. The fish stays on the 50–150 metre edge. You go home with a story that does not need a tail.`,
+  },
+  {
+    id: "float-plan-and-epirb",
+    title: "Float plan, VHF, and the 406",
+    category: "safety",
+    minutes: 7,
+    tags: ["float-plan", "epirb", "vhf", "dsc", "mmsi", "ditch-bag", "point-judith"],
+    body: `A float plan is not a form you fill out because an app had a field. It is how Sector Southeastern New England and the person on the beach know that Laughing One left Galilee at 0200 with four souls, bound Veatch west wall then the Atlantis slide, radio on 16 and 68, return ETA Sunday 1800, and that if she is not in the hole by Monday morning someone should start asking. File it. Paper on the fridge, text to the dock, copy in the wheelhouse. Vessel name, registration, description, departure time and place, route in plain language, souls on board by name if you can, medical notes that matter, radio watch, MMSI, EPIRB hex, and the person who will actually call. USCG Sector Southeastern New England is 401-435-2300. The dock knows the ETA. Then you go fishing.
+
+VHF 16 is distress, hailing, and the channel you do not clog with the bite. 68 is a working channel the Rhode Island canyon fleet can live on; pick one, tell the float plan, and monitor 16. DSC is the button you have practiced — MMSI programmed, GPS feeding the radio, so a distress alert is a position and a vessel identity, not a story you have to shout while the cockpit is full of water. Test DSC in a way that does not launch a real distress. Know how to cancel. The MMSI belongs on the float plan and on a sticker at the helm. If you need help, the sentence is vessel name, position in latitude and longitude, nature of distress, souls, and what you need. Practice it. The night you need it you will not want to invent grammar.
+
+EPIRB 406 is registered, mounted where it can auto-deploy or where a person can grab it with one hand, and the hex ID is on the float plan, in the dock book, and in a phone on the beach. It is not in a drawer under the spare spools. A PLB on a person is in addition to the 406, not instead. When it goes off, SAR is coming to a position, not to “somewhere south of Block.” Keep the registration current. An EPIRB registered to a previous owner is how you delay a helicopter. If you go into the raft in Stream water, you will not drift toward Point Judith just because that is home. Gulf Stream current will take you northeast in a hurry. Know that before you need it.
+
+Ditch bag: 406 or a spare PLB, handheld VHF, water, thermal, light, medical, signaling, a paper chart because electronics drown, knife, and the grab you can do on the way past the transom. Not under a case of water. Raft serviced, painter you can find, painter you will not wrap in the prop as you abandon. August water on the shelf can be 20°C and still kill you; a cold filament is worse. Hypothermia is not a winter story. Souls on board means you know how many people left the inlet, not how many you think are below. Count at departure. Count at Block. Count before you set the night watch.
+
+This is not cute and it is not a lecture for other people. Point Judith to Veatch is 120 miles of water that does not care about your slip. The 406 is registered. The radio is on. The fridge has the plan. That is how grown-ups leave a harbor.`,
+  },
+  {
+    id: "hudson-canyon-rings",
+    title: "Hudson rings, the Jersey steam, and the Monument",
+    category: "canyon",
+    minutes: 7,
+    tags: ["hudson", "warm-core", "rings", "ssh", "montauk", "monument", "jersey"],
+    body: `Hudson is a different crowd and a different steam, and treating it like Atlantis with extra miles is how a Galilee boat arrives late, short on fuel, and in someone else’s slick. From Point Judith you are looking at 140 to 160 nautical miles. From Montauk it is a shorter punch. From Barnegat and the Jersey inlets it is a home game. They will be on the north wall in the 85–120 fathoms — 155 to 220 metres — at first light on a weather-window Saturday while you are still crossing 72°W. Leave earlier than you would for Veatch, or accept that you are fishing the second shift. Laughing One’s 420 gallons, 28 gph at cruise, 60 in reserve, and a 150-mile steam each way is 14 hours of cruise before you troll a minute.
+
+Warm-core rings sit on Hudson in a way they do not sit on Atlantis. Watch altimetry, not just SST. A bullseye of positive SSH over the head or the west shoulder puts 26–28°C water on the 100, pulls blue marlin, mahi, and a yellowfin bite that feels like Ocean City, and puts 2 to 3 knots of current on a drift you thought was a troll. Fish the edge of the ring, where the 23–25°C water leans on the wall and chlorophyll still has a gradient. The inside of the ring is often too blue and too empty until it is suddenly not. Cold-core water east of the head will kill a troll that looked perfect on yesterday’s overlay. If the ring is sitting, Hudson is the trip. If the ring has walked south toward Toms, you are in a Jersey conversation and a longer steam.
+
+Crowd manners are the tax. Montauk, Shinnecock, Barnegat, and a few of us from Galilee. AIS will look like a parking lot. Do not troll through a chunking spread. Do not dump-and-wind across a man who has been on a mark since 2100. Hudson is wide. There is another mile of wall. Radio temperature, color, and whether the weed is on the 80 or the 120. “Any luck” is not information.
+
+Monument awareness is not Hudson’s polygon — the Canyon Unit sits over Oceanographer, Gilbert, and Lydonia, east of Hydrographer, roughly 40.2–40.8 N, 67.2–68.4 W on the simplified overlay. You will not steam from Hudson into the Monument by accident. You will steam from Hydro into it if the ring or the bite walks east and you get curious about Welker, then Oceanographer, on the way home from a mixed trip. Draw the Monument before you leave the inlet and leave it on. Recreational trolling is generally not a pelagic-longline closure. The Monument is still the Monument. Hudson’s own problem is the illustrative HMS awareness box on the plotter near the canyon and the commercial traffic that does not care about your six-line spread. AIS on. Watch.
+
+When the ring is on the north wall and Atlantis is 22°C of nothing, Hudson is worth the math. When the forecast is a building southwest into hour 36, Hudson’s weather is not Point Judith’s weather. Stay in Galilee. The ring will still be on the altimetry tomorrow.`,
+  },
+  {
+    id: "mahi-weed-and-fads",
+    title: "Mahi on weed, traps, and high-fliers",
+    category: "species",
+    minutes: 6,
+    tags: ["mahi", "weedline", "fad", "high-flier", "traps", "20-wide", "birds"],
+    body: `Mahi in August are a weed, trap, and high-flier fishery that happens while you are pretending to be a tuna captain. 24–29°C water, surface, 20- to 30-pound outfits, and the discipline to leave a dead 100-fathom number to go look at a line of sargassum or a high-flier that has been sitting on 39.7 N since Tuesday. Atlantis edges, the water between Block and Atlantis, Hydrographer’s clean wrap, a Hudson ring edge: they will hold on anything that floats and a few things that do not. Keep a 20-wide rigged while the tuna spread is out. That is not a hobby. That is how the ice gets paid.
+
+Weed is habitat. A living line with crabs and small bait, oriented with the current, is a troll at 6 to 7 knots — small ballyhoo, feathers, pink and green, 20s and 30s — along the line, not through it. Raise a bull, circle, pitch. Leave hens in the water until you have the fish you want. Scattered brown confetti after a blow is a maybe. Weed in the tuna spread is a tax; pick the Ilanders clean and decide whether this is still a tuna day. A fouled spreader bar is a $12 lure acting like a sea anchor.
+
+Traps, high-fliers, and junk are the FAD program the Mid-Atlantic already has. A lobster high-flier, a pallet, a deadhead, a hose: one person on the wheel, one on a 20 with a small ballyhoo or a live squid, engines out of gear if you can stay on it. Mahi will hold on a piece of plastic in 28°C blue. They will also hold a wahoo or a white. Circle hooks if billfish are in the conversation. Do not wrap the high-flier in your rigger and then argue with a man who has had that trap in the same water for a week. Give it a berth, fish the down-current side, and move to the next one. Birds over a high-flier are the invitation. Birds over empty blue are a maybe you can afford to check if the tuna spread is cold.
+
+Keepers versus release is a count, not a vibe. Mahi are not HMS tunas; they are still a size-and-bag fish, 20-inch conversation, state overlay when you land in Rhode Island. Schoolies under the tape go back. Gaffers go in the box, bled, iced, not left in the sun until they are a chemistry experiment. They spoil faster than tuna. A dozen schoolies is not better than four gaffers you took care of. First light after a night of dump-and-wind, if the overlay is 26°C and a chlorophyll smear, take the 20s for a ride before the bars go back out. Then go be a tuna boat again. The weed is showing. Go.`,
+  },
+  {
+    id: "bluefin-general-category",
+    title: "Bluefin: school, trophy, and the General-category trap",
+    category: "species",
+    minutes: 7,
+    tags: ["bluefin", "general-category", "angling", "trophy", "cfl", "hms", "closed-areas"],
+    body: `Bluefin in August on a Rhode Island canyon trip are usually a lump fish, not a Veatch-west-wall fish, and the category is the whole job. School is 27 to less than 47 inches CFL. Large school is 47 to less than 59. Small medium 59 to less than 73. Large medium 73 to less than 81. Giant 81 and over. Those numbers are an educational snapshot of the size classes NOAA uses, not a permission slip. Measure curved fork length on a wet, straight fish. A bent tail and a hopeful tape are how dock arguments start. Water they actually want: 14–22°C, happiest 16–20, on the 20–120 metre lumps — 10 to 65 fathoms — inshore of the canyon heads, the 50-fathom dump, a cool break on the shelf side of Atlantis or Block.
+
+Angling category — the permit most of us hold — is not General category. General is a commercial-leaning quota some vessels hold, with its own season, its own retention, and its own closures. You do not get a General fish because you have an Angling permit and a 73-inch bluefin on the leader. Trophy / Angling trophy is generally one fish 73 inches CFL or larger per vessel per year, and it may already be closed in August. School and large-school retention is an in-season number NOAA can change overnight — often a vessel limit, not a per-person fantasy. If the category is closed, the fish is a release before the gaff leaves the holder. That decision is not made at the scale.
+
+Ahanu is not a lawyer and this library is not the Federal Register. Limits, categories, and closed areas move, sometimes in a morning notice. Before you leave Galilee: valid HMS Angling or Charter/Headboat, current Atlantic HMS Recreational Compliance Guide, HMS News for in-season bluefin actions, and the plotter overlay for the Northeast Canyons and Seamounts Marine National Monument and any awareness boxes. Recreational trolling is generally not a pelagic-longline closure. The Monument still is the Monument if you have wandered east of Hydrographer. State rules overlay when you land. Selling a bluefin off an Angling permit is a commercial act and a fast way to lose the boat.
+
+Where they actually eat. Troll 5.5 to 7 knots with larger Ilanders and bars in greens and dark blues, or chunk herring and butterfish when they mark. A 50-wide handles school and large school. Giants want an 80 and a plan for the boat. They are not why you ran to Veatch’s 105 at 21 knots, and they will still eat a bait you meant for yellowfin on the way home across the 50s. If you cannot identify the fish, cannot measure CFL, or cannot say which category you are in, it does not go in the box. Release, revive if it needs it, log the interaction if you are supposed to. The category staying open is a fleet problem. The fish you gaffed in a closed category is yours.
+
+Not legal advice. Verify with NOAA HMS before you leave the dock.`,
+  },
 ];

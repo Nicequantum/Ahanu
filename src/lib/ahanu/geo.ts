@@ -130,3 +130,42 @@ export function lonLatToXY(p: LatLon, origin: LatLon): { x: number; y: number } 
     y: dLat * NM_PER_DEG_LAT * METERS_PER_NM,
   };
 }
+
+/** Closed ring as lon/lat pairs, clockwise from north. */
+export function circlePoints(center: LatLon, radiusNm: number, n = 64): LatLon[] {
+  const pts: LatLon[] = [];
+  const steps = Math.max(8, n);
+  for (let i = 0; i < steps; i++) {
+    pts.push(destination(center, (i / steps) * 360, radiusNm));
+  }
+  pts.push(pts[0]!);
+  return pts;
+}
+
+export function circleRingGeo(
+  center: LatLon,
+  radiusNm: number,
+  n = 64,
+): GeoJSON.FeatureCollection {
+  const ring = circlePoints(center, radiusNm, n).map((p) => [p.lon, p.lat] as [number, number]);
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { radiusNm },
+        geometry: { type: "LineString", coordinates: ring },
+      },
+    ],
+  };
+}
+
+export function measureSummary(pts: LatLon[]): { nm: number; bearing: number; legs: number } {
+  if (pts.length < 2) return { nm: 0, bearing: 0, legs: 0 };
+  return {
+    nm: pathLengthNm(pts),
+    bearing: initialBearing(pts[pts.length - 2]!, pts[pts.length - 1]!),
+    legs: pts.length - 1,
+  };
+}
+

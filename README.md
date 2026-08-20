@@ -34,7 +34,10 @@ Ahanu does not replace NOAA ENC, NMFS/HMS regulations, or seamanship. It package
 - **Catch log and community reports** — species contract: bigeye, yellowfin, bluefin, mahi, white marlin, blue marlin, swordfish, albacore.
 - **Solunar, float plan, safety panel** — including the unfashionable parts (contacts, radios, souls on board).
 - **Display modes** — night bridge, high contrast, pure black, daylight.
-- **Reserved** — AIS and NMEA 2000 via a future Wi-Fi gateway, not a fake overlay.
+- **AIS (demo gateway)** — simulated contacts on the canyon walls and TSS; the adapter is `src/lib/data/ais.ts` so a real NMEA/Wi-Fi feed can replace it.
+- **NMEA 0183 gateway** — encoded RMC/GGA/VTG/DBT/MWV/HDT on the instrument rail; same checksum the Dart package uses.
+- **72h playback and track replay** — animate the GRIB, scrub the trolling track against marked fish.
+- **Tricks of the Trade** — offline canyon tactics, weather windows, float-plan/EPIRB, HMS caution.
 
 ---
 
@@ -47,7 +50,7 @@ Ahanu does not replace NOAA ENC, NMFS/HMS regulations, or seamanship. It package
 | Production app shell | Cloudflare Pages |
 | Production data | Worker `ahanu-packs`, R2 `ahanu-trip-packs`, D1 `ahanu-core`, Durable Object `CommunityHub` |
 | Ingest (adapters, then cron) | NOAA ENC, GFS-Wave/WW3, NDFD, GHRSST/CoastWatch SST, Copernicus chl-a, altimetry, CO-OPS, NDBC |
-| Native helm | Flutter + MapLibre GL native — **planned**, see [docs/FLUTTER_ROADMAP.md](docs/FLUTTER_ROADMAP.md). No Flutter code is in this repo. |
+| Native helm | Flutter + MapLibre GL native — **planned**, domain package in [`flutter/`](flutter/README.md), see [docs/FLUTTER_ROADMAP.md](docs/FLUTTER_ROADMAP.md). |
 
 Domain types (`CatchRecord`, `TripPackLayer`, `Buoy`, `LayerId`, `SpeciesId`, …) are the contract between PWA, Worker, and the future Dart port. Additive changes only.
 

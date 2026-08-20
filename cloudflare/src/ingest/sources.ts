@@ -1,6 +1,17 @@
 /**
  * Ingest adapters for the Ahanu data plane.
  *
+ * Locked sources (Northeast canyon pack):
+ *   1. NOAA ENC (S-57 / S-101) Northeast clip
+ *   2. NOAA GFS-Wave / WAVEWATCH III GRIB
+ *   3. NDFD oceanic
+ *   4. GHRSST / NOAA CoastWatch SST
+ *   5. Copernicus chlorophyll
+ *   6. Altimetry / SSH anomaly
+ *   7. CO-OPS tides
+ *   8. NDBC buoys
+ *   9. HMS closed areas (static GeoJSON)
+ *
  * Each function returns metadata only — no bytes are fetched here. A later
  * cron Worker (or `wrangler` scheduled handler) will call the documented
  * endpoints, clip to a trip bbox, write objects into R2 (`ahanu-trip-packs`),
@@ -48,26 +59,33 @@ function meta(partial: Omit<IngestMeta, "stub" | "defaultBbox"> & { defaultBbox?
 }
 
 /**
- * NOAA Electronic Navigational Charts (ENC, S-57 / S-63 cells).
+ * NOAA Electronic Navigational Charts (ENC) — S-57 cells today, S-101 dual
+ * production as NOAA issues the same Northeast cells under the IHO S-100
+ * framework. The pack is a clip, not the US catalog.
  *
- * Catalog XML lists every US cell; Harbor/Approach/Coastal usage bands for
- * Rhode Island, Block Island Sound, and the shelf out to Hudson / Veatch /
- * Atlantis / Hydrographer are what a Point Judith departure actually needs.
+ * Harbor / Approach (usage 5 / 4) around Point Judith, Newport, and Montauk,
+ * plus Coastal (usage 3) out to the 100-fathom curve covering Hudson, Veatch,
+ * Atlantis, and Hydrographer. Official ENC remains the legal chart; Ahanu is
+ * an aid to navigation.
  *
  *   Product catalog:  https://charts.noaa.gov/ENCs/ENCProdCat.xml
- *   Cell zips:        https://charts.noaa.gov/ENCs/{CELL}.zip   e.g. US5RI10M.zip
+ *   Cell zips (S-57): https://charts.noaa.gov/ENCs/{CELL}.zip   e.g. US5RI10M.zip
+ *   Chart downloader: https://charts.noaa.gov/ENCs/ENCs.shtml
  *   Chart Locator:    https://www.charts.noaa.gov/InteractiveCatalog/nrnc.shtml
  *   ENC Online REST:  https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer
+ *   S-100 / S-101:    https://marinenavigation.noaa.gov/s100.html
+ *   Rescheme status:  https://distribution.charts.noaa.gov/ENC/rescheme/
  *   Raster tiles (aid only, not a substitute for ENC):
  *                     https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png
  *
- * Ahanu stores clipped cells + a derived contour/bathy cache in R2. Official
- * ENC remains the legal chart; the plotter is an aid to navigation.
+ * Adapter honesty: ingest S-57 zips now. When NOAA dual-issues S-101 for the
+ * same RI/NY/MA cells, store both encodings under the same layer id (`enc`)
+ * and let the client pick. Do not wait on S-101 to ship a pack.
  */
 export function noaaEnc(): IngestMeta {
   return meta({
     id: "noaa-enc",
-    name: "NOAA Electronic Navigational Charts",
+    name: "NOAA Electronic Navigational Charts (S-57 / S-101)",
     provider: "NOAA Office of Coast Survey",
     kind: "s57",
     cadence: "weekly",
@@ -75,12 +93,15 @@ export function noaaEnc(): IngestMeta {
     layerIds: ["bathymetry", "contours", "canyons"],
     endpoints: [
       { label: "ENC product catalog (XML)", url: "https://charts.noaa.gov/ENCs/ENCProdCat.xml" },
-      { label: "ENC cell distribution", url: "https://charts.noaa.gov/ENCs/" },
+      { label: "ENC cell distribution (S-57)", url: "https://charts.noaa.gov/ENCs/" },
+      { label: "Chart downloader", url: "https://charts.noaa.gov/ENCs/ENCs.shtml" },
       { label: "ENC Online MapServer", url: "https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer" },
+      { label: "S-100 / S-101 product page", url: "https://marinenavigation.noaa.gov/s100.html" },
+      { label: "ENC rescheme / S-101 status", url: "https://distribution.charts.noaa.gov/ENC/rescheme/" },
       { label: "ENC Direct raster tiles", url: "https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png" },
     ],
     notes:
-      "Clip to usage bands 4–5 (Approach/Harbor) around Point Judith / Montauk plus band 3 (Coastal) out to the 100-fathom curve. Re-issue weekly or on NOAA NtM.",
+      "Clip to usage bands 4–5 (Approach/Harbor) around Point Judith / Montauk / Newport plus band 3 (Coastal) out to the 100-fathom curve. S-57 is the operational encoding; S-101 is ingested in parallel as NOAA dual-issues the same cells. Re-issue weekly or on NOAA NtM.",
   });
 }
 
@@ -129,30 +150,37 @@ export function waveWatchIii(): IngestMeta {
 }
 
 /**
- * National Digital Forecast Database — NWS official digital forecast.
+ * National Digital Forecast Database — oceanic domain.
  *
- * Used for coastal wind, gust, vis, precip, and the go/no-go overlay against
- * vessel limits. Not a substitute for the GFS-Wave sea-state field.
+ * CONUS NDFD dies near the beach. Hudson / Veatch / Atlantis sit on the
+ * oceanic grid (`AR.oceanic`), which is the NWS official digital forecast
+ * over the EEZ. Used for coastal and offshore wind, gust, vis. Not a
+ * substitute for the GFS-Wave sea-state field (Hs lives there).
  *
- *   Home:     https://www.weather.gov/mdl/ndfd_home
- *   Digital:  https://digital.weather.gov/
- *   GRIB2:    https://nomads.ncep.noaa.gov/cgi-bin/filter_ndfd.pl
- *   XML/SOAP: https://graphical.weather.gov/xml/SOAP_server/ndfdXMLclient.php
- *   NWS API (gridpoints, not NDFD proper): https://api.weather.gov
+ *   Oceanic GRIB2: https://tgftp.nws.noaa.gov/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.oceanic/
+ *   Home:          https://www.weather.gov/mdl/ndfd_home
+ *   Digital:       https://digital.weather.gov/
+ *   GRIB2 filter:  https://nomads.ncep.noaa.gov/cgi-bin/filter_ndfd.pl
+ *   XML/SOAP:      https://graphical.weather.gov/xml/SOAP_server/ndfdXMLclient.php
+ *   NWS API:       https://api.weather.gov
  *
- * CONUS tiles covering Southern New England: ds.wspd.bin, ds.wgust.bin,
- * ds.wdir.bin, ds.sky.bin, ds.qpf.bin, ds.vsby.bin.
+ * Oceanic tiles: ds.wspd.bin, ds.wgust.bin, ds.wdir.bin, ds.waveh.bin,
+ * ds.vsby.bin. Wave height on NDFD oceanic is a forecast element, not WW3 Hs.
  */
 export function ndfd(): IngestMeta {
   return meta({
     id: "nws-ndfd",
-    name: "National Digital Forecast Database",
+    name: "National Digital Forecast Database (oceanic)",
     provider: "NOAA NWS / MDL",
     kind: "grib2",
     cadence: "hourly",
     license: "US Government work (public domain) — NWS",
     layerIds: ["wind"],
     endpoints: [
+      {
+        label: "NDFD oceanic GRIB2 (AR.oceanic)",
+        url: "https://tgftp.nws.noaa.gov/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.oceanic/",
+      },
       { label: "NDFD home", url: "https://www.weather.gov/mdl/ndfd_home" },
       { label: "Digital forecast map", url: "https://digital.weather.gov/" },
       { label: "NOMADS NDFD filter", url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_ndfd.pl" },
@@ -163,7 +191,7 @@ export function ndfd(): IngestMeta {
       { label: "NWS API", url: "https://api.weather.gov" },
     ],
     notes:
-      "Pull CONUS grids for the RI/NY/MA BBOX. Align forecast axis with the GFS-Wave cycle so the 72 h go/no-go strip is internally consistent.",
+      "Pull the oceanic domain, not CONUS — the canyon box is offshore of the CONUS tile. Wind / gust / dir for the RI/NY/MA EEZ. Align the forecast axis with the GFS-Wave cycle so the 72 h go/no-go strip is internally consistent. NDFD wave height does not replace GFS-Wave Hs.",
   });
 }
 
@@ -371,6 +399,67 @@ export function ndbc(): IngestMeta {
   });
 }
 
+/**
+ * HMS closed areas — static GeoJSON snapshot.
+ *
+ * Packed as a reminder overlay, not a legal determination. Recreational
+ * trolling / rod-and-reel is generally not bound by commercial pelagic
+ * longline (PLL) closures; the Northeast Canyons and Seamounts Marine
+ * National Monument and any all-permit HMS action still apply. In-season
+ * closures are not live-scraped into the pack.
+ *
+ * Source polygons (simplified, educational):
+ *   - Canyon Unit of the NE Canyons & Seamounts Monument
+ *   - Illustrative HMS PLL closed-area awareness box on the Hudson/canyon
+ *     approaches (not survey-grade CFR coordinates)
+ *
+ *   HMS home:           https://www.fisheries.noaa.gov/topic/atlantic-highly-migratory-species
+ *   Compliance guides:  https://www.fisheries.noaa.gov/atlantic-highly-migratory-species/atlantic-hms-fishery-compliance-guides
+ *   Amd. 15 shapefiles: https://www.fisheries.noaa.gov/resource/map/highly-migratory-species-amendment-15-area-shapefiles-and-maps
+ *   Monument:           https://www.fisheries.noaa.gov/new-england-mid-atlantic/habitat-conservation/northeast-canyons-and-seamounts-marine-national-monument
+ *   GARFO GIS:          https://www.fisheries.noaa.gov/new-england-mid-atlantic/science-data/maps-and-geographic-information-systems-data-program-new-england-mid-atlantic
+ *
+ * Adapter honesty: store a static GeoJSON in R2 (`static/hms_zones/northeast.geojson`)
+ * and copy it into each pack. Refresh when NMFS publishes a new shapefile.
+ * An empty FeatureCollection is still a present layer (Ready-for-offshore
+ * requires the object to exist, not that it contain closures).
+ */
+export function hmsClosedAreas(): IngestMeta {
+  return meta({
+    id: "hms-closed-areas",
+    name: "HMS closed areas (static GeoJSON)",
+    provider: "NOAA Fisheries / HMS",
+    kind: "vector",
+    cadence: "static",
+    license: "US Government work (public domain) — NOAA Fisheries; overlay is not legal advice",
+    layerIds: ["hms_zones"],
+    endpoints: [
+      {
+        label: "Atlantic HMS home",
+        url: "https://www.fisheries.noaa.gov/topic/atlantic-highly-migratory-species",
+      },
+      {
+        label: "HMS fishery compliance guides",
+        url: "https://www.fisheries.noaa.gov/atlantic-highly-migratory-species/atlantic-hms-fishery-compliance-guides",
+      },
+      {
+        label: "HMS Amendment 15 area shapefiles",
+        url: "https://www.fisheries.noaa.gov/resource/map/highly-migratory-species-amendment-15-area-shapefiles-and-maps",
+      },
+      {
+        label: "NE Canyons & Seamounts Monument",
+        url: "https://www.fisheries.noaa.gov/new-england-mid-atlantic/habitat-conservation/northeast-canyons-and-seamounts-marine-national-monument",
+      },
+      {
+        label: "GARFO GIS data program",
+        url: "https://www.fisheries.noaa.gov/new-england-mid-atlantic/science-data/maps-and-geographic-information-systems-data-program-new-england-mid-atlantic",
+      },
+    ],
+    notes:
+      "Static GeoJSON. Do not treat PLL closures as recreational no-go, and do not scrape in-season HMS News into the pack. Skipper verifies current NMFS/HMS rules before leaving the dock. Refresh on NMFS shapefile publish, not on a cron.",
+  });
+}
+
 export const ADAPTERS = {
   noaaEnc,
   waveWatchIii,
@@ -380,6 +469,7 @@ export const ADAPTERS = {
   altimetry,
   coOpsTides,
   ndbc,
+  hmsClosedAreas,
 } as const;
 
 export function listIngestSources(): IngestMeta[] {
@@ -387,9 +477,9 @@ export function listIngestSources(): IngestMeta[] {
 }
 
 /**
- * Which adapters a trip pack actually needs. Static ENC + 72 h weather +
- * daily ocean color. Scoring inputs (SST, chl, SSH) are packed as rasters;
- * derived habitat is not.
+ * Which adapters a trip pack actually needs. Static ENC + HMS GeoJSON +
+ * 72 h weather + daily ocean color. Scoring inputs (SST, chl, SSH) are
+ * packed as rasters; derived habitat is not.
  */
 export function ingestPlanForPack(hours = 72): IngestMeta[] {
   const all = listIngestSources();
