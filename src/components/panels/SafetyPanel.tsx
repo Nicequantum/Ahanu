@@ -1,3 +1,4 @@
+import { TideCurveCard } from "@/components/ahanu/TideCurve";
 import { FloatPlanExport } from "@/components/panels/FloatPlanExport";
 import { Pane, Stat } from "@/components/panels/pane";
 import { Badge } from "@/components/ui/badge";
@@ -6,8 +7,9 @@ import { Separator } from "@/components/ui/separator";
 import { compass } from "@/lib/ahanu/geo";
 import { formatClock } from "@/lib/ahanu/solunar";
 import { useAhanu } from "@/lib/ahanu/store";
+import { DEFAULT_TIDE_HARBOR, packedTideCurve, packedTideHarbors } from "@/lib/ahanu/tide-curve";
 import { currentAt, tideAt } from "@/lib/ahanu/tides";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 const KIT = [
   {
@@ -42,8 +44,12 @@ export function SafetyPanel() {
   const contacts = useAhanu((s) => s.contacts);
   const v = useAhanu((s) => s.vessel);
   const clock = useAhanu((s) => s.clockMs);
+  const packEpoch = useAhanu((s) => s.packEpoch);
+  const [harbor, setHarbor] = useState(DEFAULT_TIDE_HARBOR);
   const tide = useMemo(() => tideAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
   const cur = useMemo(() => currentAt(v.lat, v.lon, new Date(clock)), [v.lat, v.lon, clock]);
+  const curve = useMemo(() => packedTideCurve(new Date(clock), harbor), [clock, harbor, packEpoch]);
+  const harbors = useMemo(() => packedTideHarbors(), [packEpoch]);
 
   return (
     <Pane title="Safety" kicker="Float plan">
@@ -107,7 +113,26 @@ export function SafetyPanel() {
       </ul>
       <Separator className="my-4" />
       <h3 className="mb-2 text-sm font-medium">Tide & current</h3>
-      <div className="mb-2 grid grid-cols-2 gap-2">
+      {harbors.length > 1 ? (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {harbors.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setHarbor(name)}
+              className={
+                name === (curve?.harbor ?? harbor)
+                  ? "rounded-md bg-sunrise px-2 py-1 text-[10px] tracking-wider text-sunrise-fg uppercase"
+                  : "rounded-md bg-elevated px-2 py-1 text-[10px] tracking-wider text-muted uppercase"
+              }
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <TideCurveCard curve={curve} now={new Date(clock)} />
+      <div className="mt-3 mb-2 grid grid-cols-2 gap-2">
         <Stat label="Height" value={`${tide.heightFt.toFixed(1)} ft`} />
         <Stat label="Tide" value={tide.rising ? "Rising" : "Falling"} />
         <Stat label="Current" value={`${cur.speedKt.toFixed(1)} kt ${compass(cur.dir)}`} />
@@ -119,7 +144,7 @@ export function SafetyPanel() {
       </p>
       <p className="mt-2 text-[11px] text-muted">Flood sets {compass(tide.floodDir)}.</p>
       <Badge tone="muted" className="mt-3">
-        Harmonic tide · not a CO-OPS gauge
+        {curve ? (curve.live ? "Packed CO-OPS · not a live gauge" : "Packed fixture tides · not a live gauge") : "Harmonic tide · not a CO-OPS gauge"}
       </Badge>
     </Pane>
   );
