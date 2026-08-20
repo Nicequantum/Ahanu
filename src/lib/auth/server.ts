@@ -46,7 +46,18 @@ import {
 } from "./preview";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
-void ensureDbReady();
+// Cloudflare Workers forbid async I/O at isolate global scope — db.ts already
+// skips eager PGLite boot on CF; first request inside a handler opens it.
+function runningOnCloudflareWorker() {
+  try {
+    return globalThis.navigator?.userAgent === "Cloudflare-Workers";
+  } catch {
+    return false;
+  }
+}
+if (!runningOnCloudflareWorker()) {
+  void ensureDbReady();
+}
 
 /**
  * Preview secret must outlive module reloads: PGLite (and its session rows) is
@@ -58,7 +69,18 @@ const globalAuthRef = globalThis as typeof globalThis & {
   __grokAuthPreviewSecret__?: string;
 };
 function previewAuthSecret(): string {
-  globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
+  if (globalAuthRef.__grokAuthPreviewSecret__) {
+    return globalAuthRef.__grokAuthPreviewSecret__;
+  }
+  try {
+    // Node / Vite preview: mint a process-local secret (HMR-stable via globalThis).
+    globalAuthRef.__grokAuthPreviewSecret__ = randomBytes(32).toString("hex");
+  } catch {
+    // Cloudflare Workers reject node:crypto random at global scope. Helm must
+    // still boot; production should inject BETTER_AUTH_SECRET.
+    globalAuthRef.__grokAuthPreviewSecret__ =
+      "ahanu-cf-preview-auth-secret-set-BETTER_AUTH_SECRET";
+  }
   return globalAuthRef.__grokAuthPreviewSecret__;
 }
 
