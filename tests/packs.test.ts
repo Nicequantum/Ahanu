@@ -218,6 +218,14 @@ describe("generateLayerBody", () => {
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
 
 describe("pack HTTP (preview/Worker shape)", () => {
+  it("GET /api/packs with no query defaults to the Point Judith canyon box", async () => {
+    const res = await handlePacksRequest(new Request("http://ahanu.test/api/packs"));
+    assert.equal(res.status, 200);
+    const manifest = (await res.json()) as { bbox: { west: number; south: number; east: number; north: number }; hours: number };
+    assert.deepEqual(manifest.bbox, { west: -72.8, south: 39.4, east: -68.8, north: 41.5 });
+    assert.equal(manifest.hours, 72);
+  });
+
   it("GET /api/packs then GET /api/objects verifies hash", async () => {
     const q = "west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=2026-08-20T12:00:00.000Z";
     const manRes = await handlePacksRequest(new Request("http://ahanu.test/api/packs?" + q));

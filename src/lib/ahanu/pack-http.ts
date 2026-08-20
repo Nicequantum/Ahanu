@@ -4,6 +4,7 @@
  * Production marine bytes still leave Cloudflare R2 — this is the fixture loop.
  */
 
+import { POINT_JUDITH_CANYON_BBOX } from "./constants";
 import { buildFixturePack, type PackBBox } from "./pack";
 import { specForLayer } from "./pack-fixtures";
 import type { CatchRecord, SpeciesId } from "./types";
@@ -39,16 +40,26 @@ function text(body: string, contentType: string, extra: Record<string, string> =
   });
 }
 
+function parseCoord(raw: string | null): number | undefined {
+  if (raw === null || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
 function parseBbox(url: URL): PackBBox | Response {
-  const west = Number(url.searchParams.get("west"));
-  const south = Number(url.searchParams.get("south"));
-  const east = Number(url.searchParams.get("east"));
-  const north = Number(url.searchParams.get("north"));
-  if ([west, south, east, north].every(Number.isFinite)) {
+  const west = parseCoord(url.searchParams.get("west"));
+  const south = parseCoord(url.searchParams.get("south"));
+  const east = parseCoord(url.searchParams.get("east"));
+  const north = parseCoord(url.searchParams.get("north"));
+  const provided = [west, south, east, north].filter((n) => n !== undefined);
+  if (provided.length > 0) {
+    if (provided.length !== 4 || [west, south, east, north].some((n) => n === undefined || Number.isNaN(n))) {
+      return json({ error: "west, south, east, north must all be finite numbers" }, 400);
+    }
     if (east === west || north === south) {
       return json({ error: "bbox has zero area" }, 400);
     }
-    return { west, south, east, north };
+    return { west: west as number, south: south as number, east: east as number, north: north as number };
   }
   const raw = url.searchParams.get("bbox");
   if (raw) {
@@ -58,7 +69,7 @@ function parseBbox(url: URL): PackBBox | Response {
     }
     return json({ error: "bbox must be w,s,e,n" }, 400);
   }
-  return { west: -72.8, south: 39.4, east: -68.8, north: 41.5 };
+  return { ...POINT_JUDITH_CANYON_BBOX };
 }
 
 function parseStartHours(url: URL): { start: string; hours: number } | Response {
