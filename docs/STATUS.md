@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (preview live overlays, 2026-08-20)
+
+Preview `GET /api/packs?live=1` and matching `/api/objects` already called `buildTripPack({ tryLive })`, but the pack-http test only mocked NDBC so only buoys looked live. Tests now mock SST, ETOPO bathymetry + contours, chlorophyll, SSH, HMS, and hour-0 GFS-Wave and mark those layers `source: "noaa"`. A failed fetch keeps that layer fixture. No live=1 stays fixture. 72 h series stays off. No Worker scoring. No Flutter.
+
 ## This pass (NCEI / GEBCO bathymetry probe, 2026-08-20)
 
 `tryLiveNoaa` / `buildTripPack({ tryLive })` probe public no-key CoastWatch/PFEG ERDDAP relief for the Point Judith box. First parseable grid paints pack layer `bathymetry` as `source: "noaa"`. The path that returned a usable canyon grid from this network is **NOAA NCEI ETOPO 2022** 15″ (`ETOPO_2022_v1_15s`) **subsampled to ~0.033° / stride 8** (121×64, depths to ~2867 m, Veatch ~449 m). That is not native 15″ and not official ENC. GEBCO_2020 (same host/stride) and etopo180 (1-minute) stay in the probe list. Cheap 100/200-fm contours are derived from the packed plane when it paints. A 429 / 403 / parse miss keeps the hashed fixture. Bathymetry is required for Ready — the fixture body still counts. Official ENC remains the legal chart. Tests mock fetch; one live probe skips if blocked. No Worker scoring. No Flutter. AIS stays demo.

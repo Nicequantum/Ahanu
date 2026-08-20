@@ -2,6 +2,12 @@
  * Same-origin pack HTTP for the Vite / Nitro preview.
  * Shape matches ahanu-packs: GET /api/packs, GET /api/objects, POST /api/catches.
  * Production marine bytes still leave Cloudflare R2. Preview stays fixture unless ?live=1.
+ *
+ * `?live=1` uses the same Worker overlays as buildTripPack({ tryLive }):
+ * NDBC buoys, CO-OPS tides, ENC catalog, CoastWatch SST / chlorophyll / SSH,
+ * HMS closed areas, ETOPO bathymetry + cheap contours, and hour-0 GFS-Wave
+ * when that subset decodes. A failed individual fetch keeps that layer fixture.
+ * The paced 72 h GFS-Wave series stays off.
  */
 
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
@@ -93,6 +99,23 @@ function parseStartHours(url: URL): { start: string; hours: number } | Response 
   return { start, hours: Math.round(hours) };
 }
 
+/** Same overlay set as Worker ingestFixturePack / buildTripPack({ tryLive }). */
+function previewTripPack(
+  bbox: PackBBox,
+  start: string,
+  hours: number,
+  fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>,
+) {
+  return buildTripPack({
+    bbox,
+    start,
+    hours,
+    tryLive: true,
+    timeoutMs: 8000,
+    fetchImpl,
+  });
+}
+
 export async function handlePacksRequest(
   request: Request,
   opts?: { fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response> },
@@ -107,14 +130,7 @@ export async function handlePacksRequest(
     const win = parseStartHours(url);
     if (win instanceof Response) return win;
     const built = wantLive(url)
-      ? await buildTripPack({
-          bbox,
-          start: win.start,
-          hours: win.hours,
-          tryLive: true,
-          timeoutMs: 8000,
-          fetchImpl: opts?.fetchImpl,
-        })
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl)
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     return json(built.manifest, 200, {
       "X-Ahanu-Pack-Id": built.manifest.packId,
@@ -131,14 +147,7 @@ export async function handlePacksRequest(
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
     const built = wantLive(url)
-      ? await buildTripPack({
-          bbox,
-          start: win.start,
-          hours: win.hours,
-          tryLive: true,
-          timeoutMs: 8000,
-          fetchImpl: opts?.fetchImpl,
-        })
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl)
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
