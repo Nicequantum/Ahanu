@@ -1,6 +1,6 @@
 /**
- * Same-origin fixture pack API on the Vercel/Nitro preview.
- * Production marine bytes still leave Cloudflare R2 via ahanu-packs.
+ * Same-origin fixture pack API on the Grok/Nitro preview host.
+ * Production marine bytes leave Cloudflare R2 via ahanu-packs. Preview-only; not the ship path.
  */
 import { handlePacksRequest } from "../../src/lib/ahanu/pack-http";
 

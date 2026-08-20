@@ -66,7 +66,7 @@ function serveGrokPwa(middlewares) {
       try {
         sendHtml(res, renderInstallPage(requestHost(req), rawUrl));
       } catch (err) {
-        console.error("[app-builder] install page missing:", err);
+        console.error("[ahanu] install page missing:", err);
         res.statusCode = 500;
         res.end("install page unavailable");
       }
@@ -152,7 +152,7 @@ function wrapHtmlResponses(middlewares) {
 
 export function grokPwaPlugin() {
   return {
-    name: "app-builder:grok-pwa",
+    name: "ahanu:pwa",
     resolveId(id) {
       if (id === GROK_OG_IDENTITY_ID) return `\0${GROK_OG_IDENTITY_ID}`;
     },

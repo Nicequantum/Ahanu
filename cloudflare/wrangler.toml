@@ -1,6 +1,7 @@
 # Ahanu trip-pack data plane.
 # Production delivery is Cloudflare only (Workers + Pages + R2 + D1 + Durable Objects).
-# Vercel is never used to serve chart packs, GRIB, SST, or any other marine bytes.
+# The Grok preview web client may still build through Nitro; it must not serve
+# chart packs, GRIB, SST, or any other marine bytes.
 
 name = "ahanu-packs"
 main = "src/index.ts"
@@ -17,9 +18,9 @@ REGION_EAST = "-66.4"
 REGION_NORTH = "42.6"
 
 # ---------------------------------------------------------------------------
-# Routes placeholder
-# Replace pattern + zone_name after the custom domain is attached in the
-# Cloudflare dashboard. Until then, traffic lands on *.workers.dev.
+# TODO: reserved custom-domain route — not live, not provisioned.
+# Replace pattern + zone_name after the domain is attached in the Cloudflare
+# dashboard. Until then, traffic is only *.workers.dev (workers_dev = true).
 # ---------------------------------------------------------------------------
 [[routes]]
 pattern = "api.ahanu.app/*"
@@ -32,7 +33,9 @@ bucket_name = "ahanu-trip-packs"
 [[d1_databases]]
 binding = "DB"
 database_name = "ahanu-core"
-# Placeholder — wrangler d1 create ahanu-core will emit the real id.
+# TODO: placeholder D1 ids — not production, not a live database.
+# `wrangler d1 create ahanu-core` emits the real id. Deploy will fail or
+# no-op against these zeros until they are replaced.
 database_id = "00000000-0000-0000-0000-000000000000"
 preview_database_id = "00000000-0000-0000-0000-000000000000"
 
@@ -45,8 +48,8 @@ class_name = "CommunityHub"
 tag = "v1"
 new_sqlite_classes = ["CommunityHub"]
 
-# Production ingest cron — enable after R2 `ahanu-trip-packs` and D1 `ahanu-core`
-# are provisioned and NOAA/CMEMS access is in place. Until then /api/packs
-# serves hashed fixture bodies. Do not assume R2 holds live ENC/GRIB/SST.
+# TODO: production ingest cron — commented out until R2 `ahanu-trip-packs`
+# and D1 `ahanu-core` exist and NOAA/CMEMS access is in place. Until then
+# /api/packs serves hashed fixture bodies. Do not assume R2 holds live ENC/GRIB/SST.
 # [triggers]
 # crons = ["15 2,8,14,20 * * *"]

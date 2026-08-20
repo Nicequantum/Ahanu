@@ -4,7 +4,7 @@
 
 Offline-first marine OS for Northeast canyon runs (Point Judith, Montauk, the steam to Veatch and Atlantis). The plotter is an aid. The lookout is not optional.
 
-This repo is the product: a web PWA, a Cloudflare data plane for trip packs, and the TypeScript domain a future Flutter helm will share. Production bytes move through Cloudflare Workers, R2, D1, and Durable Objects. Vercel hosts only the Grok preview web client.
+This repo is the product: a web PWA, a Cloudflare data plane for trip packs, and the TypeScript domain a future Flutter helm will share. Production bytes move through Cloudflare Workers, R2, D1, and Durable Objects. The Grok preview web client may still build through Nitro/Vercel; that path is not production.
 
 ## Safety
 
@@ -88,7 +88,7 @@ Workers package bytes. They do not score fish.
 | Layer                | What                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------- |
 | Web client           | React, MapLibre GL JS, TypeScript domain in src/lib/ahanu                           |
-| Preview host         | Vercel — Grok web client only                                                       |
+| Preview host         | Nitro/Vercel — Grok web client only, not production                                                       |
 | Production app shell | Cloudflare Worker ahanu (root wrangler.jsonc)                                       |
 | Production data      | Worker ahanu-packs, R2 ahanu-trip-packs, D1 ahanu-core, Durable Object CommunityHub |
 | Ingest               | Public NDBC / CO-OPS now. ENC, GFS-Wave, NDFD, GHRSST, CMEMS later                  |

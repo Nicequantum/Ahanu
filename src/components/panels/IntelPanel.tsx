@@ -95,7 +95,7 @@ export function IntelPanel() {
           setBusy(false);
         }}
       >
-        {busy ? "Asking the skipper…" : "Ask Grok to read this scene"}
+        {busy ? "Asking the skipper…" : "Ask the skipper to read this scene"}
       </Button>
       {ai && <p className="mt-3 text-sm leading-relaxed text-foam/90">{ai}</p>}
     </Pane>

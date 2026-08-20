@@ -13,7 +13,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
  * `AHANU_CF=1` is the explicit switch for `npm run deploy:cf`.
  * Cloudflare CI also injects CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID,
  * which is how a dashboard command of `npx wrangler deploy` still takes
- * this path. Grok/Vercel `npm run build` has none of these — Nitro stays.
+ * this path. The Grok preview `npm run build` has none of these — Nitro stays so the preview host can serve the PWA. That path is not production.
  */
 function isCloudflareBuild(): boolean {
   return (
@@ -103,7 +103,7 @@ function ahanuPacksPlugin(): Plugin {
 
 function pgliteBootstrapPlugin(): Plugin {
   return {
-    name: "app-builder:pglite-bootstrap",
+    name: "ahanu:pglite-bootstrap",
     apply: "serve",
     async configureServer(server) {
       try {
@@ -114,7 +114,7 @@ function pgliteBootstrapPlugin(): Plugin {
           await mod.ensureDbReady();
         }
       } catch (err) {
-        console.error("[app-builder] DB bootstrap failed:", err);
+        console.error("[ahanu] DB bootstrap failed:", err);
         throw err;
       }
     },
@@ -133,7 +133,7 @@ function pgliteBootstrapPlugin(): Plugin {
  */
 function authPopupPlugin(): Plugin {
   return {
-    name: "app-builder:auth-popup",
+    name: "ahanu:auth-popup",
     apply: "serve",
     configureServer(server) {
       // Register immediately (not in a returned post-hook) so we run BEFORE
@@ -200,7 +200,7 @@ function authPopupPlugin(): Plugin {
           const body = Buffer.from(await response.arrayBuffer());
           res.end(body);
         } catch (err) {
-          console.error("[app-builder] /auth/popup handler failed:", err);
+          console.error("[ahanu] /auth/popup handler failed:", err);
           if (!res.headersSent) {
             res.statusCode = 500;
             res.setHeader("content-type", "text/plain; charset=utf-8");
@@ -212,9 +212,7 @@ function authPopupPlugin(): Plugin {
   };
 }
 
-// `0.0.0.0:8080` is the live-preview contract — don't change host/port.
-// The dev server starts once `src/router.tsx` and `src/routes/` exist — see
-// AGENTS.md § "First scaffold".
+// `0.0.0.0:8080` is the Vite/TanStack preview-host contract — don't change host/port.
 export default defineConfig(({ command, isPreview }) => {
   const cf = isCloudflareBuild();
 
@@ -247,10 +245,12 @@ export default defineConfig(({ command, isPreview }) => {
       ...(!cf && (command === "build" || isPreview)
         ? [
             nitro({
+              // Nitro + Vercel preset: Grok preview host only. Production is
+              // `AHANU_CF=1` / Cloudflare. Do not treat this as the ship path.
               preset: "vercel",
               // Auto-registers server/middleware/* (the PWA install page +
               // manifest + head-tag middleware). Nitro v3 defaults serverDir to
-              // false, so removing this silently unwires /?install=1 on deploys.
+              // false, so removing this silently unwires /?install=1 on the preview host.
               serverDir: "./server",
             }),
           ]

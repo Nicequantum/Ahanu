@@ -2,7 +2,7 @@
 
 Ahanu is an **offline-first marine operating system** for captains who run the Northeast canyons — Point Judith, Montauk, and the shelf from Hudson to Hydrographer. This document is the contract between the web PWA shipping in this repo, the Cloudflare data plane, and the Flutter client that does not exist yet.
 
-Production data delivery is Cloudflare: **Workers + Pages + R2 + D1 + Durable Objects**. Chart packs, GRIB, and SST leave R2 at zero egress. Vercel exists only to host this Grok preview web client. It is not the production path for a single marine byte.
+Production data delivery is Cloudflare: **Workers + Pages + R2 + D1 + Durable Objects**. Chart packs, GRIB, and SST leave R2 at zero egress. The Grok preview web client may still build through Nitro/Vercel. That path is not production and must not serve a single marine byte.
 
 On-device scoring never runs on a Worker. Workers package bytes. The helm thinks.
 
@@ -85,7 +85,7 @@ Mixing these — for example baking a habitat GeoTIFF on the Worker — would co
 | Piece           | Name               | Role                                                                                                |
 | --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
 | Worker          | `ahanu-packs`      | CORS, health, pack manifests, buoy snapshot, catch upsert, community bbox query                     |
-| Pages           | (app shell)        | Hosts the production PWA; not this Vercel preview                                                   |
+| Pages           | (app shell)        | Hosts the production PWA; not the Grok/Nitro preview                                                   |
 | R2              | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client.                                         |
 | D1              | `ahanu-core`       | Catch log, community metadata, pack index, device keys                                              |
 | Durable Objects | `CommunityHub`     | Bbox-scoped live reports; later, pack-build leases so two ingest crons do not write the same prefix |
