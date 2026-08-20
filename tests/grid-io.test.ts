@@ -82,7 +82,7 @@ describe("live Atlantic 0p16 sample if present", () => {
 });
 
 describe("hour-0 overlay honesty", () => {
-  it("marks wind/wave noaa for hour 0 only and does not stamp 72 h ready", async () => {
+  it("paints hour-0 live onto fixture hours 3–72 and does not fail Ready 1h<72h", async () => {
     const sample = encodeHour0Sample();
     const fixture = await buildFixturePack({
       bbox: POINT_JUDITH_CANYON_BBOX,
@@ -108,14 +108,36 @@ describe("hour-0 overlay honesty", () => {
     const waves = live.manifest.layers.find((l) => l.id === "waves")!;
     assert.equal(wind.source, "noaa");
     assert.equal(waves.source, "noaa");
-    assert.equal(wind.hours, 1);
-    assert.equal(waves.hours, 1);
+    assert.equal(wind.hours, 72);
+    assert.equal(waves.hours, 72);
     assert.notEqual(wind.hash, fixture.manifest.layers.find((l) => l.id === "wind")!.hash);
-    const body = parseLayerBody(live.bodies.wind!) as { hours?: number[]; live?: boolean; source?: string };
-    assert.deepEqual(body.hours, [0]);
+    const body = parseLayerBody(live.bodies.wind!) as {
+      hours?: number[];
+      hoursCovered?: number;
+      live?: boolean;
+      source?: string;
+      fixture?: boolean;
+      note?: string;
+      values?: number[][];
+    };
+    const fixBody = parseLayerBody(fixture.bodies.wind!) as { hours?: number[]; values?: number[][] };
+    assert.deepEqual(body.hours, fixBody.hours);
+    assert.equal(body.hoursCovered, 72);
     assert.equal(body.live, true);
     assert.equal(body.source, "noaa");
-    assert.equal(live.manifest.readyForOffshore, false);
+    assert.equal(body.fixture, true);
+    assert.match(body.note ?? "", /hour-0 live/);
+    assert.match(body.note ?? "", /fixture/);
+    assert.ok(!(body.note ?? "").includes("f000–f072"));
+    assert.notDeepEqual(body.values?.[0], fixBody.values?.[0]);
+    for (let i = 1; i < (fixBody.hours?.length ?? 0); i++) {
+      assert.deepEqual(body.values?.[i], fixBody.values?.[i], `hour ${fixBody.hours?.[i]}`);
+    }
+    const nomads = live.manifest.sources.find((s) => s.id === "nomads-gfswave");
+    assert.ok(nomads?.name.includes("hour-0 live"));
+    assert.ok(nomads?.name.includes("fixture"));
+    assert.ok(!nomads?.name.includes("f000–f072 / 3 h"));
+    assert.ok((live.manifest.liveErrors ?? []).some((e) => e.includes("hour-0 live") && e.includes("fixture")));
     const ev = live.manifest.layers.map((l) => ({
       id: l.id,
       present: true,
@@ -126,8 +148,9 @@ describe("hour-0 overlay honesty", () => {
       cycleAt: START,
     }));
     const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers: ev });
-    assert.equal(ready.ready, false);
-    assert.ok(ready.failures.some((f) => f.includes("wind") && f.includes("1 h")));
+    assert.ok(!ready.failures.some((f) => /covers 1 h/.test(f)));
+    assert.ok(!ready.failures.some((f) => f.includes("wind") && f.includes("1 h")));
+    assert.ok(!ready.failures.some((f) => f.includes("waves") && f.includes("1 h")));
   });
 
   it("keeps fixture wind/wave when parse or network fails", async () => {
@@ -302,9 +325,8 @@ describe("paced GFS-Wave series", () => {
     const waves = pack.manifest.layers.find((l) => l.id === "waves")!;
     assert.equal(wind.source, "noaa");
     assert.equal(waves.source, "noaa");
-    assert.equal(wind.hours, 1);
-    assert.equal(waves.hours, 1);
-    assert.equal(pack.manifest.readyForOffshore, false);
+    assert.equal(wind.hours, 72);
+    assert.equal(waves.hours, 72);
     const ev = pack.manifest.layers.map((l) => ({
       id: l.id,
       present: true,
@@ -315,8 +337,11 @@ describe("paced GFS-Wave series", () => {
       cycleAt: START,
     }));
     const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers: ev });
-    assert.equal(ready.ready, false);
-    assert.ok(ready.failures.some((f) => f.includes("wind") && !f.includes("72 h <")));
+    assert.ok(!ready.failures.some((f) => /covers 1 h/.test(f)));
+    const windBody = parseLayerBody(pack.bodies.wind!) as { note?: string; hoursCovered?: number };
+    assert.equal(windBody.hoursCovered, 72);
+    assert.match(windBody.note ?? "", /fixture/);
+    assert.ok(!(windBody.note ?? "").includes("f000–f072 / 3 h"));
   });
 
   it("enabled 3-step pack is noaa with honest hours, not 72 h ready", async () => {

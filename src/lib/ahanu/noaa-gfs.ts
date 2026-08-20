@@ -3,7 +3,7 @@
  * One Atlantic 0p16 hour is a few KB for the Point Judith box.
  * A full 72 h / 3 h pack is ~25 files and needs cron pacing — do not
  * replace the 72 h fixture wind/wave grids with a single f000 clip.
- * Hour 0 may be painted when the subset parses.
+ * Hour 0 may be painted onto the fixture stack when the subset parses.
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
@@ -278,3 +278,5 @@ export function assembleGfsWaveSeries(
     complete,
   };
 }
+
+export { GFS_HOUR0_FIXTURE_NOTE, gfsHour0FixtureNote, hour0Plane, mergeHour0IntoFixture } from "./noaa-gfs-merge";

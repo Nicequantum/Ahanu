@@ -683,7 +683,7 @@ async function liveGfsWaveSeries(
 /**
  * Fetch public NOAA overlays. Any failure is recorded and that layer is
  * omitted (caller keeps the fixture). Never throws. Does not replace
- * 72 h wind/wave fixture grids with a single hour unless that hour parses.
+ * 72 h wind/wave fixture grids with a single hour. Hour 0 may paint; hours 3–72 stay fixture unless a series completes.
  */
 export async function tryLiveNoaa(options: {
   bbox: PackBBox;
@@ -824,6 +824,8 @@ export {
   assembleGfsWaveSeries,
   gfsWaveSeriesEnabled,
   gfsWaveSeriesHours,
+  GFS_HOUR0_FIXTURE_NOTE,
+  mergeHour0IntoFixture,
 } from "./noaa-gfs";
 export {
   SST_ENDPOINTS,

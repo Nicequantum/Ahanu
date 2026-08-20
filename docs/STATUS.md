@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (hour-0 GFS merge, 2026-08-20)
+
+Live GFS-Wave f000 no longer replaces the 72 h fixture wind/wave stack. Hour 0 is painted from the live subset; hours 3–72 stay fixture so Ready does not fail `1 h < 72 h`. Manifest notes / liveErrors say `gfs: hour-0 live; hours 3–72 fixture (series off)` and do not claim a live 72 h NOAA series. A complete paced series still stamps 72 h noaa. Series stays off by default. SST age is unchanged. No Worker scoring. No Flutter.
+
 ## This pass (packed tide curve, 2026-08-20)
 
 Safety and a compact plotter HUD paint the packed CO-OPS hourly series for Newport (default; Quonset / Montauk selectable). Next high/low come from packed hi/lo. Empty or missing pack shows "no packed tides" — no invented water levels. Fixture and live NOAA bodies use the same renderer. Tests cover hourly + hi/lo and the empty path. No Worker scoring. No Flutter. 72 h GFS series stays off.
@@ -86,7 +90,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - CO-OPS predictions (hourly + hi/lo) plus latest `water_level` for departure harbors in/near the box (Newport, Quonset, Montauk, plus Woods Hole / New London when they sit in the bbox).
 - NOAA ENC **product catalog** (`ENCProdCat.xml`) clipped to the trip box → pack `enc` as a cell list with zip URLs/sizes. Optional hash of one small harbor zip when it is under 80 KB. **Not official S-57.** Helm does not paint a legal chart.
 - ENC Direct tile **template URL** plus ENC Online MapServer metadata. `tileservice.charts.noaa.gov` TLS failed from this host on 2026-08-20; recorded as probe, not as a chart.
-- GFS-Wave NOMADS `filter_gfswave.pl` Atlantic `atlocn.0p16` **f000** subset for the Point Judith box (~3 KB). When those bytes parse (simple-packed lat/lon, confirmed on the live 3014 B file: WIND, WDIR, HTSGW, PERPW, DIRPW), hour-0 wind (kt) and wave (ft) replace the fixture planes and the layer source is `noaa`. Hours covered is **1**. A 1 h live field does **not** stamp 72 h weather ready. Parse or network failure keeps the 72 h fixture and does not mark the layer live. A paced 72 h / 3 h series helper exists and is **off by default** (NOMADS ~10 s between files; do not run in CI).
+- GFS-Wave NOMADS `filter_gfswave.pl` Atlantic `atlocn.0p16` **f000** subset for the Point Judith box (~3 KB). When those bytes parse (simple-packed lat/lon, confirmed on the live 3014 B file: WIND, WDIR, HTSGW, PERPW, DIRPW), hour-0 wind (kt) and wave (ft) paint onto the fixture planes and the layer source is `noaa`. Hours covered stays **72** (fixture remainder). That is not a live 72 h NOAA series. A 1 h live field alone is **not** used as the packed body. Parse or network failure keeps the 72 h fixture and does not mark the layer live. A paced 72 h / 3 h series helper exists and is **off by default** (NOMADS ~10 s between files; do not run in CI).
 - CoastWatch ERDDAP SST (CoralTemp daily 5 km) for the Point Judith box when that URL returns CSV. Layer `sst` is `source: "noaa"` only then. Resolution is 5 km / 0.05° — not 1 km MUR. Analysis time drives SST age. Fetch/parse miss keeps the fixture.
 - CoastWatch ERDDAP chlorophyll (S-NPP VIIRS NRT L3 daily 4 km) for the Point Judith box when that URL returns CSV. Layer `chlorophyll` is `source: "noaa"` only then. Resolution is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS L4. Fetch/parse miss keeps the fixture. Chlorophyll does not block Ready.
 - CoastWatch ERDDAP SSH / SLA (blended daily 0.25°) for the Point Judith box when that URL returns CSV. Layer `altimetry` is `source: "noaa"` only then. Resolution is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS. Values stored in cm. Fetch/parse miss keeps the fixture. Altimetry does not block Ready.

@@ -237,6 +237,18 @@ describe("evaluateReadyForOffshore", () => {
     assert.ok(ready.warnings.some((w) => w.startsWith("altimetry")));
   });
 
+  it("fails when wind and waves have no coverage", async () => {
+    const layers = await baseLayers();
+    const wind = layers.find((l) => l.id === "wind")!;
+    const waves = layers.find((l) => l.id === "waves")!;
+    wind.hoursCovered = 0;
+    waves.hoursCovered = 0;
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers });
+    assert.equal(ready.ready, false);
+    assert.ok(ready.failures.some((f) => f.startsWith("wind:") && f.includes("0 h")));
+    assert.ok(ready.failures.some((f) => f.startsWith("waves:") && f.includes("0 h")));
+  });
+
   it("does not trust a worker boolean (ignored input)", async () => {
     const layers = await baseLayers();
     layers.find((l) => l.id === "enc")!.present = false;

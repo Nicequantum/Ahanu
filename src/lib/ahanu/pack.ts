@@ -11,6 +11,7 @@ import {
   DEFAULT_PACK_HOURS,
   encodeLayerBody,
   generateLayerBody,
+  generateLayerPayload,
   hashesMatch,
   parseLayerBody,
   PACK_LAYER_SPECS,
@@ -22,7 +23,13 @@ import {
   type PackBBox,
   type PackLayerId,
   type PackLayerSpec,
+  type PackedGrid,
 } from "./pack-fixtures";
+import {
+  gfsHour0FixtureNote,
+  hour0Plane,
+  mergeHour0IntoFixture,
+} from "./noaa-gfs-merge";
 
 export {
   bboxKey,
@@ -441,12 +448,70 @@ export async function buildFixturePack(options: {
       ...(options.extraSources ?? []),
     ],
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is source noaa only when the NCEP subset parses; that coverage is 1 h, not 72 h. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoralTemp is 5 km — not 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (VIIRS L3 here is 4 km / 0.0375° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses; hours 3–72 stay fixture unless a paced series completes. That is not a live 72 h NOAA grid. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h noaa when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
     liveErrors: capLiveErrors(options.liveErrors),
   };
 
   return { manifest, bodies };
+}
+
+function asPackedGrid(body: ReturnType<typeof generateLayerPayload>): PackedGrid | undefined {
+  return body.kind === "grid" ? body : undefined;
+}
+
+function overlayGfsWindWaves(input: {
+  bbox: PackBBox;
+  start: string;
+  hours: number;
+  series?:
+    | {
+        complete: boolean;
+        hoursCovered: number;
+        fetchedHours: number[];
+        windKt?: PackedGrid;
+        waveFt?: PackedGrid;
+      }
+    | undefined;
+  hour0Wind?: PackedGrid;
+  hour0Waves?: PackedGrid;
+}): { wind?: string; waves?: string; note?: string } {
+  const series = input.series;
+  if (series?.complete && (series.windKt || series.waveFt)) {
+    return {
+      wind: series.windKt ? encodeLayerBody(series.windKt) : undefined,
+      waves: series.waveFt ? encodeLayerBody(series.waveFt) : undefined,
+    };
+  }
+  const seriesOff = !series || !series.fetchedHours.length;
+  const note = gfsHour0FixtureNote(seriesOff ? "off" : "incomplete");
+  const liveWind = hour0Plane(series?.windKt) ?? input.hour0Wind;
+  const liveWaves = hour0Plane(series?.waveFt) ?? input.hour0Waves;
+  const fixWind = asPackedGrid(generateLayerPayload("wind", input.bbox, input.start, input.hours));
+  const fixWaves = asPackedGrid(generateLayerPayload("waves", input.bbox, input.start, input.hours));
+  const out: { wind?: string; waves?: string; note?: string } = {};
+  if (liveWind && fixWind) out.wind = encodeLayerBody(mergeHour0IntoFixture(liveWind, fixWind, note));
+  if (liveWaves && fixWaves) out.waves = encodeLayerBody(mergeHour0IntoFixture(liveWaves, fixWaves, note));
+  if (out.wind || out.waves) out.note = note;
+  return out;
+}
+
+function gfsSourceName(
+  series: { complete: boolean; hoursCovered: number; fetchedHours: number[] } | undefined,
+  painted: boolean,
+  hash: string,
+  bytes: number,
+  mergeNote?: string,
+): string {
+  if (series?.complete && series.hoursCovered >= 72) {
+    return `GFS-Wave f000–f072 / 3 h parsed ${hash} (${bytes} B, 72 h)`;
+  }
+  if (series?.complete && series.fetchedHours.length) {
+    return `GFS-Wave series hours ${series.fetchedHours.join(",")} — hoursCovered ${series.hoursCovered}, not 72 h ready`;
+  }
+  if (painted && mergeNote) return `${mergeNote} (${hash}, ${bytes} B)`;
+  if (painted) return `GFS-Wave f000 parsed ${hash} (${bytes} B, hour-0 only)`;
+  return `GFS-Wave f000 hashed ${hash} (${bytes} B, parse failed — fixture grids kept)`;
 }
 
 export type GfsWaveSeriesFlag =
@@ -495,12 +560,16 @@ export async function buildTripPack(options: {
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
     if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
     const series = live.gfsWaveSeries;
-    if (series?.windKt) overlays.wind = encodeLayerBody(series.windKt);
-    else if (live.gfsWave?.parsed?.windKt)
-      overlays.wind = encodeLayerBody(live.gfsWave.parsed.windKt);
-    if (series?.waveFt) overlays.waves = encodeLayerBody(series.waveFt);
-    else if (live.gfsWave?.parsed?.waveFt)
-      overlays.waves = encodeLayerBody(live.gfsWave.parsed.waveFt);
+    const gfsMerge = overlayGfsWindWaves({
+      bbox,
+      start,
+      hours,
+      series,
+      hour0Wind: live.gfsWave?.parsed?.windKt,
+      hour0Waves: live.gfsWave?.parsed?.waveFt,
+    });
+    if (gfsMerge.wind) overlays.wind = gfsMerge.wind;
+    if (gfsMerge.waves) overlays.waves = gfsMerge.waves;
     if (live.sst?.grid) {
       overlays.sst = encodeLayerBody(live.sst.grid);
       extraSources.push({ id: "noaa-sst", name: live.sst.note });
@@ -523,25 +592,10 @@ export async function buildTripPack(options: {
       if (live.bathymetry.contours) overlays.contours = encodeLiveLayer(live.bathymetry.contours);
     }
     if (live.gfsWave || series) {
-      const painted = Boolean(
-        series?.windKt ||
-        series?.waveFt ||
-        live.gfsWave?.parsed?.windKt ||
-        live.gfsWave?.parsed?.waveFt,
-      );
+      const painted = Boolean(gfsMerge.wind || gfsMerge.waves);
       const hash = live.gfsWave?.sha256.slice(0, 12) ?? "series";
       const bytes = live.gfsWave?.bytes ?? 0;
-      let name: string;
-      if (series?.complete && series.hoursCovered >= 72) {
-        name = `GFS-Wave f000–f072 / 3 h parsed ${hash} (${bytes} B, 72 h)`;
-      } else if (series && series.fetchedHours.length) {
-        name = `GFS-Wave series hours ${series.fetchedHours.join(",")} — hoursCovered ${series.hoursCovered}, not 72 h ready`;
-      } else if (painted) {
-        name = `GFS-Wave f000 parsed ${hash} (${bytes} B, hour-0 only)`;
-      } else {
-        name = `GFS-Wave f000 hashed ${hash} (${bytes} B, parse failed — fixture grids kept)`;
-      }
-      extraSources.push({ id: "nomads-gfswave", name });
+      extraSources.push({ id: "nomads-gfswave", name: gfsSourceName(series, painted, hash, bytes, gfsMerge.note) });
     }
     const overlayIds = Object.keys(overlays);
     liveErrors = liveErrorsForSession({
@@ -550,6 +604,7 @@ export async function buildTripPack(options: {
       overlayLanded: overlaysAllLanded(overlayIds),
       missingOverlayIds: LIVE_OVERLAY_LAYER_IDS.filter((id) => overlays[id] == null),
     });
+    if (gfsMerge.note) liveErrors = capLiveErrors([gfsMerge.note, ...liveErrors]);
   }
   return buildFixturePack({
     bbox,

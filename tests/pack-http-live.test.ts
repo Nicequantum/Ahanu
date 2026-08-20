@@ -68,7 +68,7 @@ const LIVE_LAYERS = [
   "waves",
 ] as const;
 
-type LayerRow = { id: string; hash: string; source: string };
+type LayerRow = { id: string; hash: string; source: string; hours?: number; updatedAt?: string };
 
 function mockNoaaSuccess(): (url: string) => Promise<Response> {
   const sst = sampleCsvForTests();
@@ -379,6 +379,53 @@ describe("preview pack HTTP liveErrors", () => {
     for (const id of overlayIds) {
       assert.equal(man.layers.find((l) => l.id === id)?.source, "noaa", id);
     }
-    assert.deepEqual(man.liveErrors ?? [], []);
+    const errors = man.liveErrors ?? [];
+    assert.ok(errors.every((e) => e.includes("hour-0 live") && e.includes("fixture")));
+    assert.ok(!errors.some((e) => e.includes("f000–f072")));
+    assert.equal(man.layers.find((l) => l.id === "wind")!.hours, 72);
+    assert.equal(man.layers.find((l) => l.id === "waves")!.hours, 72);
+  });
+});
+
+describe("preview pack HTTP hour-0 GFS merge", () => {
+  it("hour-0 live + series off keeps wind/wave hours 72 and does not claim a 72 h NOAA series", async () => {
+    const res = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1`), {
+      fetchImpl: mockNoaaSuccess(),
+    });
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as {
+      layers: (LayerRow & { hours?: number })[];
+      liveErrors?: string[];
+      sources?: { id: string; name: string }[];
+      readyForOffshore?: boolean;
+      notes?: string;
+    };
+    const wind = man.layers.find((l) => l.id === "wind")!;
+    const waves = man.layers.find((l) => l.id === "waves")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(waves.source, "noaa");
+    assert.equal(wind.hours, 72);
+    assert.equal(waves.hours, 72);
+    const nomads = man.sources?.find((s) => s.id === "nomads-gfswave");
+    assert.ok(nomads?.name.includes("hour-0 live"));
+    assert.ok(nomads?.name.includes("fixture"));
+    assert.ok(!nomads?.name.includes("f000–f072 / 3 h"));
+    assert.ok(!(man.notes ?? "").includes("that coverage is 1 h"));
+    assert.ok((man.liveErrors ?? []).some((e) => e.includes("hour-0 live") && e.includes("series off")));
+    const ev = man.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      hoursCovered: l.hours,
+    }));
+    const { evaluateReadyForOffshore } = await import("../src/lib/ahanu/pack.ts");
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: START,
+      layers: ev,
+    });
+    assert.ok(!ready.failures.some((f) => /covers 1 h/.test(f)));
   });
 });
