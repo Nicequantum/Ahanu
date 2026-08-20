@@ -1,4 +1,4 @@
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -7,6 +7,13 @@ import { nitro } from "nitro/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
+import {
+  invalidatePackSsrGraph,
+  isAhanuPackSsrFile,
+  packSsrSurfaces,
+  PACK_SSR_ENTRY,
+  watchAhanuPackDir,
+} from "./scripts/pack-ssr-invalidate";
 
 /**
  * Cloudflare Workers Builds sets WORKERS_CI. Pages sets CF_PAGES.
@@ -31,11 +38,20 @@ function isCloudflareBuild(): boolean {
  * on import.
  */
 
+function bustPackSsr(server: ViteDevServer) {
+  const { graph, runner } = packSsrSurfaces(server);
+  if (graph) invalidatePackSsrGraph(graph, runner);
+}
+
 function ahanuPacksPlugin(): Plugin {
   return {
     name: "ahanu-packs-api",
     apply: "serve",
     configureServer(server) {
+      watchAhanuPackDir(server.watcher, server.config.root);
+      server.watcher.on("change", (file) => {
+        if (isAhanuPackSsrFile(file)) bustPackSsr(server);
+      });
       server.middlewares.use(async (req, res, next) => {
         const rawUrl = req.url ?? "";
         const pathOnly = rawUrl.split("?", 1)[0] ?? "";
@@ -78,7 +94,8 @@ function ahanuPacksPlugin(): Plugin {
             headers: requestHeaders,
             body: body && body.length ? new Uint8Array(body) : undefined,
           });
-          const mod = (await server.ssrLoadModule("/src/lib/ahanu/pack-http.ts")) as {
+          bustPackSsr(server);
+          const mod = (await server.ssrLoadModule(PACK_SSR_ENTRY)) as {
             handlePacksRequest: (req: Request) => Promise<Response>;
           };
           const response = await mod.handlePacksRequest(request);

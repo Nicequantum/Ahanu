@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (SSR pack cache bust, 2026-08-20)
+
+Vite `ssrLoadModule` kept a stale pack.ts after disk edits; changing `pack*.ts` / `noaa-*.ts` now hard-invalidates that SSR graph so the next GET /api/packs loads `builder.rev` from disk without a process restart. No Worker scoring. No Flutter.
+
 ## This pass (live canyon-head paint, 2026-08-20)
 
 Plotter already paints packed NOAA named heads (Veatch / Atlantis / Hydrographer, kind:head) plus labels from `canyonsForChart` / `canyonHeadsForLabels`; fixture axes still paint when present; missing or empty live heads invent nothing. Helm marks the layer packed via `canyonsSource`. No Worker scoring. No Flutter.
