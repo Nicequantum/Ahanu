@@ -1,12 +1,13 @@
 /**
- * One-tap Frame harbor. Always easeTo the documented official
+ * One-tap Frame harbor. Always jumpTo the documented official
  * US5PVDCB ∪ US5PVDBB pin (Point Judith Harbor + inlet) so Galilee
  * stays in view. Never the tide-harbor store (Newport). Never
  * US5PVDCD / US3RI1AA / US5PVDDD / whole bay. Huge or wrong extract
  * footprints are rejected — ENCProdCat 2026-08-21 / official .000
  * vertices, not invented. Drops Follow the same way a skipper pan
- * does. Camera persist is moveend → ahanu-camera. easeTo the pin
- * (flyTo from Veatch zooms out through the bay). No fitBounds,
+ * does. Writes ahanu-camera to the pin so reload / jumpToPersistedCamera
+ * cannot restore an old bay view. jumpTo the pin (easeTo loses to a
+ * persisted overview / a null mapRef on first tick). No fitBounds,
  * no offset, no asymmetric padding — leftover east of −71.45
  * (US5PVDCD at the landscape edge) is acceptable. Not ECDIS.
  */
@@ -14,6 +15,7 @@
 import { NEWPORT, POINT_JUDITH_HARBOR_BBOX } from "./constants";
 import { parsePackBbox } from "./frame-pack";
 import type { PackBBox } from "./pack-fixtures";
+import { writePersistedCamera } from "./plotter-camera";
 
 export const FRAME_HARBOR_LABEL = "Frame harbor";
 
@@ -74,6 +76,15 @@ export const FRAME_HARBOR_ZOOM = 12.5;
 
 /** Galilee pin, not the official-box midpoint. At z12.5, 41.38 keeps Galilee on laptop helms; official box is unchanged. */
 export const FRAME_HARBOR_CENTER: [number, number] = [-71.51, 41.38];
+
+/** Instant pin written to ahanu-camera so a persisted bay view cannot win. */
+export const FRAME_HARBOR_CAMERA = {
+  lng: FRAME_HARBOR_CENTER[0],
+  lat: FRAME_HARBOR_CENTER[1],
+  zoom: FRAME_HARBOR_ZOOM,
+  bearing: 0,
+  pitch: 0,
+} as const;
 
 export const FRAME_HARBOR_FIT = {
   padding: 32,
@@ -331,21 +342,22 @@ export function viewportAtCamera(
 
 export function applyFrameHarbor(
   map: {
-    easeTo: (opts: {
+    jumpTo: (opts: {
       center: [number, number];
       zoom: number;
-      duration: number;
-      essential: boolean;
+      bearing: number;
+      pitch: number;
     }) => void;
   },
   input?: HarborFrameInput | null,
 ): HarborFrame {
   const framed = harborFrameOf(input);
-  map.easeTo({
+  writePersistedCamera(FRAME_HARBOR_CAMERA);
+  map.jumpTo({
     center: FRAME_HARBOR_CENTER,
     zoom: FRAME_HARBOR_ZOOM,
-    duration: 500,
-    essential: true,
+    bearing: 0,
+    pitch: 0,
   });
   return framed;
 }

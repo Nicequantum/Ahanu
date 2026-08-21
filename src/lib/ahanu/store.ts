@@ -56,6 +56,8 @@ import {
   readPersistedFollow,
   writePersistedFollow,
 } from "./follow-camera";
+import { FRAME_HARBOR_CAMERA } from "./frame-harbor";
+import { writePersistedCamera } from "./plotter-camera";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -279,6 +281,7 @@ export const useAhanu = create<AhanuState>()(
       },
       frameHarbor: () => {
         get().setFollow(followAfterSkipperMapMove());
+        writePersistedCamera(FRAME_HARBOR_CAMERA);
         set((s) => ({ frameHarborSeq: s.frameHarborSeq + 1 }));
       },
       setBreakSensitivity: (breakSensitivity) => set({ breakSensitivity }),

@@ -968,12 +968,28 @@ export function ChartMap() {
 
   useEffect(() => {
     if (frameHarborSeq <= 0) return;
-    const map = mapRef.current;
-    if (!map) return;
-    // Packed ENC only — never tideHarbor (Newport) or Frame pack.
-    // easeTo official US5PVDCB ∪ US5PVDBB pin [[-71.55, 41.325], [-71.475, 41.475]]
-    // center [-71.51, 41.38] zoom 12.5. No fitBounds padding/offset.
-    applyFrameHarbor(map, getPackedOcean()?.enc);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const tryApply = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+      // Packed ENC only — never tideHarbor (Newport) or Frame pack.
+      // jumpTo official US5PVDCB ∪ US5PVDBB pin [[-71.55, 41.325], [-71.475, 41.475]]
+      // center [-71.51, 41.38] zoom 12.5. Persist ahanu-camera so the old bay view cannot win.
+      // No fitBounds padding/offset.
+      applyFrameHarbor(map, getPackedOcean()?.enc);
+      host.current?.setAttribute("data-harbor-cam", "-71.51,41.38,12.5");
+    };
+    tryApply();
+    if (!mapRef.current) {
+      timer = setInterval(tryApply, 50);
+    }
+    return () => {
+      if (timer !== undefined) clearInterval(timer);
+    };
   }, [frameHarborSeq]);
 
   useEffect(() => {

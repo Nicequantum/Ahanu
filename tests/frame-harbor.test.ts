@@ -26,6 +26,7 @@ if (typeof globalThis.localStorage === "undefined") {
 }
 
 const {
+  FRAME_HARBOR_CAMERA,
   FRAME_HARBOR_CENTER,
   FRAME_HARBOR_FIT,
   FRAME_HARBOR_FIT_BOUNDS,
@@ -70,6 +71,7 @@ const SETTINGS = fileURLToPath(
   new URL("../src/components/panels/SettingsPanel.tsx", import.meta.url),
 );
 const STORE = fileURLToPath(new URL("../src/lib/ahanu/store.ts", import.meta.url));
+const FRAME_HARBOR_SRC = fileURLToPath(new URL("../src/lib/ahanu/frame-harbor.ts", import.meta.url));
 
 const US5PVDCB = { west: -71.55, south: 41.4, east: -71.475, north: 41.475 };
 const US5PVDBB = { west: -71.55, south: 41.325, east: -71.475, north: 41.4 };
@@ -329,11 +331,21 @@ describe("Frame harbor bbox", () => {
     assert.notDeepEqual(framed.bbox, US5PVDCB);
   });
 
-  it("eases to the official harbor pin at z12.5 on the existing plotter", () => {
-    const calls: unknown[] = [];
+  it("jumps to the official harbor pin at z12.5 and persists ahanu-camera", () => {
+    globalThis.localStorage.setItem(
+      CAMERA_KEY,
+      JSON.stringify({ lng: -71.3, lat: 41.45, zoom: 9, bearing: 0, pitch: 0 }),
+    );
+    const calls: Array<["jumpTo" | "easeTo" | "fitBounds", unknown]> = [];
     const map = {
+      jumpTo: (opts: unknown) => {
+        calls.push(["jumpTo", opts]);
+      },
       easeTo: (opts: unknown) => {
-        calls.push(opts);
+        calls.push(["easeTo", opts]);
+      },
+      fitBounds: (opts: unknown) => {
+        calls.push(["fitBounds", opts]);
       },
     };
     const framed = applyFrameHarbor(map, {
@@ -348,11 +360,19 @@ describe("Frame harbor bbox", () => {
     assertContainsGalilee(framed.bbox);
     assertExcludesNewport(framed.bbox);
     assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], "jumpTo");
     assert.deepEqual(FRAME_HARBOR_FIT_BOUNDS, [
       [-71.55, 41.325],
       [-71.475, 41.475],
     ]);
     assert.deepEqual(FRAME_HARBOR_CENTER, [-71.51, 41.38]);
+    assert.deepEqual(FRAME_HARBOR_CAMERA, {
+      lng: -71.51,
+      lat: 41.38,
+      zoom: 12.5,
+      bearing: 0,
+      pitch: 0,
+    });
     assert.ok(
       Math.abs((HARBOR_FRAME_BBOX.west + HARBOR_FRAME_BBOX.east) / 2 - (-71.5125)) < 1e-6,
     );
@@ -360,15 +380,23 @@ describe("Frame harbor bbox", () => {
       Math.abs((HARBOR_FRAME_BBOX.south + HARBOR_FRAME_BBOX.north) / 2 - 41.4) < 1e-6,
     );
     assert.equal(FRAME_HARBOR_ZOOM, 12.5);
-    assert.deepEqual(calls[0], {
+    assert.deepEqual(calls[0][1], {
       center: FRAME_HARBOR_CENTER,
       zoom: FRAME_HARBOR_ZOOM,
-      duration: 500,
-      essential: true,
+      bearing: 0,
+      pitch: 0,
     });
-    const hit = calls[0] as Record<string, unknown>;
+    const hit = calls[0][1] as Record<string, unknown>;
     assert.equal("offset" in hit, false);
     assert.equal("padding" in hit, false);
+    assert.equal("duration" in hit, false);
+    assert.deepEqual(readPersistedCamera(), {
+      lng: -71.51,
+      lat: 41.38,
+      zoom: 12.5,
+      bearing: 0,
+      pitch: 0,
+    });
     assert.equal(FRAME_HARBOR_FIT.essential, true);
     assert.equal(FRAME_HARBOR_MAX_ZOOM, 14);
     assert.ok(FRAME_HARBOR_MAX_ZOOM >= 12 && FRAME_HARBOR_MAX_ZOOM <= 14);
@@ -379,6 +407,7 @@ describe("Frame harbor bbox", () => {
 describe("Frame harbor store", () => {
   afterEach(() => {
     globalThis.localStorage.removeItem(FOLLOW_KEY);
+    globalThis.localStorage.removeItem(CAMERA_KEY);
     useAhanu.setState({
       followShip: true,
       framePackSeq: 0,
@@ -402,21 +431,41 @@ describe("Frame harbor store", () => {
     assert.equal(useAhanu.getState().framePackSeq, 0);
   });
 
-  it("does not write ahanu-camera itself — moveend persist stays the writer", () => {
-    writePersistedCamera(
-      { lng: -71.48, lat: 41.36, zoom: 13, bearing: 0, pitch: 0 },
-      {
-        setItem: (k, v) => {
-          assert.equal(k, CAMERA_KEY);
-          globalThis.localStorage.setItem(k, v);
-        },
-      },
-    );
-    assert.ok(readPersistedCamera());
-    const before = globalThis.localStorage.getItem(CAMERA_KEY);
-    useAhanu.getState().frameHarbor();
-    assert.equal(useAhanu.getState().followShip, false);
-    assert.equal(globalThis.localStorage.getItem(CAMERA_KEY), before);
+  it("writes the Galilee pin to ahanu-camera before incrementing seq", () => {
+    writePersistedCamera({ lng: -71.3, lat: 41.45, zoom: 9, bearing: 0, pitch: 0 });
+    assert.deepEqual(readPersistedCamera(), {
+      lng: -71.3,
+      lat: 41.45,
+      zoom: 9,
+      bearing: 0,
+      pitch: 0,
+    });
+    const writes: Array<{ cam: unknown; seq: number }> = [];
+    const orig = globalThis.localStorage.setItem.bind(globalThis.localStorage);
+    globalThis.localStorage.setItem = (k: string, v: string) => {
+      orig(k, v);
+      if (k === CAMERA_KEY) {
+        writes.push({ cam: JSON.parse(v), seq: useAhanu.getState().frameHarborSeq });
+      }
+    };
+    try {
+      assert.equal(useAhanu.getState().frameHarborSeq, 0);
+      useAhanu.getState().frameHarbor();
+      assert.equal(writes.length >= 1, true);
+      assert.equal(writes[0]!.seq, 0, "persist must land before seq increment");
+      assert.deepEqual(writes[0]!.cam, {
+        lng: -71.51,
+        lat: 41.38,
+        zoom: 12.5,
+        bearing: 0,
+        pitch: 0,
+      });
+      assert.deepEqual(readPersistedCamera(), FRAME_HARBOR_CAMERA);
+      assert.equal(useAhanu.getState().followShip, false);
+      assert.equal(useAhanu.getState().frameHarborSeq, 1);
+    } finally {
+      globalThis.localStorage.setItem = orig;
+    }
   });
 
   it("frameHarbor does not read or write tideHarbor", () => {
@@ -434,8 +483,14 @@ describe("Frame harbor click box", () => {
     assert.match(src, /\[\[-71\.55, 41\.325\], \[-71\.475, 41\.475\]\]/);
     const calls: Array<Record<string, unknown>> = [];
     const map = {
-      easeTo: (opts: Record<string, unknown>) => {
+      jumpTo: (opts: Record<string, unknown>) => {
         calls.push(opts);
+      },
+      easeTo: () => {
+        assert.fail("applyFrameHarbor must jumpTo, not easeTo");
+      },
+      fitBounds: () => {
+        assert.fail("applyFrameHarbor must not fitBounds");
       },
     };
     // Same call ChartMap makes on Frame harbor — packed ENC only, never tide/pack.
@@ -454,13 +509,14 @@ describe("Frame harbor click box", () => {
     assert.deepEqual(calls[0], {
       center: FRAME_HARBOR_CENTER,
       zoom: FRAME_HARBOR_ZOOM,
-      duration: 500,
-      essential: true,
+      bearing: 0,
+      pitch: 0,
     });
     assert.deepEqual(calls[0]?.center, [-71.51, 41.38]);
     assert.equal(calls[0]?.zoom, 12.5);
-    assert.equal("offset" in calls[0], false);
-    assert.equal("padding" in calls[0], false);
+    assert.equal("offset" in calls[0]!, false);
+    assert.equal("padding" in calls[0]!, false);
+    assert.deepEqual(readPersistedCamera(), FRAME_HARBOR_CAMERA);
     assertExcludesNewport(framed.bbox);
     assert.equal(NEWPORT.lat, 41.49);
     assert.ok(framed.bbox.north < 41.49);
@@ -485,7 +541,7 @@ describe("Frame harbor click box", () => {
     const mapCalls: unknown[] = [];
     applyFrameHarbor(
       {
-        easeTo: (opts) => {
+        jumpTo: (opts) => {
           mapCalls.push(opts);
         },
       },
@@ -494,17 +550,21 @@ describe("Frame harbor click box", () => {
     const hit = mapCalls[0] as {
       center: [number, number];
       zoom: number;
-      duration: number;
-      essential: boolean;
+      bearing: number;
+      pitch: number;
       offset?: [number, number];
       padding?: unknown;
+      duration?: number;
     };
     assert.deepEqual(hit.center, [-71.51, 41.38]);
     assert.equal(hit.zoom, 12.5);
-    assert.equal(hit.duration, 500);
-    assert.equal(hit.essential, true);
+    assert.equal(hit.bearing, 0);
+    assert.equal(hit.pitch, 0);
+    assert.equal(hit.duration, undefined);
     assert.equal(hit.offset, undefined);
     assert.equal(hit.padding, undefined);
+    assert.equal(bboxContainsLonLat(view, GALILEE_DOCK.lon, 41.3615), true);
+    assert.equal(bboxContainsLonLat(shortHelm, GALILEE_DOCK.lon, 41.3615), true);
   });
 });
 
@@ -519,6 +579,16 @@ describe("Frame harbor helm wiring", () => {
     assert.match(src, /map\.on\("moveend"/);
     assert.match(src, /createDebouncedCameraPersist/);
     assert.match(src, /data-map="ahanu"/);
+    assert.match(src, /data-harbor-cam/);
+    assert.match(src, /-71\.51,41\.38,12\.5/);
+    assert.match(src, /if \(!map\)/);
+    assert.match(src, /setInterval\(tryApply, 50\)/);
+    assert.match(src, /clearInterval/);
+    const harbor = await readFile(FRAME_HARBOR_SRC, "utf8");
+    assert.match(harbor, /writePersistedCamera\(FRAME_HARBOR_CAMERA\)/);
+    assert.match(harbor, /map\.jumpTo\(/);
+    assert.doesNotMatch(harbor, /map\.easeTo\(/);
+    assert.doesNotMatch(harbor, /map\.fitBounds\(/);
     const maps = src.match(/new maplibregl\.Map\(/g) ?? [];
     assert.equal(maps.length, 1, "must not invent a second map");
     assert.doesNotMatch(src, /ECDIS/);
@@ -536,8 +606,12 @@ describe("Frame harbor helm wiring", () => {
     assert.match(packs, /onClick=\{frameHarbor\}/);
     assert.match(settings, /Frame harbor drops Follow/);
     assert.match(store, /followAfterSkipperMapMove/);
+    assert.match(store, /writePersistedCamera\(FRAME_HARBOR_CAMERA\)/);
     assert.match(store, /frameHarborSeq: s\.frameHarborSeq \+ 1/);
     assert.match(store, /frameHarborSeq: 0/);
+    const persistAt = store.indexOf("writePersistedCamera(FRAME_HARBOR_CAMERA)");
+    const seqAt = store.indexOf("frameHarborSeq: s.frameHarborSeq + 1");
+    assert.ok(persistAt >= 0 && seqAt > persistAt, "persist must sit before seq increment");
     assert.doesNotMatch(store, /frameHarbor:[\s\S]{0,200}tideHarbor/);
     assert.doesNotMatch(store, /ECDIS/);
   });
