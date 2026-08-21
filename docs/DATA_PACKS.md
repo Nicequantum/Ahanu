@@ -44,7 +44,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | Aqua MODIS chlorophyll | PFEG Aqua MODIS L3SMI 8-day 4 km (CMEMS L4 not fetched)     | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
 | SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |
 | Wind GRIB           | GFS-Wave ATL 0p16 (NDFD not fetched)                          | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
-| Wave GRIB           | GFS-Wave ATL 0p16 (WW3)                                       | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWaveFt`.                     |
+| Wave GRIB           | GFS-Wave ATL 0p16 (WW3 GRIB file not packed)                  | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWaveFt`.                     |
 | NDBC snapshot       | JSON                                                          | ~hourly, stale after 3 h | Ground truth vs model.                                       |
 | CO-OPS tides        | JSON hi/lo + hourly                                           | **72 h**                 | Harbor windows, The Race, Block Island Sound.                |
 | HMS closed areas    | GeoJSON                                                       | static / as published    | Overlay, not a legal determination.                          |

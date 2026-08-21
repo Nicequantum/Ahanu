@@ -61,7 +61,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "chlorophyll", label: "Aqua MODIS chlorophyll", hours: 24, baseMb: 5.6, format: "cog", contentType: "image/tiff", ext: "tif" },
   { id: "altimetry", label: "SSH anomaly", hours: 24, baseMb: 2.1, format: "cog", contentType: "image/tiff", ext: "tif" },
   { id: "wind", label: "GFS-Wave wind", hours: 72, format: "grib2", contentType: "application/wmo-grib", ext: "grib2", baseMb: 7.8 },
-  { id: "waves", label: "GFS-Wave / WW3 GRIB", hours: 72, format: "grib2", contentType: "application/wmo-grib", ext: "grib2", baseMb: 11.4 },
+  { id: "waves", label: "GFS-Wave waves", hours: 72, format: "grib2", contentType: "application/wmo-grib", ext: "grib2", baseMb: 11.4 },
   { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", baseMb: 0.04 },
   { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", baseMb: 0.12 },
   { id: "hms_zones", label: "HMS closed areas", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", baseMb: 0.18 },

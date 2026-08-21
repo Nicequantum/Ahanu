@@ -35,7 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
-import { chlLabelFromLanded, encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, windLabelFromLanded } from "./pack-sources";
+import { chlLabelFromLanded, encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, waveLabelFromLanded, windLabelFromLanded } from "./pack-sources";
 
 export {
   bboxKey,
@@ -63,10 +63,12 @@ export {
   leftoverMurSstLabel,
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
+  leftoverWw3WaveLabel,
   rewriteLandedManifest,
   sstLabelFromLanded,
   sstLandedName,
   windLabelFromLanded,
+  waveLabelFromLanded,
   chlLabelFromLanded,
   type PackSourceRef,
 } from "./pack-sources";
@@ -208,6 +210,15 @@ export function chlPackRowLabel(input: {
   return chlLabelFromLanded(input);
 }
 
+/** Pack row: name GFS-Wave waves. Do not claim WW3 GRIB — that file is not packed. */
+export function wavePackRowLabel(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  return waveLabelFromLanded(input);
+}
+
 function overlayGridNote(overlay?: string): string | undefined {
   if (!overlay) return undefined;
   const parsed = parseLayerBody(overlay);
@@ -255,6 +266,13 @@ function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
   }
   if (spec.id === "chlorophyll") {
     return chlPackRowLabel({
+      note: overlayGridNote(overlay),
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  if (spec.id === "waves") {
+    return wavePackRowLabel({
       note: overlayGridNote(overlay),
       source: overlay ? "noaa" : "fixture",
       stored: spec.label,

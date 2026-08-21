@@ -295,6 +295,12 @@ export function leftoverL4ChlLabel(label?: string | null): boolean {
   return /\bL4\b/i.test(label) || /CMEMS/i.test(label);
 }
 
+/** Leftover fixture/catalog copy. WW3 GRIB is not packed — live is GFS-Wave. */
+export function leftoverWw3WaveLabel(label?: string | null): boolean {
+  if (!label) return false;
+  return /WW3/i.test(label);
+}
+
 /** Pack row from the landed Aqua MODIS / VIIRS body. Leftover L4 catalog copy does not win. */
 export function chlLabelFromLanded(input: {
   note?: string | null;
@@ -328,6 +334,21 @@ export function windLabelFromLanded(input: {
   return "GFS-Wave wind";
 }
 
+/** Pack row from the landed GFS-Wave body. Leftover WW3 GRIB catalog copy does not win. */
+export function waveLabelFromLanded(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  if (input.source === "fixture") return "GFS-Wave waves (fixture)";
+  const note = input.note ?? "";
+  if (/GFS-Wave|gfs:/i.test(note) || leftoverWw3WaveLabel(input.stored)) {
+    return "GFS-Wave waves";
+  }
+  if (input.stored && !leftoverWw3WaveLabel(input.stored)) return input.stored;
+  return "GFS-Wave waves";
+}
+
 /** Pack row from the landed body. Leftover MUR catalog copy does not win. */
 export function sstLabelFromLanded(input: {
   dataset?: string | null;
@@ -353,9 +374,10 @@ function overlayIsOfficialEnc(overlay?: string): boolean {
 /**
  * Persist-time rewrite. layer.label / sources[] follow the landed body so
  * R2 cannot keep a MUR label on an ACSPO object, an NDFD label on a
- * GFS-Wave wind object, or an L4 label on an Aqua MODIS chlorophyll
- * object. ENC sources include cell/update counts when official. Does
- * not invent products. NDFD and CMEMS L4 are not fetched.
+ * GFS-Wave wind object, an L4 label on an Aqua MODIS chlorophyll
+ * object, or a WW3 GRIB label on a GFS-Wave waves object. ENC sources
+ * include cell/update counts when official. Does not invent products.
+ * NDFD, CMEMS L4, and WW3 GRIB files are not fetched.
  */
 export function rewriteLandedManifest<
   T extends {
@@ -400,6 +422,16 @@ export function rewriteLandedManifest<
         ...layer,
         label: chlLabelFromLanded({
           note: overlayNote(overlays.chlorophyll),
+          source: layer.source,
+          stored: layer.label,
+        }),
+      };
+    }
+    if (layer.id === "waves" && leftoverWw3WaveLabel(layer.label)) {
+      return {
+        ...layer,
+        label: waveLabelFromLanded({
+          note: overlayNote(overlays.waves),
           source: layer.source,
           stored: layer.label,
         }),

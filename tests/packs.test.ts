@@ -26,8 +26,10 @@ const {
   leftoverMurSstLabel,
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
+  leftoverWw3WaveLabel,
   rewriteLandedManifest,
   windPackRowLabel,
+  wavePackRowLabel,
   chlPackRowLabel,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
@@ -1271,6 +1273,111 @@ describe("chlPackRowLabel", () => {
     );
     assert.equal(next.layers.find((l) => l.id === "chlorophyll")?.label, "Aqua MODIS chlorophyll");
     assert.doesNotMatch(next.layers.find((l) => l.id === "chlorophyll")?.label ?? "", /\bL4\b/);
+  });
+});
+
+describe("wavePackRowLabel", () => {
+  it("names GFS-Wave waves and remaps leftover WW3 GRIB catalog copy", () => {
+    assert.equal(leftoverWw3WaveLabel("GFS-Wave / WW3 GRIB"), true);
+    assert.equal(leftoverWw3WaveLabel("GFS-Wave waves"), false);
+    assert.equal(wavePackRowLabel({ source: "fixture" }), "GFS-Wave waves (fixture)");
+    assert.equal(
+      wavePackRowLabel({
+        source: "noaa",
+        stored: "GFS-Wave / WW3 GRIB",
+        note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+      }),
+      "GFS-Wave waves",
+    );
+    assert.equal(
+      wavePackRowLabel({
+        source: "noaa",
+        stored: "GFS-Wave / WW3 GRIB",
+      }),
+      "GFS-Wave waves",
+    );
+    assert.doesNotMatch(
+      wavePackRowLabel({ source: "noaa", stored: "GFS-Wave / WW3 GRIB" }),
+      /WW3/,
+    );
+  });
+
+  it("writes GFS-Wave on the fixture-pack row, not leftover WW3 GRIB", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fixtureWaves = fixture.manifest.layers.find((l) => l.id === "waves")!;
+    assert.equal(fixtureWaves.label, "GFS-Wave waves (fixture)");
+    assert.doesNotMatch(fixtureWaves.label, /WW3/);
+
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "waves",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0, 3],
+      hoursCovered: 72,
+      unit: "ft",
+      values: [[1, 2, 3, 4], [2, 3, 4, 5]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { waves: overlay },
+    });
+    const waves = live.manifest.layers.find((l) => l.id === "waves")!;
+    assert.equal(waves.source, "noaa");
+    assert.equal(waves.label, "GFS-Wave waves");
+    assert.doesNotMatch(waves.label, /WW3/);
+  });
+
+  it("rewriteLandedManifest replaces a leftover WW3 label from a GFS-Wave body", () => {
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "waves",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 72,
+      unit: "ft",
+      values: [[1, 2, 3, 4]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+    });
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "waves", label: "GFS-Wave / WW3 GRIB", source: "noaa" }],
+      },
+      { waves: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "waves")?.label, "GFS-Wave waves");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "waves")?.label ?? "", /WW3/);
+  });
+
+  it("rewriteLandedManifest remaps leftover WW3 without a waves overlay", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "waves", label: "GFS-Wave / WW3 GRIB", source: "noaa" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "waves")?.label, "GFS-Wave waves");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "waves")?.label ?? "", /WW3/);
   });
 });
 

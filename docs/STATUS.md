@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (leftover WW3 wave label, 2026-08-21)
+
+Live GET /api/packs on api.ahanu.dev labeled waves **GFS-Wave / WW3 GRIB** after a live GFS-Wave 72 h series landed. WW3 GRIB is not packed — leftover fixture/catalog copy, same class as leftover NDFD on GFS-Wave wind. Generation now names fixture **GFS-Wave waves (fixture)** and live **GFS-Wave waves**. Persist / serving R2 GET/HEAD rewrite leftover WW3 labels — no NOAA. Helm Packs remaps the stored leftover. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (ownship GPS, 2026-08-21)
 
 NOAA CoastWatch ACSPO L3S-LEO NRT daily last cell is still **2026-08-20T12:00Z** (~28 h at probe). Kelvin + Celsius NRT same stamp. RAN last 2026-06-16. MUR 2026-08-20T09:00Z. GeoPolar / CoralTemp 2026-08-19T12:00Z. Do not invent SST. skipCache not landed.

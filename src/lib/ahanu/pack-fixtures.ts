@@ -76,7 +76,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "chlorophyll", label: "Aqua MODIS chlorophyll", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "altimetry", label: "SSH anomaly", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "wind", label: "GFS-Wave wind", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
-  { id: "waves", label: "GFS-Wave / WW3 GRIB", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
+  { id: "waves", label: "GFS-Wave waves", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", required: false },
   { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", required: true },
   { id: "hms_zones", label: "HMS closed areas", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: true },

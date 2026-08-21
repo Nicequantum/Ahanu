@@ -20,6 +20,7 @@ const {
   leftoverFixtureSources,
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
+  leftoverWw3WaveLabel,
   packIdFor,
   peekBuiltPack,
   resetBuiltPackCache,
@@ -820,6 +821,57 @@ describe("GET /api/packs R2 manifest", () => {
     assert.ok(headChl);
     assert.equal(leftoverL4ChlLabel(headChl.label), false);
     assert.doesNotMatch(headChl.label, /\bL4\b/);
+  });
+
+  it("GET/HEAD persist drops leftover WW3 wave labels when GFS-Wave already landed", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const waves = built.manifest.layers.find((l) => l.id === "waves");
+    assert.ok(waves);
+    waves.source = "noaa";
+    waves.label = "GFS-Wave / WW3 GRIB";
+    assert.equal(leftoverWw3WaveLabel(waves.label), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    const storedWaves = stored.layers.find((l) => l.id === "waves");
+    storedWaves.source = "noaa";
+    storedWaves.label = "GFS-Wave / WW3 GRIB";
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: { id: string; label: string; source?: string }[] };
+    const liveWaves = man.layers.find((l) => l.id === "waves");
+    assert.ok(liveWaves);
+    assert.equal(leftoverWw3WaveLabel(liveWaves.label), false);
+    assert.doesNotMatch(liveWaves.label, /WW3/);
+    assert.match(liveWaves.label, /GFS-Wave/);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    const headWaves = headed.manifest.layers.find((l) => l.id === "waves");
+    assert.ok(headWaves);
+    assert.equal(leftoverWw3WaveLabel(headWaves.label), false);
+    assert.doesNotMatch(headWaves.label, /WW3/);
   });
 });
 

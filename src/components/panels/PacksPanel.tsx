@@ -16,6 +16,7 @@ import {
   chlPackRowLabel,
   sstPackRowLabel,
   sstStaleReadyCue,
+  wavePackRowLabel,
   windPackRowLabel,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
@@ -308,7 +309,13 @@ export function PacksPanel() {
                             source: p.source,
                             note: getPackedOcean()?.chl?.note,
                           })
-                        : p.label}
+                        : p.id === "waves"
+                          ? wavePackRowLabel({
+                              stored: p.label,
+                              source: p.source,
+                              note: getPackedOcean()?.waveFt?.note,
+                            })
+                          : p.label}
               </p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}
