@@ -64,6 +64,7 @@ export function PacksPanel() {
     downloading,
     layers: packs,
     liveErrors,
+    ready: ready?.ready,
   });
 
   return (

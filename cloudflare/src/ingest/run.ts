@@ -10,8 +10,11 @@
  * into parts — never dropped silently. One layer throw does not abort
  * the rest. GET /api/packs and cron share persistBuiltPack.
  * GET /api/packs without skipCache serves packs/{packId}/manifest.json
- * when it is present (same 6 h packId window or explicit packId) and
- * does not rebuild NOAA. skipCache=1 or a miss is a live build + persist.
+ * when it is present (same 6 h packId window or explicit packId).
+ * A stored SST analysis older than 24 h triggers an SST-first live fetch
+ * (ACSPO path). A <=24 h grid replaces that layer and is persisted; other
+ * R2 layer hashes stay. ACSPO miss keeps MUR and adds honesty.
+ * skipCache=1 or a total miss is a live build + persist.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -20,11 +23,36 @@
  *
  * D1 `pack_layers` is upserted only when that table already exists.
  */
-import { buildTripPack, packIdFor, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
+import {
+  buildTripPack,
+  capLiveErrors,
+  evaluateReadyForOffshore,
+  packIdFor,
+  sha256Hex,
+  sstLandedName,
+  SST_STALE_H,
+  sstLayerIsStale,
+  sstPackRowLabel,
+  type BuiltPack,
+  type PackLayerRecord,
+} from "../../../src/lib/ahanu/pack";
 import { workerGfsWaveSeriesFlag } from "../../../src/lib/ahanu/noaa-gfs";
-import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
+import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
+import {
+  fetchLiveSst,
+  SST_DEDICATED_TIMEOUT_MS,
+  sstAgeHours,
+  type SstIngest,
+} from "../../../src/lib/ahanu/noaa-sst";
 import { assertLiveRebuildAllowed, type LimitLiveRebuild } from "../live-rebuild-limit";
-import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../../src/lib/ahanu/pack-fixtures";
+import {
+  encodeLayerBody,
+  NORTHEAST_BBOX,
+  POINT_JUDITH_CANYON_BBOX,
+  specForLayer,
+  utf8Bytes,
+  type PackBBox,
+} from "../../../src/lib/ahanu/pack-fixtures";
 
 export interface IngestEnv {
   PACKS?: {
@@ -155,6 +183,8 @@ export interface ResolvePackOptions {
   packId?: string;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  /** Tests pin the SST age clock. Production uses Date.now(). */
+  now?: Date | number;
   /** HTTP only. Cron / ingestFixturePack omit this so they are not limited. */
   limitLiveRebuild?: LimitLiveRebuild;
 }
@@ -185,17 +215,21 @@ export async function headPackManifest(
 
 /**
  * skipCache off: last R2 manifest for this packId when present.
+ * A stored SST older than 24 h is not served as-is: SST-first live fetch
+ * (ACSPO) can replace that layer and persist. Other R2 hashes stay.
  * skipCache or miss: live buildTripPack. Caller persists a live result.
- * HTTP callers pass limitLiveRebuild so a live rebuild is fail-closed
- * per CF-Connecting-IP. An R2 hit returns before that gate.
+ * HTTP callers pass limitLiveRebuild so a full live rebuild is fail-closed
+ * per CF-Connecting-IP. A fresh R2 hit returns before that gate. SST-only
+ * refresh does not take a skipCache slot so Helm Retry still works.
  * HEAD uses headPackManifest and never reaches this path.
  */
 export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptions): Promise<ResolvedPack> {
   const hours = opts.hours;
   const packId = (opts.packId ?? "").trim() || (await packIdFor(opts.bbox, opts.start, hours));
+  const nowMs = resolveNowMs(opts.now);
   if (!opts.skipCache) {
     const stored = await loadPersistedManifest(env, packId);
-    if (stored) return { manifest: stored, source: "r2" };
+    if (stored) return refreshStaleR2Sst(env, stored, opts, nowMs);
   }
   if (opts.limitLiveRebuild) {
     await assertLiveRebuildAllowed(opts.limitLiveRebuild.ip, opts.limitLiveRebuild.limiter);
@@ -208,12 +242,142 @@ export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptio
     skipCache: opts.skipCache === true,
     timeoutMs: opts.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
     fetchImpl: opts.fetchImpl,
+    now: typeof opts.now === "number" ? new Date(opts.now) : opts.now,
     gfsWaveSeries: workerGfsWaveSeriesFlag({
       AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
       GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
     }),
   });
   return { manifest: built.manifest, source: "live", built };
+}
+
+function resolveNowMs(now?: Date | number): number {
+  if (now instanceof Date) return now.getTime();
+  if (typeof now === "number" && Number.isFinite(now)) return now;
+  return Date.now();
+}
+
+function storedSstName(layer: PackLayerRecord | undefined): string {
+  if (!layer) return "stored SST";
+  return sstLandedName(undefined, `${layer.label}`) ?? (/MUR/i.test(layer.label) ? "MUR" : "stored SST");
+}
+
+export function sstRefreshKeptLine(
+  stored: PackLayerRecord | undefined,
+  ingest: SstIngest | undefined,
+  errors: string[],
+  nowMs: number,
+): string {
+  const kept = storedSstName(stored);
+  const when = stored?.updatedAt ?? "";
+  if (ingest) {
+    const age = sstAgeHours(ingest.analysedAt, nowMs);
+    return `sst: live refresh still ${Math.round(age)} h (${ingest.dataset}) — kept ${kept} ${when}`.trim();
+  }
+  const why =
+    errors.filter((e) => /^sst\b/i.test(e)).slice(0, 3).join("; ") || "all public paths failed";
+  return `sst: live refresh failed (${why}) — kept ${kept} ${when}`.trim();
+}
+
+async function builtPackWithRefreshedSst(
+  stored: BuiltPack["manifest"],
+  ingest: SstIngest,
+  liveErrors: string[],
+  nowMs: number,
+): Promise<BuiltPack> {
+  const spec = specForLayer("sst");
+  if (!spec) throw new Error("sst spec missing");
+  const body = encodeLayerBody(ingest.grid);
+  const hash = await sha256Hex(body);
+  const bytes = utf8Bytes(body).byteLength;
+  const r2Key = hashedLayerR2Key(stored.packId, "sst", hash, spec.ext);
+  const label = sstPackRowLabel({
+    dataset: ingest.dataset,
+    note: ingest.note,
+    source: "noaa",
+    stored: spec.label,
+  });
+  const layers = stored.layers.map((layer) =>
+    layer.id === "sst"
+      ? {
+          ...layer,
+          label,
+          sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
+          sizeBytes: bytes,
+          status: "ready" as const,
+          updatedAt: ingest.analysedAt,
+          hours: ingest.grid.hoursCovered ?? layer.hours,
+          hash,
+          r2Key,
+          source: "noaa" as const,
+        }
+      : layer,
+  );
+  const totalBytes = layers.reduce((n, layer) => n + layer.sizeBytes, 0);
+  const generatedAt = new Date(nowMs).toISOString();
+  const evidence = layers.map((layer) => ({
+    id: layer.id,
+    present: true,
+    hashExpected: layer.hash,
+    hashActual: layer.hash,
+    updatedAt: layer.updatedAt,
+    hoursCovered: layer.hours,
+    cycleAt: generatedAt,
+  }));
+  const check = evaluateReadyForOffshore({
+    hours: stored.hours,
+    start: stored.start,
+    now: nowMs,
+    layers: evidence,
+    liveErrors,
+  });
+  const sources = [...stored.sources.filter((s) => s.id !== "noaa-sst"), { id: "noaa-sst", name: ingest.note }];
+  return {
+    manifest: {
+      ...stored,
+      generatedAt,
+      readyForOffshore: check.ready,
+      layers,
+      totalBytes,
+      totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
+      sources,
+      liveErrors: capLiveErrors(liveErrors),
+    },
+    bodies: { sst: body },
+  };
+}
+
+async function refreshStaleR2Sst(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+  opts: ResolvePackOptions,
+  nowMs: number,
+): Promise<ResolvedPack> {
+  const sst = stored.layers.find((layer) => layer.id === "sst");
+  if (!sstLayerIsStale(sst, nowMs)) return { manifest: stored, source: "r2" };
+  const errors: string[] = [];
+  let ingest: SstIngest | undefined;
+  try {
+    ingest = await fetchLiveSst({
+      bbox: opts.bbox,
+      fetchImpl: opts.fetchImpl ?? defaultNoaaFetch,
+      timeoutMs: Math.max(opts.timeoutMs ?? NOAA_GRID_TIMEOUT_MS, SST_DEDICATED_TIMEOUT_MS),
+      errors,
+      now: nowMs,
+    });
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+  const age = ingest ? sstAgeHours(ingest.analysedAt, nowMs) : Number.POSITIVE_INFINITY;
+  if (ingest && age <= SST_STALE_H) {
+    const built = await builtPackWithRefreshedSst(stored, ingest, errors, nowMs);
+    return { manifest: built.manifest, source: "live", built };
+  }
+  const honesty = sstRefreshKeptLine(sst, ingest, errors, nowMs);
+  return {
+    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
+    source: "r2",
+  };
 }
 
 /** Worker-safe single R2 put. Official S-57 ENC ~3.4 MB stays one object. */

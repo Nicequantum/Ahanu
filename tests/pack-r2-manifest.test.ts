@@ -27,6 +27,34 @@ const NDBC_N1 = `#STN LAT LON YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES
 44097 40.967 -71.126 26 08 20 16 50 220 7.1 8.4 1.3 9 5.8 210 1015.8 -0.4 22.0 21.6 MM MM MM
 `;
 
+function sstCsv(iso, variable = "analysed_sst") {
+  const rows = [`time,latitude,longitude,${variable}`, "UTC,degrees_north,degrees_east,degree_C"];
+  const lats = [39.4, 40.0, 40.6, 41.2];
+  const lons = [-72.8, -71.6, -70.4, -69.2];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      const t = 22.4 - (lat - 39.6) * 0.8 + (lon + 70.6) * 0.1;
+      rows.push(`${iso},${lat},${lon},${t.toFixed(2)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}
+
+function sstFetch(kind) {
+  return async (url) => {
+    if (kind === "acspo" && url.includes("noaacwLEOACSPOSSTL3SnrtKDaily")) {
+      return new Response(sstCsv("2026-08-20T12:00:00Z", "sea_surface_temperature"), { status: 200 });
+    }
+    if (kind === "mur" && url.includes("jplMURSST41")) {
+      return new Response(sstCsv("2026-08-19T09:00:00Z"), { status: 200 });
+    }
+    return new Response("no", { status: 404 });
+  };
+}
+
+const NOW_STALE = new Date("2026-08-21T06:18:00.000Z");
+
+
 function ndbcFetch(text: string): (url: string) => Promise<Response> {
   return (url: string) => {
     if (url.includes("latest_obs")) return Promise.resolve(new Response(text, { status: 200 }));
@@ -210,5 +238,109 @@ describe("GET /api/packs R2 manifest", () => {
     assert.equal(await loadPersistedManifest(env, "deadbeefdeadbeef"), null);
     store.set(packManifestR2Key("deadbeefdeadbeef"), "not-json");
     assert.equal(await loadPersistedManifest(env, "deadbeefdeadbeef"), null);
+  });
+  it("R2 hit with stale SST refreshes ACSPO and keeps other hashes", async () => {
+    const { env } = mockEnv();
+    const murPack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("mur"),
+    });
+    await persistBuiltPack(env, murPack);
+    const murSst = murPack.manifest.layers.find((l) => l.id === "sst");
+    const murBathy = murPack.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(murSst && murBathy);
+    assert.equal(murSst.updatedAt, "2026-08-19T09:00:00.000Z");
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: async (url) => {
+        fetches += 1;
+        return sstFetch("acspo")(url);
+      },
+    });
+    assert.equal(hit.source, "live");
+    assert.ok(fetches > 0, "stale R2 SST must fetch live SST");
+    assert.ok(hit.built);
+    const fresh = hit.manifest.layers.find((l) => l.id === "sst");
+    assert.ok(fresh);
+    assert.equal(fresh.updatedAt, "2026-08-20T12:00:00.000Z");
+    assert.notEqual(fresh.hash, murSst.hash);
+    assert.match(fresh.label, /ACSPO/);
+    const bathy = hit.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(bathy);
+    assert.equal(bathy.hash, murBathy.hash, "other R2 layers keep hashes");
+    assert.equal(hit.manifest.packId, murPack.manifest.packId);
+
+    await persistBuiltPack(env, hit.built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let secondFetches = 0;
+    const again = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_STALE,
+      fetchImpl: async () => {
+        secondFetches += 1;
+        throw new Error("fresh SST must not refetch");
+      },
+    });
+    assert.equal(again.source, "r2");
+    assert.equal(secondFetches, 0);
+    assert.equal(again.manifest.layers.find((l) => l.id === "sst")?.hash, fresh.hash);
+    assert.equal(again.manifest.layers.find((l) => l.id === "sst")?.updatedAt, "2026-08-20T12:00:00.000Z");
+  });
+
+  it("R2 stale SST keeps MUR with honesty when ACSPO fails", async () => {
+    const { env } = mockEnv();
+    const murPack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("mur"),
+    });
+    await persistBuiltPack(env, murPack);
+    const murSst = murPack.manifest.layers.find((l) => l.id === "sst");
+    assert.ok(murSst);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: async () => new Response("no", { status: 404 }),
+    });
+    assert.equal(hit.source, "r2");
+    assert.equal(hit.built, undefined);
+    assert.equal(hit.manifest.layers.find((l) => l.id === "sst")?.hash, murSst.hash);
+    assert.ok(
+      (hit.manifest.liveErrors ?? []).some((e) => /sst: live refresh failed/.test(e) && /kept/.test(e)),
+      hit.manifest.liveErrors?.join(" | "),
+    );
   });
 });

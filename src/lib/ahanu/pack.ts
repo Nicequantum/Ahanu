@@ -128,7 +128,8 @@ export function capLiveErrors(errors: readonly string[] | undefined | null): str
 
 /** Preferred-SST lost to a later public grid. Visible; does not fail Ready. */
 export function isSstHonestyLiveError(line: string): boolean {
-  return /^sst: preferred /i.test(line.trim());
+  const t = line.trim();
+  return /^sst: preferred /i.test(t) || /^sst: live refresh /i.test(t);
 }
 
 /** GFS hour-0 / partial-series / preferred-SST honesty. Visible on Packs; not overlay misses. */
@@ -306,14 +307,27 @@ export function overlaysAllLanded(overlayIds: Iterable<string>): boolean {
   return LIVE_OVERLAY_LAYER_IDS.every((id) => have.has(id));
 }
 
+/** Hash-ok SST whose analysis is older than 24 h. Missing updatedAt is not stale. */
+export function sstLayerIsStale(layer: { updatedAt?: string } | undefined, nowMs: number): boolean {
+  if (!layer?.updatedAt) return false;
+  const age = ageHours(layer.updatedAt, nowMs);
+  return Number.isFinite(age) && age > SST_STALE_H;
+}
+
 export function canRetryLiveOverlays(input: {
   live: boolean;
   downloading: boolean;
-  layers: { id: string; source?: string }[];
+  layers: { id: string; source?: string; updatedAt?: string }[];
   liveErrors?: readonly string[] | null;
+  /** Client Ready. Not ready (SST stale / other) must still expose skipCache. */
+  ready?: boolean | null;
+  nowMs?: number;
 }): boolean {
   if (!input.live || input.downloading) return false;
   if (blockingLiveErrors(input.liveErrors).length > 0) return true;
+  if (input.ready === false) return true;
+  const sst = input.layers.find((l) => l.id === "sst");
+  if (sstLayerIsStale(sst, input.nowMs ?? Date.now())) return true;
   return input.layers.some(
     (l) => l.source === "fixture" && (LIVE_OVERLAY_LAYER_IDS as readonly string[]).includes(l.id),
   );

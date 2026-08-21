@@ -676,6 +676,8 @@ describe("downloadTripPack live query", () => {
 const {
   capLiveErrors,
   canRetryLiveOverlays,
+  isSstHonestyLiveError,
+  sstLayerIsStale,
   liveErrorsForSession,
   blockingLiveErrors,
   gfsHelmLine,
@@ -788,6 +790,51 @@ describe("live ingest errors on pack session", () => {
         liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
       }),
       false,
+    );
+  });
+
+  it("enables retry when not ready or SST is stale", () => {
+    const nowMs = Date.parse("2026-08-21T06:18:00.000Z");
+    const mur = "2026-08-19T09:00:00.000Z";
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "sst", source: "noaa", updatedAt: mur }],
+        liveErrors: [],
+        ready: false,
+        nowMs,
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "sst", source: "r2", updatedAt: mur }],
+        liveErrors: [],
+        ready: true,
+        nowMs,
+      }),
+      true,
+    );
+    assert.equal(sstLayerIsStale({ updatedAt: mur }, nowMs), true);
+    assert.equal(sstLayerIsStale({ updatedAt: "2026-08-20T12:00:00.000Z" }, nowMs), false);
+    assert.equal(sstLayerIsStale({ }, nowMs), false);
+    assert.equal(
+      canRetryLiveOverlays({
+        live: true,
+        downloading: false,
+        layers: [{ id: "sst", source: "noaa", updatedAt: "2026-08-20T12:00:00.000Z" }],
+        liveErrors: [],
+        ready: true,
+        nowMs,
+      }),
+      false,
+    );
+    assert.equal(
+      isSstHonestyLiveError("sst: live refresh failed (timeout) — kept MUR 2026-08-19T09:00:00.000Z"),
+      true,
     );
   });
 });
