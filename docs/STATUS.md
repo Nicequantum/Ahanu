@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (dead DEFAULT_PACK_LAYERS catalog, 2026-08-21)
+
+`src/lib/data/trip-pack.ts` `DEFAULT_PACK_LAYERS` had zero imports and listed leftover WW3 / NDFD / GHRSST as ready. Helm never shows it — pack rows come from the Worker manifest (`tripPackLayersFromReady`). Deleted the unused module so it cannot be wired later as a lie. NOAA ACSPO last cell is still 2026-08-20T12:00Z (CoastWatch + PolarWatch `[(last)]`; 2026-08-21T12:00Z 404) — not newer, do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (leftover community freeze, 2026-08-21)
 
 Helm Log said **Frozen reports packed with the trip** and the plotter painted leftover invented community dots (Mike / Relentless, etc.). Community is not a pack layer. GET /api/community is 404. Those rows are leftover demo — not packed, not live radio. Same class as leftover AIS demo fleet. Helm now paints an empty overlay and lists no leftover reports. Demo file stays marked DEMO for tests only. Does not invent community. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
