@@ -9,6 +9,9 @@
  * put (UTF-8 bytes). A body over R2_SINGLE_PUT_MAX_BYTES is split
  * into parts — never dropped silently. One layer throw does not abort
  * the rest. GET /api/packs and cron share persistBuiltPack.
+ * GET /api/packs without skipCache serves packs/{packId}/manifest.json
+ * when it is present (same 6 h packId window or explicit packId) and
+ * does not rebuild NOAA. skipCache=1 or a miss is a live build + persist.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -17,7 +20,7 @@
  *
  * D1 `pack_layers` is upserted only when that table already exists.
  */
-import { buildTripPack, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
+import { buildTripPack, packIdFor, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
 import { workerGfsWaveSeriesFlag } from "../../../src/lib/ahanu/noaa-gfs";
 import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
 import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../../src/lib/ahanu/pack-fixtures";
@@ -114,6 +117,76 @@ export function hashedLayerR2Key(packId: string, layerId: string, hash: string, 
 
 export function packManifestR2Key(packId: string): string {
   return `packs/${packId}/manifest.json`;
+}
+
+function isPersistedManifest(value: unknown, packId: string): value is BuiltPack["manifest"] {
+  if (!value || typeof value !== "object") return false;
+  const man = value as BuiltPack["manifest"];
+  if (man.packId !== packId || man.version !== 1) return false;
+  if (!Array.isArray(man.layers) || man.layers.length === 0) return false;
+  return man.layers.every(
+    (l) => l && typeof l.id === "string" && l.id && typeof l.hash === "string" && l.hash,
+  );
+}
+
+/** Last persist for this packId. Same 6 h window via packIdFor, or an explicit packId. */
+export async function loadPersistedManifest(
+  env: IngestEnv,
+  packId: string,
+): Promise<BuiltPack["manifest"] | null> {
+  const id = packId.trim();
+  if (!id) return null;
+  const text = await r2ObjectText(env.PACKS, packManifestR2Key(id));
+  if (!text) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isPersistedManifest(parsed, id) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ResolvePackOptions {
+  bbox: PackBBox;
+  start: string;
+  hours: number;
+  skipCache?: boolean;
+  packId?: string;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+}
+
+export interface ResolvedPack {
+  manifest: BuiltPack["manifest"];
+  source: "r2" | "live";
+  built?: BuiltPack;
+}
+
+/**
+ * skipCache off: last R2 manifest for this packId when present.
+ * skipCache or miss: live buildTripPack. Caller persists a live result.
+ */
+export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptions): Promise<ResolvedPack> {
+  const hours = opts.hours;
+  const packId = (opts.packId ?? "").trim() || (await packIdFor(opts.bbox, opts.start, hours));
+  if (!opts.skipCache) {
+    const stored = await loadPersistedManifest(env, packId);
+    if (stored) return { manifest: stored, source: "r2" };
+  }
+  const built = await buildTripPack({
+    bbox: opts.bbox,
+    start: opts.start,
+    hours,
+    tryLive: true,
+    skipCache: opts.skipCache === true,
+    timeoutMs: opts.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
+    fetchImpl: opts.fetchImpl,
+    gfsWaveSeries: workerGfsWaveSeriesFlag({
+      AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
+      GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
+    }),
+  });
+  return { manifest: built.manifest, source: "live", built };
 }
 
 /** Worker-safe single R2 put. Official S-57 ENC ~3.4 MB stays one object. */

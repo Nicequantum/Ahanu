@@ -25,9 +25,8 @@ import { layerBody } from "./layer-body";
 import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
-import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox } from "./ingest/run";
+import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, resolvePackManifest } from "./ingest/run";
 import { requireDeviceAuth, requireIngestAuth } from "./ingest-auth";
-import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
 export type { BBox } from "./ingest/pack";
 
@@ -604,26 +603,28 @@ export default {
         }
         const skipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
         const skipCache = skipRaw === "1" || skipRaw === "true" || skipRaw === "yes";
-        const built = await buildTripPack({
+        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        const resolved = await resolvePackManifest(env, {
           bbox: bboxOrErr,
           start,
           hours: Math.round(hours),
-          tryLive: true,
-          timeoutMs: NOAA_GRID_TIMEOUT_MS,
           skipCache,
-          gfsWaveSeries: workerGfsWaveSeriesFlag({
-            AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
-            GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
-          }),
+          packId,
         });
-        rememberBuiltPack(built);
-        try {
-          await persistBuiltPack(env, built);
-        } catch {
-          schedulePersist(ctx, persistBuiltPack(env, built));
+        if (resolved.built) {
+          rememberBuiltPack(resolved.built);
+          try {
+            await persistBuiltPack(env, resolved.built);
+          } catch {
+            schedulePersist(ctx, persistBuiltPack(env, resolved.built));
+          }
         }
-        const manifest = workerManifest(built.manifest);
-        return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
+        const manifest = workerManifest(resolved.manifest);
+        return json(manifest, 200, {
+          "X-Ahanu-Pack-Id": manifest.packId,
+          "X-Ahanu-Source": resolved.source,
+          ETag: `"${manifest.packId}"`,
+        });
       }
 
       if (request.method === "GET" && (path === "/api/objects" || path.startsWith("/api/objects/"))) {

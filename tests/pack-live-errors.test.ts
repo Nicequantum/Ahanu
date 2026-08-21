@@ -122,7 +122,7 @@ afterEach(() => {
 });
 
 describe("downloadTripPack surfaces liveErrors", () => {
-  it("helm live download query includes skipCache", async () => {
+  it("helm live download omits skipCache so restore can reuse last persist", async () => {
     const orig = globalThis.fetch;
     const urls: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -139,9 +139,8 @@ describe("downloadTripPack surfaces liveErrors", () => {
         live: true,
         now: START,
       });
-      assert.ok(
-        urls.some((u) => u.includes("/api/packs?") && u.includes("live=1") && u.includes("skipCache=1")),
-      );
+      assert.ok(urls.some((u) => u.includes("/api/packs?") && u.includes("live=1")));
+      assert.ok(urls.filter((u) => u.includes("/api/packs?")).every((u) => !u.includes("skipCache=")));
       const objects = urls.filter((u) => u.includes("/api/objects?"));
       assert.ok(objects.length > 0);
       assert.ok(objects.every((u) => u.includes("live=1") && !u.includes("skipCache=")));

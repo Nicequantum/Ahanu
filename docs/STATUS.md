@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (GET /api/packs serves last R2 manifest, 2026-08-21)
+
+GET `/api/packs` without skipCache now serves `packs/{packId}/manifest.json` when it is present and the request is the same 6 h packId window or an explicit packId. That path does not rebuild NOAA. skipCache=1 or a miss is the current live build + persistBuiltPack. Objects GET stays R2-first on a cold isolate; hashes match the served manifest. Helm Download 72h no longer forces skipCache (Retry live overlays still does). No ENC/S-57 invented. Ingest stay fail-closed. GFS 72 h, SST stride-2, domains unchanged. No Worker scoring. No Flutter.
+
 ## This pass (R2 source of truth for every packed layer, 2026-08-21)
 
 GET `/api/packs` and cron already called `persistBuiltPack` for all 12 advertised layers (hash key + `packs/{packId}/{layer}` + manifest). Official ENC is ~3.4 MB and first in persist order — a thrown put aborted SST/GRIB/the rest, so a cold isolate after 02/08/14/20 UTC rebuilt NOAA. Persist now writes UTF-8 bytes, keeps going after one layer throw, and splits only above 8 MiB (official ENC stays one object). Objects GET write-through the served layer when the isolate, not R2, had it. Objects serve R2 without rebuilding NOAA. No ENC/S-57 invented. Ingest stay fail-closed. GFS 72 h, SST stride-2, MapLibre worker, maxZoom 16 unchanged. No Worker scoring. No Flutter.

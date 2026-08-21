@@ -120,9 +120,10 @@ export async function downloadTripPack(options: {
   const base = options.base ?? packsApiBase();
   const live = Boolean(options.live);
   const q = { live };
-  // Skipper wants fresh NOAA on every live helm download. Objects omit skipCache
-  // so /api/objects can reuse the same-download in-process cache (with liveErrors).
-  const skipCache = live || Boolean(options.skipCache);
+  // Download without skipCache lets GET /api/packs serve the last R2 persist
+  // (same 6 h packId / restore / second download). Retry live overlays passes
+  // skipCache. Objects omit it so hashes stay the served manifest.
+  const skipCache = Boolean(options.skipCache);
   const manifest = await fetchManifest(options.bbox, options.start, options.hours, base, {
     live,
     skipCache,
