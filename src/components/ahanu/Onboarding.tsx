@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Anchor, Compass, Fish } from "lucide-react";
 import { useEffect, useState, type ComponentType } from "react";
 
-const STORAGE_KEY = "ahanu-briefed-v1";
+const STORAGE_KEY = "ahanu-briefed-v2";
 
 const BULLETS: { icon: ComponentType<{ className?: string }>; text: string }[] = [
   {
@@ -11,7 +11,7 @@ const BULLETS: { icon: ComponentType<{ className?: string }>; text: string }[] =
   },
   {
     icon: Compass,
-    text: "Charts are an aid, not ENC. Keep a lookout and a legal chart.",
+    text: "Official S-57 extract is an aid, not ECDIS. Not a paper-chart substitute. Keep a lookout.",
   },
   {
     icon: Fish,

@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (onboarding ENC copy, 2026-08-21)
+
+Helm first-run still said **Charts are an aid, not ENC** after official S-57 (20 cells) landed. Honest line is aid / not ECDIS, not no ENC. Relabeled: official S-57 extract is an aid, not ECDIS, not a paper-chart substitute. Does not claim full ENC coverage or leftover cells US4RI1EB etc. Brief key bumped to ahanu-briefed-v2 so skippers who already dismissed see it. DATA_PACKS inventory no longer lists SST as MUR L4 + COG — live is ACSPO L3S-LEO NRT JSON grid and ETOPO JSON, not a COG. STATUS is inventory, not helm. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (PWA shell precache, 2026-08-21)
 
 SW cached pack GETs (network-first on api.ahanu.dev) but did not precache the helm document or versioned assets. Airplane after dock Download still had IndexedDB + last pack GET; a reload could blank the app. Install now precaches `/`, helm assets parsed from that document, and `/sw-ahanu.js` (already versioned). Same-origin documents are network-first with cache fallback; hashed assets are cache-first. Production pack APIs stay network-first — not cache-first. Does not invent NOAA. No AIS ingest edit. No Flutter. PR #1 not merged.

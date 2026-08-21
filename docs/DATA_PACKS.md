@@ -40,7 +40,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | ETOPO bathymetry    | JSON grid (live: NCEI ETOPO 2022 ~0.033° via ERDDAP; not a COG) | static                   | Canyon walls, 100-fathom curve, heads. Not official ENC.     |
 | Depth contours      | vector (live: cheap 100/200 fm from the packed grid)          | static                   | Fast drawing, night-readable.                                |
 | Canyon heads        | GeoJSON (live: MarineCadastre named heads)                    | static                   | Live: named heads only — no invented axes. Fixture still has synthetic axes. |
-| SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
+| SST composite       | ACSPO L3S-LEO NRT daily JSON grid (live: CoastWatch 0.02°; not 1 km MUR, not COG) | last 24 h                | Water mass. Input to on-device breaks.                       |
 | Aqua MODIS chlorophyll | PFEG Aqua MODIS L3SMI 8-day 4 km (CMEMS L4 not fetched)     | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
 | SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |
 | Wind GRIB           | GFS-Wave ATL 0p16 (NDFD not fetched)                          | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
@@ -98,9 +98,9 @@ Cron (`15 2,8,14,20 * * *`) is on. R2 `ahanu-trip-packs` and D1 `ahanu-core` exi
 
 Captains read temperature the way they read a canyon wall: not the number, the **break**.
 
-- Nightly **MUR L4 (1 km)** is the planning field. It is complete, slightly smooth, and honest about yesterday.
-- **GOES-East L3** fills “today, this afternoon” when the sky is clear enough. Cloudy days stay on MUR.
-- Packed as a clipped Cloud-Optimized GeoTIFF plus a quantized display PNG. The plotter paints the PNG; scoring reads the COG.
+- Live planning field is **NOAA CoastWatch ACSPO L3S-LEO NRT daily** (`noaacwLEOACSPOSSTL3SnrtKDaily`) when that ERDDAP CSV parses. Native 0.02° / ~2 km. That is not 1 km MUR / GHRSST L4 and not GOES-16 (GOES ids still 404).
+- Packed as a hashed PackedGrid (JSON), not a Cloud-Optimized GeoTIFF. Scoring reads the grid.
+- MUR L4 (`jplMURSST41`, stride 2) and GeoPolar / CoralTemp stay documented probes / fallbacks. A parseable grid older than 48 h is skipped when a later public grid is in-window.
 - Composite **age > 24 h → stale**. **> 48 h → missing** for the Ready-for-offshore test. Helm **Accept stale SST** (default off) can pass a present, hash-ok file in either band with a visible warning. No body still fails.
 - Break detection (gradient, threshold in °C/nmi) is on-device. If two skippers disagree on a 0.5 °C cutoff, that is their argument, not a server flag.
 
@@ -126,7 +126,7 @@ A boolean on the manifest (`readyForOffshore`) and a stronger check the client m
 All of the following must be true:
 
 1. **ENC clip present** for the bbox, including Harbor/Approach coverage of the departure (Point Judith, Montauk, or Newport) and Coastal coverage out to the 100-fathom curve in the box.
-2. **Bathymetry** present (COG readable).
+2. **Bathymetry** present (hashed ETOPO JSON grid readable — not a COG).
 3. **SST composite** present and not stale (< 24 h). The helm **Accept stale SST** switch (default off, persisted) lets a present, hash-ok composite older than 24 h — including a ~48 h CoralTemp file — pass Ready with a visible warning. When SST age is the only Ready failure, Packs highlights that switch (caution) and names the age; the compact helm Ready badge says **SST N h** instead of generic Not ready. It does not flip the switch. Missing SST (no body) still fails. The Worker manifest does not auto-pass.
 4. **Wind GRIB** and **wave GRIB** present, covering `start` … `start+hours`, cycle age ≤ 6 h.
 5. **CO-OPS window** present for the departure harbor over the same 72 h.
@@ -136,7 +136,7 @@ All of the following must be true:
 
 Chlorophyll, altimetry, buoys, and canyon labels make a pack _better_. They do not block Ready. A skipper may still leave without them; the UI should say so in one line, not a modal essay.
 
-A pack that is Ready is still an aid. Official ENC, a lookout, and a float plan are not in R2.
+A pack that is Ready is still an aid. Official S-57 extract is packed when those zips fetch — not an ECDIS, not a paper-chart substitute. A lookout and a float plan are not in R2.
 
 ---
 

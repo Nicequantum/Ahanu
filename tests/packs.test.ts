@@ -2082,5 +2082,21 @@ describe("helm Packs production copy", () => {
     assert.doesNotMatch(onboard, /hashed fixtures/);
     assert.doesNotMatch(onboard, /Default download is hashed/);
     assert.match(onboard, /marina Wi-Fi/);
+    assert.doesNotMatch(onboard, /not ENC/);
+    assert.doesNotMatch(onboard, /US4RI1EB/);
+    assert.match(onboard, /Official S-57 extract is an aid, not ECDIS/);
+    assert.match(onboard, /Not a paper-chart substitute/);
+    assert.match(onboard, /ahanu-briefed-v2/);
+  });
+
+  it("DATA_PACKS inventory names live ACSPO/ETOPO, not MUR L4 + COG", async () => {
+    const packsDoc = await readFile(
+      fileURLToPath(new URL("../docs/DATA_PACKS.md", import.meta.url)),
+      "utf8",
+    );
+    assert.doesNotMatch(packsDoc, /MUR L4 \+ GOES-East gap-fill, COG/);
+    assert.doesNotMatch(packsDoc, /present \(COG readable\)/);
+    assert.match(packsDoc, /ACSPO L3S-LEO NRT/);
+    assert.match(packsDoc, /hashed ETOPO JSON grid/);
   });
 });
