@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (Follow drops on skipper pan, 2026-08-21)
+
+Follow was a latch: every ownship tick and Download-driven re-render called `easeTo` on Veatch while `followShip` stayed true, so a skipper could not pan to Point Judith Harbor / ENC cells without turning Follow off first. Follow now tracks until a user pan, drag, pinch, or zoom, then drops. Tap Follow to re-arm and center. Ownship marker still updates. No invented GPS. Replay still owns the camera while it is on. No Worker scoring. No Flutter.
+
 ## This pass (persist landed SST/ENC labels, 2026-08-21)
 
 Leftover after pack `sources[]` named the landed SST: stored R2 `layer.label` could stay **SST composite (MUR / CoastWatch)** after an ACSPO body landed, and old ENC `sources[]` could omit cell/update counts. Persist (full build, SST refresh, ENC refresh) now rewrites `layer.label` / `sources[]` from the landed body so R2 cannot keep a MUR label on an ACSPO object. Official ENC persist includes cellIds + updateCount. Serving R2 one-shots the same rewrite when the SST body is already ACSPO and the label still says MUR — no NOAA. Does not invent products. No Worker scoring. No Flutter.

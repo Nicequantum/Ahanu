@@ -134,10 +134,11 @@ export function SettingsPanel() {
           </Button>
         ))}
       </div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <span className="text-sm">Follow vessel</span>
         <Switch checked={follow} onCheckedChange={setFollow} />
       </div>
+      <p className="mb-3 text-[11px] text-muted">Pan or zoom drops Follow. Tap Follow to center on the vessel.</p>
       <NmeaToggle />
       <Button variant="outline" className="w-full" onClick={anchored ? weigh : drop}>
         {anchored ? "Weigh anchor" : "Drop anchor alarm"}

@@ -38,6 +38,7 @@ import { aisGeo, aisTargets } from "@/lib/data/ais";
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
+import { followAfterSkipperMapMove, isUserPlotterGesture, shouldRecenterOnOwnship } from "@/lib/ahanu/follow-camera";
 import { useAhanu } from "@/lib/ahanu/store";
 
 
@@ -661,6 +662,21 @@ export function ChartMap() {
         applyEncPaintFromStore(map);
       });
 
+      const dropFollow = () => {
+        const st = useAhanu.getState();
+        if (st.followShip) st.setFollow(followAfterSkipperMapMove());
+      };
+      // Pan / drag / pinch / wheel drop Follow so ownship ticks cannot yank the camera.
+      map.on("dragstart", dropFollow);
+      map.on("zoomstart", (e) => {
+        if (isUserPlotterGesture(e)) dropFollow();
+      });
+      map.on("rotatestart", (e) => {
+        if (isUserPlotterGesture(e)) dropFollow();
+      });
+      map.on("pitchstart", (e) => {
+        if (isUserPlotterGesture(e)) dropFollow();
+      });
       map.on("click", (e) => {
         const st = useAhanu.getState();
         if (st.measure.active) {
@@ -867,7 +883,7 @@ export function ChartMap() {
     shipRef.current?.setLngLat([vessel.lon, vessel.lat]);
     const el = shipRef.current?.getElement();
     if (el) el.style.transform = `rotate(${vessel.heading}deg)`;
-    if (follow && map && replayT == null) {
+    if (shouldRecenterOnOwnship(follow, replayT) && map) {
       map.easeTo({ center: [vessel.lon, vessel.lat], duration: 400, essential: true });
     }
     const range = map?.getSource("range") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
