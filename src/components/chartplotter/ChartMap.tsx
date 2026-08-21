@@ -145,22 +145,12 @@ function windLines(hour: number): GeoJSON.FeatureCollection {
 }
 
 
-function applyEncPaintFromStore(
-  map: {
-    getLayer: (id: string) => unknown;
-    setPaintProperty: (id: string, prop: string, value: number) => void;
-  },
-) {
+function applyEncPaintFromStore(map: import("maplibre-gl").Map) {
   const enc = useAhanu.getState().layers.enc;
   applyEncLayerPaint(map, Boolean(enc?.visible), enc?.opacity);
 }
 
-function applyHmsPaintFromStore(
-  map: {
-    getLayer: (id: string) => unknown;
-    setPaintProperty: (id: string, prop: string, value: number) => void;
-  },
-) {
+function applyHmsPaintFromStore(map: import("maplibre-gl").Map) {
   const hms = useAhanu.getState().layers.hms_zones;
   applyHmsLayerPaint(map, Boolean(hms?.visible), hms?.opacity);
 }

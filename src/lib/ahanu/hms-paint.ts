@@ -28,7 +28,7 @@ export function hmsLayerPaint(visible: boolean, opacity?: number | null): HmsLay
 export function applyHmsLayerPaint(
   map: {
     getLayer: (id: string) => unknown;
-    setPaintProperty: (id: string, prop: string, value: number) => void;
+    setPaintProperty: (id: string, prop: HmsPaintProp, value: number) => unknown;
   },
   visible: boolean,
   opacity?: number | null,

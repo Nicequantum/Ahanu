@@ -222,7 +222,12 @@ export function packedOfficialEncCells(): PackedEncCell[] {
   const fromS57 = (enc.s57?.cellIds ?? []).filter(Boolean);
   if (fromS57.length) {
     const byId = new Map((enc.cells ?? []).map((c) => [c.id, c]));
-    return fromS57.map((id) => byId.get(id)).filter((c): c is PackedEncCell => Boolean(c));
+    const cells: PackedEncCell[] = [];
+    for (const id of fromS57) {
+      const cell = byId.get(id);
+      if (cell) cells.push(cell);
+    }
+    return cells;
   }
   return (enc.cells ?? []).filter((c) => c.s57?.iso8211);
 }

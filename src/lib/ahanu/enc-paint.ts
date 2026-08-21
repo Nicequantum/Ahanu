@@ -69,7 +69,7 @@ export function encLayerPaint(visible: boolean, opacity?: number | null): EncLay
 export function applyEncLayerPaint(
   map: {
     getLayer: (id: string) => unknown;
-    setPaintProperty: (id: string, prop: string, value: number) => void;
+    setPaintProperty: (id: string, prop: EncPaintProp | EncStrokePaint["prop"], value: number) => unknown;
   },
   visible: boolean,
   opacity?: number | null,
