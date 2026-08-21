@@ -22,9 +22,12 @@ import {
 } from "./ingest/pack";
 import { buildTripPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
 import { layerBody } from "./layer-body";
-import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
-import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT, type FetchLike } from "../../src/lib/ahanu/noaa-http";
-import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
+import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../src/lib/ahanu/noaa-http";
+import {
+  resolveNdbcBuoys,
+  resolveNdbcHealth,
+  type CachedNdbcProbe,
+} from "./ndbc-probe-cache";
 import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, resolvePackManifest } from "./ingest/run";
 import {
   bearerToken,
@@ -210,7 +213,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source, Retry-After",
+  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source, X-Ahanu-Ndbc, Retry-After",
 };
 
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -592,37 +595,7 @@ export class CommunityHub {
   }
 }
 
-const NDBC_HEALTH_PROBE_MS = 5_000;
-
-export interface NoaaHealthProbe {
-  host: "ndbc";
-  ok: boolean;
-  status?: number;
-  bytes?: number;
-  error?: string;
-}
-
-/** Cheap outbound probe so /health surfaces the real Worker→NOAA error. */
-async function probeNdbc(): Promise<NoaaHealthProbe> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), NDBC_HEALTH_PROBE_MS);
-  try {
-    const res = await defaultNoaaFetch(NDBC_LATEST_OBS_URL, {
-      signal: ctrl.signal,
-      headers: { "User-Agent": NOAA_USER_AGENT },
-    });
-    const buf = new Uint8Array(await res.arrayBuffer());
-    return { host: "ndbc", ok: res.ok, status: res.status, bytes: buf.byteLength };
-  } catch (err) {
-    return {
-      host: "ndbc",
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    clearTimeout(t);
-  }
-}
+export type NoaaHealthProbe = CachedNdbcProbe;
 
 // ---------------------------------------------------------------------------
 // Router
@@ -643,17 +616,17 @@ export default {
 
     try {
       if (request.method === "GET" && (path === "/health" || path === "/")) {
-        const noaa = await probeNdbc();
+        const resolved = await resolveNdbcHealth({ env, fetchImpl: env.fetchImpl });
         return json(
           {
             ok: true,
             service: env.SERVICE ?? "ahanu-packs",
             ts: new Date().toISOString(),
             scoring: "on-device-only",
-            noaa,
+            noaa: resolved.noaa,
           },
           200,
-          { "Cache-Control": "no-store" },
+          { "Cache-Control": "no-store", "X-Ahanu-Ndbc": resolved.source },
         );
       }
 
@@ -754,28 +727,34 @@ export default {
       }
 
       if (request.method === "GET" && path === "/api/buoys") {
-        const live = await tryLiveNoaa({
-          bbox: POINT_JUDITH_CANYON_BBOX,
-          start: new Date().toISOString(),
-          hours: 3,
-          timeoutMs: 3500,
-        });
-        const payload = live.buoys?.payload as { buoys?: Buoy[]; updatedAt?: string } | undefined;
-        if (payload?.buoys?.length) {
-          return json({
-            updatedAt: payload.updatedAt,
-            count: payload.buoys.length,
-            source: "ndbc-live",
-            buoys: payload.buoys,
-          });
+        const resolved = await resolveNdbcBuoys({ env, fetchImpl: env.fetchImpl });
+        if (resolved.buoys?.length) {
+          return json(
+            {
+              updatedAt: resolved.updatedAt,
+              count: resolved.count,
+              source: "ndbc-live",
+              cached: resolved.cached,
+              probedAt: resolved.probedAt,
+              ageSec: resolved.ageSec,
+              buoys: resolved.buoys,
+            },
+            200,
+            { "X-Ahanu-Ndbc": resolved.source },
+          );
         }
         const snap = buoySnapshot(new Date());
-        return json({
-          updatedAt: snap[0]?.updatedAt,
-          count: snap.length,
-          source: "ndbc-snapshot",
-          buoys: snap,
-        });
+        return json(
+          {
+            updatedAt: snap[0]?.updatedAt,
+            count: snap.length,
+            source: "ndbc-snapshot",
+            cached: false,
+            buoys: snap,
+          },
+          200,
+          { "X-Ahanu-Ndbc": "snapshot" },
+        );
       }
 
       if ((request.method === "POST" || request.method === "GET") && path === "/api/ingest") {
