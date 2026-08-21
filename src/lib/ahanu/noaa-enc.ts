@@ -288,6 +288,15 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+export function base64ToBytes(b64: string): Uint8Array {
+  const g = globalThis as { Buffer?: { from: (s: string, e: string) => Uint8Array } };
+  if (g.Buffer) return new Uint8Array(g.Buffer.from(b64, "base64"));
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 function crc32(data: Uint8Array): number {
   let c = 0xffffffff;
   for (let i = 0; i < data.length; i++) {

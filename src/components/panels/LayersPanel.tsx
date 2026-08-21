@@ -67,7 +67,7 @@ export function LayersPanel() {
       <p className="text-xs text-muted">
         Packed / fixture = trip-pack grid or vector. Synthetic = demo field with no pack. Missing = pack
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
-        pack. ENC official S-57 paints packed NOAA cell boxes when those zips landed; otherwise the catalog aid overlay.
+        pack. ENC official S-57 paints an extract from packed NOAA .000 bytes (cell bounds, aids, lights, soundings) — not an ECDIS. Catalog-only packs stay aid boxes.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
         before you leave the dock. AIS is a demo overlay — not live traffic.
       </p>

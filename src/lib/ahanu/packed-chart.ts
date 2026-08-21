@@ -18,6 +18,10 @@ export const ENC_AID_DISCLAIMER =
 export const ENC_S57_DISCLAIMER =
   "ENC in this pack is official NOAA S-57 (ISO 8211 .000 exchange set). Ahanu is an aid — not an ECDIS.";
 
+export const ENC_S57_EXTRACT_NOTE = "S-57 extract — not ECDIS";
+
+export { ENC_OFFICIAL_ROW_LABEL, ENC_CATALOG_ROW_LABEL } from "./s57-extract";
+
 export const HMS_AID_DISCLAIMER =
   "HMS closed areas are a reminder overlay, not a legal determination. Recreational trolling is generally not the same as commercial pelagic longline closures. Verify with NOAA HMS before you leave the dock.";
 
@@ -218,6 +222,16 @@ export function encHelmLabel(source?: string): string {
   return "ENC catalog (aid)";
 }
 
+export function encPackRowLabel(stored?: string): string {
+  if (packedEncOfficial()) return "NOAA ENC (official S-57)";
+  if (stored && !/catalog or S-57/i.test(stored)) return stored;
+  return "NOAA ENC (catalog aid)";
+}
+
+export function packedEncExtract() {
+  return getPackedOcean()?.enc?.extract;
+}
+
 export function encOverlayCells(): PackedEncCell[] {
   return packedEncOfficial() ? packedOfficialEncCells() : packedEncCells();
 }
@@ -265,7 +279,43 @@ export function encCatalogForChart(): GeoJSON.FeatureCollection {
   return encCatalogFeatures(encOverlayCells(), official ? "enc-s57" : "enc-catalog");
 }
 
+function extractFeatures(kind: string): GeoJSON.Feature[] {
+  return (packedEncExtract()?.features ?? []).filter((f) => (f.properties as { kind?: string } | null)?.kind === kind);
+}
+
+/** Cell footprints: parsed .000 extent when official extract landed, else catalog boxes. */
+export function encForChart(): GeoJSON.FeatureCollection {
+  const cells = extractFeatures("enc-s57-cell");
+  if (cells.length) return { type: "FeatureCollection", features: cells };
+  return encCatalogForChart();
+}
+
+export function encAidsForChart(): GeoJSON.FeatureCollection {
+  const features = [...extractFeatures("enc-s57-aid"), ...extractFeatures("enc-s57-light")];
+  return { type: "FeatureCollection", features };
+}
+
+export function encSoundingsForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-sounding") };
+}
+
 export function encCatalogLabelPoints(): { id: string; lon: number; lat: number }[] {
+  const extractCells = extractFeatures("enc-s57-cell");
+  if (extractCells.length) {
+    return extractCells
+      .map((f) => {
+        const ring = f.geometry?.type === "Polygon" ? f.geometry.coordinates[0] : undefined;
+        if (!ring?.length) return null;
+        const lons = ring.map((p) => p[0]!);
+        const lats = ring.map((p) => p[1]!);
+        return {
+          id: String((f.properties as { id?: string } | null)?.id ?? ""),
+          lon: (Math.min(...lons) + Math.max(...lons)) / 2,
+          lat: (Math.min(...lats) + Math.max(...lats)) / 2,
+        };
+      })
+      .filter((c): c is { id: string; lon: number; lat: number } => Boolean(c?.id));
+  }
   return encOverlayCells()
     .filter(encCellHasBounds)
     .map((c) => ({

@@ -205,9 +205,13 @@ const {
   buoysForChart,
   packedEncCells,
   encCatalogFeatures,
+  encAidsForChart,
   encCatalogForChart,
   encCellHasBounds,
+  encForChart,
   encHelmLabel,
+  encPackRowLabel,
+  encSoundingsForChart,
   packedEncOfficial,
 } = await import("../src/lib/ahanu/packed-chart.ts");
 
@@ -511,6 +515,7 @@ describe("ENC catalog aid overlay", () => {
 describe("ENC official S-57 helm", () => {
   it("no-pack helm label stays catalog aid", () => {
     assert.equal(encHelmLabel(), "ENC catalog (aid)");
+    assert.equal(encPackRowLabel("NOAA ENC (catalog or S-57)"), "NOAA ENC (catalog aid)");
   });
 
   it("labels official S-57 and paints those cell boxes only", async () => {
@@ -567,9 +572,92 @@ describe("ENC official S-57 helm", () => {
     setPackedOcean(packedOceanFromBodies(bodies, "noaa"));
     assert.equal(packedEncOfficial(), true);
     assert.equal(encHelmLabel("noaa"), "ENC official S-57 · NOAA");
+    assert.equal(encPackRowLabel("NOAA ENC (catalog or S-57)"), "NOAA ENC (official S-57)");
     const geo = encCatalogForChart();
     assert.equal(geo.features.length, 1);
     assert.equal((geo.features[0]!.properties as { id?: string })?.id, "US5PVDBB");
     assert.equal((geo.features[0]!.properties as { kind?: string })?.kind, "enc-s57");
+    assert.equal(encForChart().features.length, 1, "unparseable zip falls back to catalog boxes");
+    assert.equal(encAidsForChart().features.length, 0, "do not invent aids from a stub zip");
+    assert.equal(encSoundingsForChart().features.length, 0);
+  });
+
+  it("paints S-57 extract from packed official zip bytes", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { encToPackedJson, makeStoredZip, bytesToBase64, isIso8211 } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const { sampleS57ExtractDot000, applyOfficialS57Extract } = await import("../src/lib/ahanu/s57-extract.ts");
+    const dot = sampleS57ExtractDot000("US5TESTA");
+    assert.equal(isIso8211(dot), true);
+    const zip = makeStoredZip([
+      { name: "ENC_ROOT/US5TESTA/US5TESTA.000", data: dot },
+      { name: "ENC_ROOT/CATALOG.031", data: new TextEncoder().encode("002623LE1 0900073   66040000000019000000") },
+    ]);
+    const packed = encToPackedJson(
+      POINT_JUDITH_CANYON_BBOX,
+      [
+        {
+          id: "US5TESTA",
+          usage: 5,
+          name: "Test Harbor",
+          west: -71.6,
+          south: 41.3,
+          east: -71.4,
+          north: 41.4,
+        },
+      ],
+      {
+        catalogUrl: "https://charts.noaa.gov/ENCs/ENCProdCat.xml",
+        officialS57: [
+          {
+            id: "US5TESTA",
+            official: true,
+            encoding: "s-57",
+            iso8211: true,
+            catalog031: true,
+            file000: "US5TESTA.000",
+            file000Bytes: dot.byteLength,
+            leader: new TextDecoder("latin1").decode(dot.subarray(0, 24)),
+            zipBytes: zip.byteLength,
+            zipSha256: "test",
+            zipBase64: bytesToBase64(zip),
+          },
+        ],
+      },
+    );
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const bodies = { ...fixture.bodies, enc: encodeLayerBody(packed) };
+    const ocean = packedOceanFromBodies(bodies, "noaa");
+    await applyOfficialS57Extract(ocean.enc);
+    setPackedOcean(ocean);
+    assert.equal(packedEncOfficial(), true);
+    assert.equal(encPackRowLabel(), "NOAA ENC (official S-57)");
+    const cells = encForChart();
+    assert.equal(cells.features.length, 1);
+    assert.equal((cells.features[0]!.properties as { kind?: string })?.kind, "enc-s57-cell");
+    assert.match(String((cells.features[0]!.properties as { extract?: string })?.extract), /S-57 extract/i);
+    const ring = (cells.features[0]!.geometry as GeoJSON.Polygon).coordinates[0]!;
+    const west = Math.min(...ring.map((p) => p[0]!));
+    const east = Math.max(...ring.map((p) => p[0]!));
+    const south = Math.min(...ring.map((p) => p[1]!));
+    const north = Math.max(...ring.map((p) => p[1]!));
+    assert.ok(west <= -71.516 && east >= -71.51);
+    assert.ok(south <= 41.35 && north >= 41.385);
+    const aids = encAidsForChart();
+    assert.equal(aids.features.length, 2);
+    assert.ok(aids.features.some((f) => (f.properties as { kind?: string })?.kind === "enc-s57-light"));
+    assert.ok(aids.features.some((f) => (f.properties as { name?: string })?.name === "Test Channel Buoy 7"));
+    const light = aids.features.find((f) => (f.properties as { kind?: string })?.kind === "enc-s57-light")!;
+    const [lon, lat] = (light.geometry as GeoJSON.Point).coordinates;
+    assert.ok(Math.abs(lon - -71.5147222) < 1e-5);
+    assert.ok(Math.abs(lat - 41.3656111) < 1e-5);
+    const snd = encSoundingsForChart();
+    assert.equal(snd.features.length, 1);
+    assert.equal((snd.features[0]!.properties as { depthM?: number })?.depthM, 12.6);
+    assert.equal((snd.features[0]!.properties as { kind?: string })?.kind, "enc-s57-sounding");
   });
 });

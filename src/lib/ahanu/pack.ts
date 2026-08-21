@@ -564,6 +564,13 @@ export function resetBuiltPackCache(): void {
   lastBuilt.clear();
 }
 
+function overlayIsOfficialEnc(overlay?: string): boolean {
+  if (!overlay) return false;
+  const parsed = parseLayerBody(overlay);
+  if (!parsed || !("payload" in parsed)) return false;
+  return Boolean((parsed.payload as { official?: boolean }).official);
+}
+
 export async function buildFixturePack(options: {
   bbox: PackBBox;
   start?: string;
@@ -599,7 +606,7 @@ export async function buildFixturePack(options: {
     bodies[spec.id] = body;
     layers.push({
       id: spec.id,
-      label: spec.label,
+      label: spec.id === "enc" && overlayIsOfficialEnc(overlay) ? "NOAA ENC (official S-57)" : spec.label,
       sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
       sizeBytes: bytes,
       status: "ready",

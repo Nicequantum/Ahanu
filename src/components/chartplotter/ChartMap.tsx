@@ -16,8 +16,10 @@ import {
   canyonHeadsForLabels,
   canyonsForChart,
   contoursForChart,
-  encCatalogForChart,
+  encAidsForChart,
   encCatalogLabelPoints,
+  encForChart,
+  encSoundingsForChart,
   hmsForChart,
 } from "@/lib/ahanu/packed-chart";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
@@ -275,7 +277,7 @@ export function ChartMap() {
           paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": 0 },
         });
 
-        map.addSource("enc", { type: "geojson", data: encCatalogForChart() });
+        map.addSource("enc", { type: "geojson", data: encForChart() });
         map.addLayer({
           id: "enc",
           type: "fill",
@@ -291,6 +293,30 @@ export function ChartMap() {
             "line-width": 1.1,
             "line-dasharray": [3, 2],
             "line-opacity": 0,
+          },
+        });
+        map.addSource("enc-aids", { type: "geojson", data: encAidsForChart() });
+        map.addLayer({
+          id: "enc-aids",
+          type: "circle",
+          source: "enc-aids",
+          paint: {
+            "circle-radius": ["case", ["==", ["get", "kind"], "enc-s57-light"], 4.2, 3.4],
+            "circle-color": ["case", ["==", ["get", "kind"], "enc-s57-light"], "#f4d35e", "#4ecdc4"],
+            "circle-opacity": 0,
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#071016",
+          },
+        });
+        map.addSource("enc-soundings", { type: "geojson", data: encSoundingsForChart() });
+        map.addLayer({
+          id: "enc-soundings",
+          type: "circle",
+          source: "enc-soundings",
+          paint: {
+            "circle-radius": 1.6,
+            "circle-color": "#8aa0ab",
+            "circle-opacity": 0,
           },
         });
 
@@ -581,6 +607,8 @@ export function ChartMap() {
     vis("hms-outline", layers.hms_zones.visible, layers.hms_zones.opacity);
     vis("enc", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("enc-outline", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-aids", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-soundings", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("buoys", layers.buoys.visible, 0.9);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
@@ -608,6 +636,12 @@ export function ChartMap() {
         "line-opacity",
         layers.enc?.visible ? Math.min(1, (layers.enc.opacity ?? 0.32) + 0.4) : 0,
       );
+    }
+    if (map.getLayer("enc-aids")) {
+      map.setPaintProperty("enc-aids", "circle-opacity", layers.enc?.visible ? Math.min(1, (layers.enc.opacity ?? 0.32) + 0.45) : 0);
+    }
+    if (map.getLayer("enc-soundings")) {
+      map.setPaintProperty("enc-soundings", "circle-opacity", layers.enc?.visible ? Math.min(0.75, (layers.enc.opacity ?? 0.32) + 0.2) : 0);
     }
     for (const m of encLabelRefs.current) {
       const el = m.getElement();
@@ -648,7 +682,9 @@ export function ChartMap() {
     set("c200", packedContours.c200);
     set("canyons", canyonsForChart());
     set("hms", hmsForChart());
-    set("enc", encCatalogForChart());
+    set("enc", encForChart());
+    set("enc-aids", encAidsForChart());
+    set("enc-soundings", encSoundingsForChart());
     set("buoys", buoyPointsGeo(buoysForChart()));
     void import("maplibre-gl").then((maplibregl) => {
       if (mapRef.current !== map) return;

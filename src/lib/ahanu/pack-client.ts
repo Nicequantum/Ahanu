@@ -14,6 +14,7 @@ import {
 import type { TripPackLayer } from "./types";
 import { hashesMatch } from "./pack-fixtures";
 import { packedOceanFromBodies, setPackedOcean, type PackFieldSource } from "./packed-fields";
+import { applyOfficialS57Extract } from "./s57-extract";
 import { bodiesForPack, putObject, saveManifest } from "./pack-store";
 
 
@@ -194,7 +195,9 @@ export async function downloadTripPack(options: {
   });
 
   if (Object.keys(bodies).length) {
-    setPackedOcean(packedOceanFromBodies(bodies, sourceFromManifest(manifest)));
+    const ocean = packedOceanFromBodies(bodies, sourceFromManifest(manifest));
+    await applyOfficialS57Extract(ocean.enc);
+    setPackedOcean(ocean);
   }
 
   return { manifest, ready, workerReady: manifest.readyForOffshore, bodies };
@@ -202,7 +205,9 @@ export async function downloadTripPack(options: {
 
 export async function applyStoredPack(packId: string): Promise<void> {
   const bodies = await bodiesForPack(packId);
-  setPackedOcean(packedOceanFromBodies(bodies));
+  const ocean = packedOceanFromBodies(bodies);
+  await applyOfficialS57Extract(ocean.enc);
+  setPackedOcean(ocean);
 }
 
 export function evidenceFromStored(
@@ -303,7 +308,9 @@ export async function restorePackedSession(opts?: {
     actualHashes[layer.id] = await sha256Hex(o.body);
   }
   if (Object.keys(bodies).length) {
-    setPackedOcean(packedOceanFromBodies(bodies, sourceFromManifest(manifest)));
+    const ocean = packedOceanFromBodies(bodies, sourceFromManifest(manifest));
+    await applyOfficialS57Extract(ocean.enc);
+    setPackedOcean(ocean);
   }
 
   const ready = evaluateReadyForOffshore({

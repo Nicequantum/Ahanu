@@ -42,6 +42,20 @@ export interface EncS57Packed {
   zipUrl?: string;
 }
 
+/** Client-side parse of packed official .000 bytes. Not stored in the pack hash. */
+export interface EncS57Extract {
+  official: true;
+  note: string;
+  cells: {
+    cellId: string;
+    file000?: string;
+    bounds?: { west: number; south: number; east: number; north: number };
+    features: GeoJSON.Feature[];
+    counts: { aids: number; lights: number; soundings: number; soundingsOmitted: number };
+  }[];
+  features: GeoJSON.Feature[];
+}
+
 export interface EncClip {
   fixture: boolean;
   live?: boolean;
@@ -66,6 +80,7 @@ export interface EncClip {
     s57?: EncS57Packed;
   }[];
   tiles?: { template: string; legal?: boolean; probe?: string };
+  extract?: EncS57Extract;
 }
 
 export interface PackedTideWindow {

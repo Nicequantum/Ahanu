@@ -16,9 +16,9 @@ import {
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
-import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, encHelmLabel, packedEncCells, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
+import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, ENC_S57_EXTRACT_NOTE, encHelmLabel, encPackRowLabel, packedEncCells, packedEncExtract, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints official S-57 cell boxes when those zips landed; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
+/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -254,7 +254,7 @@ export function PacksPanel() {
         {packs.map((p) => (
           <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2">
             <div>
-              <p className="text-sm">{p.label}</p>
+              <p className="text-sm">{p.id === "enc" ? encPackRowLabel(p.label) : p.label}</p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes
                   ? `${p.sizeBytes} B`
@@ -292,7 +292,11 @@ export function PacksPanel() {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted">{packedEncOfficial() ? ENC_S57_DISCLAIMER : ENC_AID_DISCLAIMER}</p>
+          <p className="text-xs text-muted">
+            {packedEncOfficial()
+              ? `${ENC_S57_DISCLAIMER}${packedEncExtract() ? ` ${ENC_S57_EXTRACT_NOTE}.` : ""}`
+              : ENC_AID_DISCLAIMER}
+          </p>
         </div>
       ) : null}
       <p className="mt-4 text-xs text-muted">
