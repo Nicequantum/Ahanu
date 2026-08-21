@@ -90,8 +90,13 @@ export function IntelPanel() {
         disabled={busy}
         onClick={async () => {
           setBusy(true);
-          const res = await askSkipper({ data: { prompt: text } });
-          setAi(res.ok ? res.text : res.error);
+          try {
+            const res = await askSkipper({ data: { prompt: text } });
+            setAi(res.ok ? res.text : res.error);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "";
+            setAi(msg === "Unauthorized" ? "Sign in to ask the skipper" : "Skipper AI is not available");
+          }
           setBusy(false);
         }}
       >

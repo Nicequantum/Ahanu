@@ -261,10 +261,6 @@ function parseBboxFromUrl(url: URL, fallback: BBox): BBox | Response {
   return parseBboxCsv(url.searchParams.get("bbox"), fallback);
 }
 
-function inBbox(lat: number, lon: number, b: BBox): boolean {
-  return lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
-}
-
 function parseIso(raw: string | null): string {
   if (!raw) return new Date().toISOString();
   const d = new Date(raw);
@@ -506,6 +502,7 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
 // Durable Object — bbox-scoped community reports (live, not scored)
 // ---------------------------------------------------------------------------
 
+/** Not HTTP. Binding kept for later pack-build leases. /api/community is 404. */
 export class CommunityHub {
   private readonly state: DoState;
   constructor(state: DoState, _env: Env) {
@@ -528,35 +525,6 @@ export class CommunityHub {
     return json({ error: "method not allowed", path: url.pathname }, 405);
   }
 }
-
-async function communityFor(env: Env, bbox: BBox): Promise<CommunityReport[]> {
-  let extras: CommunityReport[] = [];
-  try {
-    const ns = env.COMMUNITY;
-    if (!ns || typeof ns.idFromName !== "function") {
-      extras = SEED_REPORTS;
-    } else {
-      const id = ns.idFromName("northeast-shelf");
-      const stub = ns.get(id);
-      const res = await stub.fetch("https://community/reports");
-      if (res.ok) {
-        const payload = (await res.json()) as { reports?: CommunityReport[] };
-        extras = payload.reports ?? [];
-      }
-    }
-  } catch {
-    extras = SEED_REPORTS;
-  }
-  const seen = new Set<string>();
-  const all: CommunityReport[] = [];
-  for (const r of extras) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    all.push(r);
-  }
-  return all.filter((r) => inBbox(r.lat, r.lon, bbox));
-}
-
 
 const NDBC_HEALTH_PROBE_MS = 5_000;
 
@@ -760,7 +728,13 @@ export default {
         return json({ ok: true, ingest: result }, 200, { "Cache-Control": "no-store" });
       }
 
-      if (request.method === "POST" && path === "/api/catches") {
+      if (path === "/api/catches" || path.startsWith("/api/catches/")) {
+        if (request.method !== "POST" || path !== "/api/catches") {
+          return error(404, "not found", {
+            path,
+            hint: "catch list is device-local; POST /api/catches upserts the skipper's own log",
+          });
+        }
         const denied = requireDeviceAuth(request);
         if (denied) return denied;
         let body: unknown;
@@ -775,11 +749,11 @@ export default {
         return json({ ok: true, catch: saved }, 201, { "Cache-Control": "no-store" });
       }
 
-      if (request.method === "GET" && path === "/api/community") {
-        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
-        if (bboxOrErr instanceof Response) return bboxOrErr;
-        const reports = await communityFor(env, bboxOrErr);
-        return json({ bbox: bboxOrErr, count: reports.length, reports });
+      if (path === "/api/community" || path.startsWith("/api/community/")) {
+        return error(404, "not found", {
+          path,
+          hint: "community HTTP is unused; helm paints a packed local snapshot",
+        });
       }
 
       return error(404, "not found", { path });

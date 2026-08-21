@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { authMiddleware } from "@/lib/auth/middleware";
 
 export const askSkipper = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: unknown) =>
     z.object({ prompt: z.string().min(8).max(1200) }).parse(input),
   )

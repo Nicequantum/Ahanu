@@ -160,3 +160,47 @@ describe("Worker HTTP wiring", () => {
     assert.equal(res.status, 401);
   });
 });
+
+describe("community HTTP is closed", () => {
+  it("GET /api/community is 404 — unused surface, not a public feed", async () => {
+    const res = await worker.fetch(req("/api/community"), { INGEST_TOKEN: "dock-ingest" });
+    assert.equal(res.status, 404);
+    const body = (await res.json()) as { error?: string; hint?: string };
+    assert.equal(body.error, "not found");
+    assert.match(body.hint ?? "", /unused/i);
+  });
+
+  it("POST /api/community is 404 — no open write", async () => {
+    const res = await worker.fetch(
+      req("/api/community", {
+        method: "POST",
+        headers: { Authorization: "Bearer anyone", "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "rpt-open", who: "x", species: "bigeye", lat: 39.9, lon: -69.6, at: START, note: "no" }),
+      }),
+      { INGEST_TOKEN: "dock-ingest" },
+    );
+    assert.equal(res.status, 404);
+  });
+});
+
+describe("catch list is not a public read of other devices", () => {
+  it("GET /api/catches is 404 with or without a bearer", async () => {
+    const none = await worker.fetch(req("/api/catches"), { INGEST_TOKEN: "dock-ingest" });
+    assert.equal(none.status, 404);
+
+    const withTok = await worker.fetch(
+      req("/api/catches", { headers: { Authorization: "Bearer skipper-device" } }),
+      { INGEST_TOKEN: "dock-ingest" },
+    );
+    assert.equal(withTok.status, 404);
+    const body = (await withTok.json()) as { hint?: string };
+    assert.match(body.hint ?? "", /device-local/i);
+  });
+
+  it("GET /api/packs without bearer is not 401", async () => {
+    const res = await worker.fetch(req("/api/packs?hours=999"), { INGEST_TOKEN: "dock-ingest" });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error?: string };
+    assert.equal(body.error, "hours must be 1–168");
+  });
+});

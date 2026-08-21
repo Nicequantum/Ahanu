@@ -84,7 +84,7 @@ Mixing these — for example baking a habitat GeoTIFF on the Worker — would co
 
 | Piece           | Name               | Role                                                                                                |
 | --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
-| Worker          | `ahanu-packs`      | CORS, health, pack manifests, buoy snapshot, catch upsert, community bbox query                     |
+| Worker          | `ahanu-packs`      | CORS, health, pack manifests, buoy snapshot, catch upsert. Community HTTP is 404 (unused).          |
 | Pages           | (app shell)        | Hosts the production PWA; not the Grok/Nitro preview                                                   |
 | R2              | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client.                                         |
 | D1              | `ahanu-core`       | Catch log, community metadata, pack index, device keys                                              |
@@ -98,7 +98,7 @@ HTTP `POST /api/ingest` requires Worker secret `INGEST_TOKEN` and fails closed i
 
 - Clip, transcode, hash, and list bytes.
 - Serve NDBC snapshots and CO-OPS windows that were already ingested.
-- Accept a catch upsert and a community report.
+- Accept a catch upsert (`POST /api/catches`, device bearer). Community HTTP is unused (404).
 
 ### What the Worker is forbidden to do
 
