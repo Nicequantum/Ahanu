@@ -384,6 +384,99 @@ describe("GET /api/packs R2 manifest", () => {
     assert.equal(again.manifest.layers.find((l) => l.id === "sst")?.updatedAt, "2026-08-20T12:00:00.000Z");
   });
 
+  it("persist rewrites leftover MUR label from an ACSPO SST body", async () => {
+    const { env } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const sst = built.manifest.layers.find((l) => l.id === "sst");
+    assert.ok(sst);
+    sst.label = "SST composite (MUR / CoastWatch)";
+    built.manifest.sources = [
+      { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+      { id: "noaa-sst", name: "SST MUR" },
+    ];
+    await persistBuiltPack(env, built);
+    const loaded = await loadPersistedManifest(env, built.manifest.packId);
+    assert.ok(loaded);
+    assert.match(loaded.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+    assert.doesNotMatch(loaded.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
+    assert.match((loaded.sources ?? []).find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.ok(!(loaded.sources ?? []).some((s) => s.id === "ghrsst-coastwatch-sst"));
+  });
+
+  it("serving R2 rewrites leftover MUR label from an ACSPO body without NOAA", async () => {
+    const { env, store } = mockEnv();
+    const nowFresh = new Date("2026-08-20T19:00:00.000Z");
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: nowFresh,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    stored.layers.find((l) => l.id === "sst").label = "SST composite (MUR / CoastWatch)";
+    stored.sources = [
+      { id: "noaa-sst", name: "SST MUR" },
+      { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+    ];
+    store.set(key, JSON.stringify(stored));
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: nowFresh,
+      fetchImpl: async () => {
+        fetches += 1;
+        throw new Error("leftover MUR rewrite must not fetch NOAA");
+      },
+    });
+    assert.equal(hit.source, "live");
+    assert.equal(fetches, 0, "ACSPO body already landed — no NOAA");
+    assert.ok(hit.built);
+    assert.match(hit.manifest.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+    assert.match((hit.manifest.sources ?? []).find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.doesNotMatch(hit.manifest.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
+
+    await persistBuiltPack(env, hit.built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    let second = 0;
+    const again = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: nowFresh,
+      fetchImpl: async () => {
+        second += 1;
+        throw new Error("rewritten manifest must not refetch");
+      },
+    });
+    assert.equal(again.source, "r2");
+    assert.equal(second, 0);
+    assert.match(again.manifest.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+  });
+
   it("R2 stale SST keeps MUR with honesty when ACSPO fails", async () => {
     const { env } = mockEnv();
     const murPack = await buildTripPack({
@@ -493,7 +586,7 @@ function officialEncBody(cellIds) {
       encoding: "s-57",
       source: "noaa",
       note: "test official ENC",
-      s57: { source: "noaa", encoding: "s-57", official: true, cellIds },
+      s57: { source: "noaa", encoding: "s-57", official: true, cellIds, updateCount: 0 },
       cells: [],
     },
   });
@@ -629,5 +722,27 @@ describe("GET /api/packs R2 ENC refresh", () => {
     assert.equal(fetches, 0);
     assert.equal(hit.built, undefined);
     assert.equal(hit.manifest.layers.find((l) => l.id === "enc")?.hash, oldEnc.hash);
+  });
+
+  it("persist official ENC writes cell and update counts into sources[]", async () => {
+    const { env } = mockEnv();
+    const packed = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_FRESH,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    const stored = await persistOfficialEnc(env, packed, PICKER_16_ENC);
+    const loaded = await loadPersistedManifest(env, stored.manifest.packId);
+    assert.ok(loaded);
+    const encSrc = (loaded.sources ?? []).find((s) => s.id === "noaa-enc");
+    assert.ok(encSrc, "official ENC persist must name noaa-enc");
+    assert.match(encSrc.name, /16 cells/);
+    assert.match(encSrc.name, /update/);
   });
 });

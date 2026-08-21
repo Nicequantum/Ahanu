@@ -19,6 +19,8 @@ const {
   landedPackNotes,
   landedProductSources,
   encSourceName,
+  leftoverMurSstLabel,
+  rewriteLandedManifest,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
@@ -46,7 +48,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "landed-pack-sources-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "landed-body-persist-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -1082,6 +1084,65 @@ describe("landedPackSources", () => {
     assert.match(encSrc.name, /official/i);
     assert.match(encSrc.name, /US5PVDCB|2 cells/);
     assert.match(live.manifest.notes, /official/i);
+  });
+
+  it("counts official ENC cells/updates when the note omitted them", () => {
+    const overlay = encodeLayerBody({
+      kind: "enc-clip",
+      layer: "enc",
+      payload: {
+        official: true,
+        note: "Official NOAA S-57 exchange-set cells from charts.noaa.gov.",
+        s57: { cellIds: ["US5PVDCB", "US5PVDBB"], updateCount: 1 },
+      },
+    });
+    assert.equal(encSourceName(overlay), "Official NOAA S-57 (2 cells, 1 update file)");
+  });
+
+  it("does not treat a fixture ENC clip as a landed official source", () => {
+    const overlay = encodeLayerBody({
+      kind: "enc-clip",
+      layer: "enc",
+      payload: { fixture: true, official: false, note: "Fixture cell list — not official S-57." },
+    });
+    assert.equal(encSourceName(overlay), undefined);
+  });
+
+  it("rewriteLandedManifest replaces a leftover MUR label from an ACSPO body", () => {
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "sst",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 24,
+      unit: "degC",
+      values: [[20, 21, 22, 23]],
+      live: true,
+      source: "noaa",
+      updatedAt: "2026-08-20T12:00:00.000Z",
+      dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+      note: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4.",
+    });
+    assert.equal(leftoverMurSstLabel("SST composite (MUR / CoastWatch)"), true);
+    const next = rewriteLandedManifest(
+      {
+        sources: [
+          { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+          { id: "noaa-sst", name: "SST MUR" },
+        ],
+        layers: [{ id: "sst", label: "SST composite (MUR / CoastWatch)", source: "noaa" }],
+        notes: "Landed this pack: SST MUR. SHA-256 of pack object bytes.",
+      },
+      { sst: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "sst")?.label, "SST ACSPO");
+    assert.match(next.sources.find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.ok(!next.sources.some((s) => s.id === "ghrsst-coastwatch-sst"));
+    assert.doesNotMatch(next.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
+    assert.match(next.notes ?? "", /ACSPO/);
+    assert.doesNotMatch(next.notes ?? "", /Landed this pack: SST MUR/);
   });
 });
 

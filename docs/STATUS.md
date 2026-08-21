@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (persist landed SST/ENC labels, 2026-08-21)
+
+Leftover after pack `sources[]` named the landed SST: stored R2 `layer.label` could stay **SST composite (MUR / CoastWatch)** after an ACSPO body landed, and old ENC `sources[]` could omit cell/update counts. Persist (full build, SST refresh, ENC refresh) now rewrites `layer.label` / `sources[]` from the landed body so R2 cannot keep a MUR label on an ACSPO object. Official ENC persist includes cellIds + updateCount. Serving R2 one-shots the same rewrite when the SST body is already ACSPO and the label still says MUR — no NOAA. Does not invent products. No Worker scoring. No Flutter.
+
 ## This pass (pack sources[] name what landed, 2026-08-21)
 
 Worker GET `/api/packs` `sources[]` was `listIngestSources()` — a static ingest catalog. SST could be ACSPO while sources still said GHRSST / CoastWatch (MUR-first leftover). GFS cycle lived only on the layer note. `sources[]` and additive `landedSources` now come from the pack: SST dataset id (ACSPO/MUR/GeoPolar/CoralTemp when that grid landed), GFS cycle+hours, ENC official + cell count/updates. Catalog adapters stay on GET `/api/sources`. Helm still ignores `sources[]`; `sstHelmLine` / pack row already remap leftover MUR catalog copy. Does not invent products. No Worker scoring. No Flutter.

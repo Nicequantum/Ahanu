@@ -60,7 +60,7 @@ function overlayNote(overlay?: string): string | undefined {
   if (!overlay) return undefined;
   const parsed = parseLayerBody(overlay);
   if (!parsed) return undefined;
-  if (typeof parsed.note === "string" && parsed.note.trim()) return parsed.note.trim();
+  if ("note" in parsed && typeof parsed.note === "string" && parsed.note.trim()) return parsed.note.trim();
   if ("payload" in parsed && parsed.payload && typeof parsed.payload === "object") {
     const n = (parsed.payload as { note?: unknown }).note;
     if (typeof n === "string" && n.trim()) return n.trim();
@@ -68,7 +68,7 @@ function overlayNote(overlay?: string): string | undefined {
   return undefined;
 }
 
-/** Official S-57 note + cell/update counts when present. Does not invent cells. */
+/** Official S-57 with cell/update counts when official. Fixture is not a landed ENC. */
 export function encSourceName(overlay?: string): string | undefined {
   if (!overlay) return undefined;
   const parsed = parseLayerBody(overlay);
@@ -76,16 +76,21 @@ export function encSourceName(overlay?: string): string | undefined {
     return overlayNote(overlay);
   }
   const p = parsed.payload as {
+    fixture?: boolean;
     official?: boolean;
     note?: string;
     s57?: { cellIds?: string[]; updateCount?: number };
   };
-  if (typeof p.note === "string" && p.note.trim()) return p.note.trim();
+  if (p.fixture) return undefined;
+  const note = typeof p.note === "string" ? p.note.trim() : "";
   if (p.official) {
     const n = Array.isArray(p.s57?.cellIds) ? p.s57.cellIds.length : 0;
     const u = typeof p.s57?.updateCount === "number" ? p.s57.updateCount : 0;
-    return `Official NOAA S-57 (${n} cells, ${u} update file${u === 1 ? "" : "s"})`;
+    const counted = `Official NOAA S-57 (${n} cells, ${u} update file${u === 1 ? "" : "s"})`;
+    if (note && /\d+\s+cells/i.test(note) && /update/i.test(note)) return note;
+    return counted;
   }
+  if (note) return note;
   return "NOAA ENC product-catalog excerpt — not official S-57.";
 }
 
@@ -164,11 +169,103 @@ export function landedPackNotes(manifest: {
   const enc = products.find((s) => s.id === "noaa-enc");
   const bits = [sst?.name, gfs?.name, enc?.name].filter((n): n is string => Boolean(n));
   const base = (manifest.notes ?? "").trim();
-  if (!bits.length) return base;
   const line = `Landed this pack: ${bits.join(" · ")}.`;
+  if (!bits.length) {
+    const stripped = base.replace(/^Landed this pack:[^.]*\.\s*/, "").trim();
+    return stripped || base;
+  }
   if (!base) return line;
-  if (base.startsWith("Landed this pack:")) return base;
-  return `${line} ${base}`;
+  const stripped = base.replace(/^Landed this pack:[^.]*\.\s*/, "").trim();
+  return stripped ? `${line} ${stripped}` : line;
+}
+
+export function leftoverMurSstLabel(label?: string | null): boolean {
+  if (!label) return false;
+  if (/ACSPO/i.test(label)) return false;
+  return /MUR\s*\/\s*CoastWatch/i.test(label) || sstLandedName(undefined, label) === "MUR";
+}
+
+/** Pack row from the landed body. Leftover MUR catalog copy does not win. */
+export function sstLabelFromLanded(input: {
+  dataset?: string | null;
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  const product = sstLandedName(input.dataset, input.note);
+  if (product) return `SST ${product}`;
+  if (input.source === "fixture") return "SST composite (fixture)";
+  if (input.stored && !/MUR\s*\/\s*CoastWatch/i.test(input.stored)) return input.stored;
+  return "SST composite (public ERDDAP)";
+}
+
+function overlayIsOfficialEnc(overlay?: string): boolean {
+  if (!overlay) return false;
+  const parsed = parseLayerBody(overlay);
+  if (!parsed || !("payload" in parsed) || !parsed.payload || typeof parsed.payload !== "object") return false;
+  const p = parsed.payload as { official?: boolean; fixture?: boolean };
+  return Boolean(p.official) && !p.fixture;
+}
+
+/**
+ * Persist-time rewrite. layer.label / sources[] follow the landed body so
+ * R2 cannot keep a MUR label on an ACSPO object. ENC sources include
+ * cell/update counts when official. Does not invent products.
+ */
+export function rewriteLandedManifest<
+  T extends {
+    sources?: PackSourceRef[];
+    layers: { id: string; label: string; source?: string }[];
+    liveErrors?: readonly string[] | null;
+    notes?: string;
+    landedSources?: PackSourceRef[];
+  },
+>(manifest: T, overlays: Partial<Record<string, string>>): T {
+  const layers = manifest.layers.map((layer) => {
+    if (layer.id === "sst" && overlays.sst) {
+      const meta = overlaySstMeta(overlays.sst);
+      const product = sstLandedName(meta.dataset, meta.note);
+      if (product || leftoverMurSstLabel(layer.label)) {
+        return {
+          ...layer,
+          label: sstLabelFromLanded({
+            dataset: meta.dataset,
+            note: meta.note,
+            source: product ? "noaa" : layer.source,
+            stored: layer.label,
+          }),
+        };
+      }
+    }
+    if (layer.id === "enc" && overlayIsOfficialEnc(overlays.enc)) {
+      return { ...layer, label: "NOAA ENC (official S-57)" };
+    }
+    return layer;
+  });
+
+  const byId = new Map<string, string>();
+  for (const s of manifest.sources ?? []) {
+    if (!s?.id || !s?.name) continue;
+    if (isCatalogSource(s)) continue;
+    byId.set(s.id, s.name);
+  }
+  if (overlays.sst) {
+    const meta = overlaySstMeta(overlays.sst);
+    if (!sstLandedName(meta.dataset, meta.note)) byId.delete("noaa-sst");
+  }
+  if (overlays.enc && !encSourceName(overlays.enc)) byId.delete("noaa-enc");
+  for (const s of overlayDerivedSources(overlays)) {
+    if (s.id === "noaa-sst" || s.id === "noaa-enc") byId.set(s.id, s.name);
+    else if (!byId.has(s.id)) byId.set(s.id, s.name);
+  }
+
+  const sources = [...byId.entries()].map(([id, name]) => ({ id, name }));
+  const next = { ...manifest, layers, sources };
+  return {
+    ...next,
+    landedSources: landedProductSources(next),
+    notes: landedPackNotes({ ...next, notes: manifest.notes }),
+  };
 }
 
 export function mergePackSources(
@@ -177,9 +274,16 @@ export function mergePackSources(
   overlays: Partial<Record<string, string>>,
 ): PackSourceRef[] {
   const byId = new Map<string, string>();
-  for (const s of overlayDerivedSources(overlays)) byId.set(s.id, s.name);
   for (const s of extra ?? []) {
     if (s?.id && s?.name) byId.set(s.id, s.name);
+  }
+  if (overlays.sst) {
+    const meta = overlaySstMeta(overlays.sst);
+    if (!sstLandedName(meta.dataset, meta.note)) byId.delete("noaa-sst");
+  }
+  for (const s of overlayDerivedSources(overlays)) {
+    if (s.id === "noaa-sst" || s.id === "noaa-enc") byId.set(s.id, s.name);
+    else if (!byId.has(s.id)) byId.set(s.id, s.name);
   }
   const base: PackSourceRef[] = liveIds.length
     ? [

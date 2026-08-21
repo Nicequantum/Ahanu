@@ -19,6 +19,11 @@
  * for this bbox is refetched on the liveEnc path, persisted, and other
  * R2 layers stay. Catalog-only / fixture ENC is not rebuilt here.
  * skipCache=1 or a total miss is a live build + persist.
+ * Persist (full, SST refresh, ENC refresh) rewrites layer.label / sources[]
+ * from the landed body so R2 cannot keep a MUR label on an ACSPO object.
+ * Official ENC persist includes cellIds + updateCount. Serving R2 also
+ * rewrites a leftover MUR label when the stored SST body is already ACSPO
+ * (no NOAA fetch).
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -31,7 +36,10 @@ import {
   buildTripPack,
   capLiveErrors,
   evaluateReadyForOffshore,
+  encSourceName,
+  leftoverMurSstLabel,
   packIdFor,
+  rewriteLandedManifest,
   sha256Hex,
   sstLandedName,
   SST_STALE_H,
@@ -346,8 +354,8 @@ async function builtPackWithRefreshedSst(
     liveErrors,
   });
   const sources = [...stored.sources.filter((s) => s.id !== "noaa-sst"), { id: "noaa-sst", name: ingest.note }];
-  return {
-    manifest: {
+  const manifest = rewriteLandedManifest(
+    {
       ...stored,
       generatedAt,
       readyForOffshore: check.ready,
@@ -357,12 +365,9 @@ async function builtPackWithRefreshedSst(
       sources,
       liveErrors: capLiveErrors(liveErrors),
     },
-    bodies: { sst: body },
-  };
-}
-
-function mergeRefreshedBodies(sst: ResolvedPack, enc: ResolvedPack): Record<string, string> {
-  return { ...(sst.built?.bodies ?? {}), ...(enc.built?.bodies ?? {}) };
+    { sst: body },
+  );
+  return { manifest, bodies: { sst: body } };
 }
 
 async function refreshR2PackLayers(
@@ -373,10 +378,59 @@ async function refreshR2PackLayers(
 ): Promise<ResolvedPack> {
   const sst = await refreshStaleR2Sst(env, stored, opts, nowMs);
   const enc = await refreshShortR2Enc(env, sst.manifest, opts, nowMs);
-  if (!sst.built && !enc.built) return enc.source === "r2" ? enc : sst;
-  const bodies = mergeRefreshedBodies(sst, enc);
-  const manifest = enc.built ? enc.manifest : sst.manifest;
+  const current = enc.built ? enc.manifest : sst.manifest;
+  const leftover = await rewriteLeftoverR2Labels(env, current);
+  const bodies = {
+    ...(sst.built?.bodies ?? {}),
+    ...(enc.built?.bodies ?? {}),
+    ...(leftover.built?.bodies ?? {}),
+  };
+  const manifest = leftover.built ? leftover.manifest : current;
+  if (!sst.built && !enc.built && !leftover.built) {
+    return { manifest: current, source: "r2" };
+  }
   return { manifest, source: "live", built: { manifest, bodies } };
+}
+
+async function loadStoredLayerBody(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+  layerId: string,
+): Promise<string | null> {
+  const rec = stored.layers.find((layer) => layer.id === layerId);
+  if (!rec) return null;
+  const raw =
+    (await r2ObjectText(env.PACKS, rec.r2Key)) ??
+    (await r2ObjectText(env.PACKS, latestLayerR2Key(stored.packId, layerId)));
+  if (!raw) return null;
+  return resolveR2LayerBody(env.PACKS, raw);
+}
+
+/** Serving R2: leftover MUR label on an ACSPO body, or official ENC without counts. No NOAA. */
+async function rewriteLeftoverR2Labels(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+): Promise<ResolvedPack> {
+  const overlays: Partial<Record<string, string>> = {};
+  const sst = stored.layers.find((layer) => layer.id === "sst");
+  if (sst && leftoverMurSstLabel(sst.label)) {
+    const body = await loadStoredLayerBody(env, stored, "sst");
+    if (body) {
+      const parsed = parseLayerBody(body);
+      const dataset = parsed && parsed.kind === "grid" && typeof parsed.dataset === "string" ? parsed.dataset : undefined;
+      const note = parsed && parsed.kind === "grid" && typeof parsed.note === "string" ? parsed.note : undefined;
+      if (sstLandedName(dataset, note) === "ACSPO") overlays.sst = body;
+    }
+  }
+  const enc = stored.layers.find((layer) => layer.id === "enc");
+  const encSrc = stored.sources?.find((s) => s.id === "noaa-enc");
+  if (enc && /official S-57/i.test(enc.label) && !/\d+\s+cells/i.test(encSrc?.name ?? "")) {
+    const body = await loadStoredLayerBody(env, stored, "enc");
+    if (body && encSourceName(body)) overlays.enc = body;
+  }
+  if (!overlays.sst && !overlays.enc) return { manifest: stored, source: "r2" };
+  const manifest = rewriteLandedManifest(stored, overlays);
+  return { manifest, source: "live", built: { manifest, bodies: overlays } };
 }
 
 function encRefreshKeptLine(storedIds: string[], errors: string[]): string {
@@ -390,13 +444,7 @@ async function loadStoredEncPayload(
   env: IngestEnv,
   stored: BuiltPack["manifest"],
 ): Promise<{ official?: boolean; s57?: { cellIds?: string[] }; cells?: { id: string; usage: number; name: string; west?: number; south?: number; east?: number; north?: number; zipBytes?: number; scale?: number }[] } | null> {
-  const enc = stored.layers.find((layer) => layer.id === "enc");
-  if (!enc) return null;
-  const raw =
-    (await r2ObjectText(env.PACKS, enc.r2Key)) ??
-    (await r2ObjectText(env.PACKS, latestLayerR2Key(stored.packId, "enc")));
-  if (!raw) return null;
-  const body = await resolveR2LayerBody(env.PACKS, raw);
+  const body = await loadStoredLayerBody(env, stored, "enc");
   if (!body) return null;
   const parsed = parseLayerBody(body);
   if (!parsed || parsed.kind !== "enc-clip" || !("payload" in parsed) || !parsed.payload || typeof parsed.payload !== "object") {
@@ -457,10 +505,10 @@ async function builtPackWithRefreshedEnc(
     layers: evidence,
     liveErrors,
   });
-  const note = typeof payload.note === "string" && payload.note ? payload.note : "Official NOAA S-57";
+  const note = encSourceName(body) ?? (typeof payload.note === "string" && payload.note ? payload.note : "Official NOAA S-57");
   const sources = [...stored.sources.filter((s) => s.id !== "noaa-enc"), { id: "noaa-enc", name: note }];
-  return {
-    manifest: {
+  const manifest = rewriteLandedManifest(
+    {
       ...stored,
       generatedAt,
       readyForOffshore: check.ready,
@@ -470,8 +518,9 @@ async function builtPackWithRefreshedEnc(
       sources,
       liveErrors: capLiveErrors([...(stored.liveErrors ?? []), ...liveErrors]),
     },
-    bodies: { enc: body },
-  };
+    { enc: body },
+  );
+  return { manifest, bodies: { enc: body } };
 }
 
 async function refreshShortR2Enc(
@@ -751,6 +800,11 @@ export async function persistBuiltPack(
   built: BuiltPack,
   opts: PersistPutOptions = {},
 ): Promise<IngestResult> {
+  const rewritten = rewriteLandedManifest(built.manifest, built.bodies);
+  built.manifest.layers = rewritten.layers;
+  built.manifest.sources = rewritten.sources;
+  built.manifest.landedSources = rewritten.landedSources;
+  built.manifest.notes = rewritten.notes;
   const writes = layerWrites(built.manifest, built.bodies);
   const { wrote, failed } = await putPackObjects(env, writes, built.bodies, built.manifest.packId, opts);
   const bucket = env.PACKS;

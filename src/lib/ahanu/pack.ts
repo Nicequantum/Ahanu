@@ -35,7 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
-import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLandedName } from "./pack-sources";
+import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName } from "./pack-sources";
 
 export {
   bboxKey,
@@ -58,6 +58,9 @@ export {
   landedPackNotes,
   landedPackSources,
   landedProductSources,
+  leftoverMurSstLabel,
+  rewriteLandedManifest,
+  sstLabelFromLanded,
   sstLandedName,
   type PackSourceRef,
 } from "./pack-sources";
@@ -67,7 +70,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "landed-pack-sources-2026-08-21";
+export const PACK_BUILDER_REV = "landed-body-persist-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -177,11 +180,7 @@ export function sstPackRowLabel(input: {
   source?: string;
   stored?: string;
 }): string {
-  const product = sstLandedName(input.dataset, input.note);
-  if (product) return `SST ${product}`;
-  if (input.source === "fixture") return "SST composite (fixture)";
-  if (input.stored && !/MUR\s*\/\s*CoastWatch/i.test(input.stored)) return input.stored;
-  return "SST composite (public ERDDAP)";
+  return sstLabelFromLanded(input);
 }
 
 function overlaySstMeta(overlay?: string): { dataset?: string; note?: string } {
