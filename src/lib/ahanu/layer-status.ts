@@ -91,8 +91,7 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     if (ocean?.ais && ocean.ais.features.length > 0 && (ocean.aisSource === "noaa" || ocean.aisSource === "r2")) {
       return packLabel(ocean, ocean.aisSource);
     }
-    if (ocean) return "missing";
-    return "synthetic";
+    return "missing";
   }
   return "local";
 }

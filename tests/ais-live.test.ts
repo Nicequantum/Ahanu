@@ -8,6 +8,8 @@ const {
   aisStreamBbox,
   aisTargetsToPackedJson,
   fetchLiveAis,
+  aisStreamErrorText,
+  socketMessageText,
   AISSTREAM_URL,
   AIS_SNAPSHOT_MS,
   AIS_POSITION_MESSAGE_TYPES,
@@ -62,7 +64,17 @@ function positionEnvelope(input: {
   };
 }
 
-function mockOpen(messages: unknown[], opts?: { error?: boolean; neverOpen?: boolean }) {
+function mockOpen(
+  messages: unknown[],
+  opts?: {
+    error?: boolean;
+    neverOpen?: boolean;
+    alreadyOpen?: boolean;
+    asBlob?: boolean;
+    onAccept?: () => void;
+    onSend?: () => void;
+  },
+) {
   return () => {
     const listeners: Record<string, Array<(ev: { data?: unknown }) => void>> = {
       open: [],
@@ -70,12 +82,21 @@ function mockOpen(messages: unknown[], opts?: { error?: boolean; neverOpen?: boo
       error: [],
       close: [],
     };
+    const frame = (m: unknown) => {
+      const json = JSON.stringify(m);
+      if (opts?.asBlob && typeof Blob === "function") return new Blob([json], { type: "application/json" });
+      return json;
+    };
     const sock = {
+      readyState: opts?.alreadyOpen ? 1 : 0,
       send(_data: string) {
-        /* subscribe captured; key must not be asserted from logs */
+        opts?.onSend?.();
       },
       close() {
         for (const fn of listeners.close) fn({});
+      },
+      accept() {
+        opts?.onAccept?.();
       },
       addEventListener(type: string, fn: (ev: { data?: unknown }) => void) {
         (listeners[type] ?? []).push(fn);
@@ -87,9 +108,11 @@ function mockOpen(messages: unknown[], opts?: { error?: boolean; neverOpen?: boo
         for (const fn of listeners.error) fn({});
         return;
       }
-      for (const fn of listeners.open) fn({});
+      if (!opts?.alreadyOpen) {
+        for (const fn of listeners.open) fn({});
+      }
       for (const m of messages) {
-        for (const fn of listeners.message) fn({ data: JSON.stringify(m) });
+        for (const fn of listeners.message) fn({ data: frame(m) });
       }
     });
     return sock;
@@ -209,6 +232,61 @@ describe("fetchLiveAis fail-closed", () => {
     assert.ok(errors.some((e) => /no positions/i.test(e)));
   });
 
+  it("AISStream error frame is a liveError and invents nothing", async () => {
+    const errors: string[] = [];
+    const hit = await fetchLiveAis({
+      bbox: BOX,
+      apiKey: "test-key",
+      errors,
+      snapshotMs: 30,
+      subscribeDeadlineMs: 20,
+      openSocket: mockOpen([{ error: "Api Key Is Not Valid" }]),
+    });
+    assert.equal(hit, undefined);
+    assert.ok(errors.some((e) => /Api Key Is Not Valid/i.test(e) && e.startsWith("ais:")));
+    assert.ok(!errors.join(" ").includes("test-key"));
+    assert.equal(aisStreamErrorText({ error: "Api Key Is Not Valid" }), "Api Key Is Not Valid");
+    assert.equal(aisStreamErrorText({ MessageType: "PositionReport" }), undefined);
+  });
+
+  it("Blob frames are read (Workers binaryType default)", async () => {
+    const errors: string[] = [];
+    const env = positionEnvelope({ mmsi: 366333000, lat: 40.2, lon: -71.0, sog: 8, cog: 100 });
+    const hit = await fetchLiveAis({
+      bbox: BOX,
+      apiKey: "test-key",
+      errors,
+      snapshotMs: 30,
+      subscribeDeadlineMs: 20,
+      openSocket: mockOpen([env], { asBlob: true }),
+    });
+    assert.ok(hit);
+    assert.equal(hit.targetCount, 1);
+    const buf = new TextEncoder().encode(JSON.stringify(env));
+    assert.ok(socketMessageText(buf.buffer) != null);
+  });
+
+  it("accept() after listeners; already-open socket still subscribes", async () => {
+    const errors: string[] = [];
+    let accepted = 0;
+    let sent = 0;
+    const hit = await fetchLiveAis({
+      bbox: BOX,
+      apiKey: "test-key",
+      errors,
+      snapshotMs: 25,
+      subscribeDeadlineMs: 20,
+      openSocket: mockOpen(
+        [positionEnvelope({ mmsi: 366444000, lat: 40.3, lon: -71.2, sog: 6, cog: 90 })],
+        { alreadyOpen: true, onAccept: () => { accepted += 1; }, onSend: () => { sent += 1; } },
+      ),
+    });
+    assert.ok(hit);
+    assert.equal(hit.targetCount, 1);
+    assert.equal(accepted, 1);
+    assert.equal(sent, 1);
+  });
+
   it("unique MMSI last-known packs live bytes", async () => {
     const errors: string[] = [];
     const hit = await fetchLiveAis({
@@ -319,7 +397,8 @@ describe("pack AIS layer", () => {
     assert.equal(layerPaintSource("ais"), "packed");
     assert.equal(aisHelmLabel(), "AIS · AISStream");
     assert.ok(!/demo/i.test(aisHelmLabel()));
-    assert.ok(!/demo/i.test(LAYER_META.ais.label) || LAYER_META.ais.label.includes("demo"));
+    assert.equal(LAYER_META.ais.label, "AIS");
+    assert.ok(!/demo/i.test(LAYER_META.ais.label));
     const painted = aisForChart(1_000, 3);
     assert.equal(painted.features.length, 1);
     assert.equal((painted.features[0]!.properties as { mmsi?: string }).mmsi, "366888000");
@@ -328,11 +407,16 @@ describe("pack AIS layer", () => {
     assert.ok(!painted.features.some((f) => DEMO_AIS_MMSIS.includes(String((f.properties as { mmsi?: string }).mmsi))));
   });
 
-  it("no pack still uses the demo label path", () => {
-    assert.equal(layerPaintSource("ais"), "synthetic");
-    assert.equal(LAYER_META.ais.label, "AIS demo — not live traffic");
-    assert.match(aisHelmLabel(), /demo/i);
+  it("no pack never paints the demo fleet", () => {
+    assert.equal(layerPaintSource("ais"), "missing");
+    assert.equal(LAYER_META.ais.label, "AIS");
+    assert.ok(!/demo/i.test(LAYER_META.ais.label));
+    assert.equal(aisHelmLabel(), "AIS");
+    assert.ok(!/demo/i.test(aisHelmLabel()));
     const painted = aisForChart(0, 0);
-    assert.equal(painted.features.length, 14);
+    assert.equal(painted.features.length, 0);
+    const demo = aisTargets(0, 0);
+    assert.equal(demo.length, 14);
+    assert.ok(DEMO_AIS_MMSIS.length === 14);
   });
 });

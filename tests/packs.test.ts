@@ -48,7 +48,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 13);
-    assert.equal(PACK_BUILDER_REV, "ais-aisstream-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "ais-ws-read-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];

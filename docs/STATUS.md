@@ -6,6 +6,10 @@ Honest inventory. Nothing here is a badge.
 
 Live PJ pack on api.ahanu.dev: ACSPO `2026-08-20T12:00Z` (~27 h). NOAA has not published a newer scene — do not invent SST. Ready correctly needs Accept stale. Helm Download talks to the live Worker even when **Live NOAA** is off (`?live=1` is preview-only), but Retry was gated on that switch, so skipCache stayed disabled after a dock download. `canRetryLiveOverlays` now exposes Retry when SST is stale or Ready is false, including live-off; downloading still hides it. Fixture + live-off with no age still stays off. Accept-stale persist, ACSPO label, 20 ENC cells, 8455083, Frame harbor unchanged. No AIS. No Flutter. PR #1 not merged.
 
+## This pass (AIS WS read + no demo fleet, 2026-08-21)
+
+Live 22 s snapshot packed 0 features with `ais: no positions in snapshot — live miss` after a successful key + websocket. Two real receive bugs: (1) AISStream `{error}` frames were parsed as non-positions and swallowed; (2) Cloudflare Workers outbound WS (compat 2026-08-01) needs fetch+Upgrade+`accept()` after listeners — or `new WebSocket()` + message events that actually decode Blob/ArrayBuffer frames. Connect-without-read looks like "ok, 0 positions". Error text now rides `liveErrors`. Still fail-closed; never invent tracks. Helm never calls `aisTargets()` — no pack / miss paints nothing and labels **AIS**, not "AIS demo — not live traffic". Demo file stays as a marked DEMO fixture for tests only. No Flutter. PR #1 not merged.
+
 ## This pass (AIS Class B + 22 s snapshot, 2026-08-21)
 
 Bbox was already AISStream `[[[lat, lon], [lat, lon]]]` = `[[[39.4, -72.8], [41.5, -68.8]]]` — not the miss. Parser already kept PositionReport + Class B, but subscribe `FilterMessageTypes` dropped `ExtendedClassBPositionReport`, and the window was 10 s. Class B around PJ (pleasure / fishing) often reports every 10–30 s. Subscribe now asks for PositionReport + Standard/Extended Class B. Snapshot is 22 s. Zero positions still an honest miss — never the demo fleet. Does not block Ready. No Flutter.

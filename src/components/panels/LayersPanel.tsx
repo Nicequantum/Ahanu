@@ -70,7 +70,7 @@ export function LayersPanel() {
         pack. ENC official S-57 paints an extract from packed NOAA .000 bytes plus ISO 8211 .00n updates when those files are in the zip (coastline, shoreline, depth areas/contours, wrecks/obstructions when present, aids, lights, soundings) — S-57 extract, not an ECDIS. A zip with no .001 is base .000 only. Catalog-only packs stay aid boxes.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
         before you leave the dock. AIS paints a packed AISStream snapshot when that layer is live;
-        a miss stays missing. Without a pack the overlay is still the invented demo fleet.
+        otherwise the overlay is empty (miss) — never the invented demo fleet.
       </p>
       <p className="mt-2 text-xs text-muted">Right-click the chart to drop a mark. Measure lives on the instruments bar.</p>
     </Pane>

@@ -3,9 +3,11 @@
  *
  * Worker-only. The API key stays on the isolate (AISSTREAM_API_KEY secret).
  * Subscribe bbox is AISStream [[[lat, lon], [lat, lon]]]. Snapshot keeps
- * PositionReport plus Class B (Standard + Extended). Fail closed: missing
- * key, websocket error, or zero useful positions omit the overlay. Never
- * invent tracks. Never log the key.
+ * PositionReport plus Class B (Standard + Extended). Workers outbound WS
+ * uses fetch+Upgrade+accept() (or new WebSocket + message events) so the
+ * isolate actually reads frames. AISStream {error} text is a liveError.
+ * Fail closed: missing key, websocket error, stream error, or zero useful
+ * positions omit the overlay. Never invent tracks. Never log the key.
  *
  * Keep free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -53,9 +55,15 @@ export interface AisStreamSocket {
     type: "open" | "message" | "error" | "close",
     fn: (ev: { data?: unknown }) => void,
   ) => void;
+  /** Workers fetch-upgrade sockets must accept() after listeners are attached. */
+  accept?: () => void;
+  readyState?: number;
+  binaryType?: string;
 }
 
-export type OpenAisStream = (url: string) => AisStreamSocket;
+export type OpenAisStream = (url: string) => AisStreamSocket | Promise<AisStreamSocket>;
+
+const WS_OPEN = 1;
 
 export function aisStreamBbox(bbox: PackBBox): [[number, number], [number, number]] {
   return [
@@ -195,21 +203,103 @@ export function packedAisTargetCount(body: PackedJson | undefined): number {
   return Array.isArray(features) ? features.length : 0;
 }
 
-function socketMessageText(data: unknown): string | null {
-  if (typeof data === "string") return data;
+function decodeBytes(data: ArrayBuffer | ArrayBufferView): string {
   if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
-  if (ArrayBuffer.isView(data)) {
-    const v = data as ArrayBufferView;
-    return new TextDecoder().decode(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+  const v = data as ArrayBufferView;
+  return new TextDecoder().decode(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+}
+
+/** Sync text from a WS frame. Blob (Workers 2026-03-17+ binaryType) needs the async helper. */
+export function socketMessageText(data: unknown): string | null {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return decodeBytes(data);
+  return null;
+}
+
+async function socketMessageTextAsync(data: unknown): Promise<string | null> {
+  const sync = socketMessageText(data);
+  if (sync != null) return sync;
+  if (!data || typeof data !== "object") return null;
+  const blob = data as { text?: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> };
+  if (typeof blob.text === "function") {
+    try {
+      const t = await blob.text();
+      return typeof t === "string" ? t : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof blob.arrayBuffer === "function") {
+    try {
+      return decodeBytes(await blob.arrayBuffer());
+    } catch {
+      return null;
+    }
   }
   return null;
 }
 
-function defaultOpenAisStream(url: string): AisStreamSocket {
+/** Official AISStream ErrorMessage: `{ "error": "Api Key Is Not Valid" }`. */
+export function aisStreamErrorText(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const err = o.error ?? o.Error;
+  if (typeof err !== "string") return undefined;
+  const t = err.replace(/\s+/g, " ").trim();
+  return t ? t.slice(0, 160) : undefined;
+}
+
+function publicAisError(text: string): string {
+  return `ais: ${text} — live miss`;
+}
+
+function armSocket(socket: AisStreamSocket): void {
+  try {
+    if (socket.binaryType !== undefined) socket.binaryType = "arraybuffer";
+  } catch {
+    /* ignore */
+  }
+}
+
+function acceptSocket(socket: AisStreamSocket): void {
+  if (typeof socket.accept !== "function") return;
+  try {
+    socket.accept();
+  } catch {
+    /* constructor sockets are already accepted */
+  }
+}
+
+function workerFetchUpgradeAvailable(): boolean {
+  return typeof (globalThis as { WebSocketPair?: unknown }).WebSocketPair === "function";
+}
+
+async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | undefined> {
+  if (typeof fetch !== "function") return undefined;
+  try {
+    const resp = await fetch(url, { headers: { Upgrade: "websocket" } });
+    const ws = (resp as Response & { webSocket?: (WebSocket & AisStreamSocket) | null }).webSocket;
+    if (!ws) return undefined;
+    armSocket(ws);
+    return ws;
+  } catch {
+    return undefined;
+  }
+}
+
+async function defaultOpenAisStream(url: string): Promise<AisStreamSocket> {
+  // Cloudflare Workers outbound: fetch + Upgrade yields a socket that must
+  // accept() after listeners — connect-without-accept looks like "ok, 0 positions".
+  if (workerFetchUpgradeAvailable()) {
+    const upgraded = await openAisStreamViaFetch(url);
+    if (upgraded) return upgraded;
+  }
   if (typeof WebSocket !== "function") {
     throw new Error("websocket unavailable");
   }
-  return new WebSocket(url) as unknown as AisStreamSocket;
+  const ws = new WebSocket(url) as unknown as AisStreamSocket;
+  armSocket(ws);
+  return ws;
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -245,23 +335,57 @@ export async function fetchLiveAis(options: {
   let opened = false;
   let failed: string | undefined;
   let messages = 0;
+  let streamEnded = false;
+  let messageChain = Promise.resolve();
+  let resolveEnded: () => void = () => {};
+  const endedWait = new Promise<void>((resolve) => {
+    resolveEnded = resolve;
+  });
 
   try {
-    socket = open(AISSTREAM_URL);
+    const openedOrSocket = open(AISSTREAM_URL);
+    // Sync openers must not yield — a microtask open/message would be missed.
+    socket = openedOrSocket instanceof Promise ? await openedOrSocket : openedOrSocket;
   } catch {
     options.errors.push("ais: websocket failed — live miss");
     return undefined;
   }
 
-  const onMessage = (ev: { data?: unknown }) => {
+  const finish = () => {
+    streamEnded = true;
+    resolveEnded();
+  };
+
+  const subscribe = () => {
+    if (opened) return;
+    opened = true;
+    try {
+      socket!.send(JSON.stringify(aisSubscribeMessage(key, options.bbox)));
+    } catch {
+      failed = "ais: subscribe failed — live miss";
+    }
+  };
+
+  const handleMessage = async (ev: { data?: unknown }) => {
     if (messages >= maxMessages) return;
-    const text = socketMessageText(ev.data);
+    const text = await socketMessageTextAsync(ev.data);
     if (!text) return;
     messages += 1;
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      return;
+    }
+    const streamErr = aisStreamErrorText(parsed);
+    if (streamErr) {
+      failed = publicAisError(streamErr);
+      try {
+        socket?.close();
+      } catch {
+        /* already closing */
+      }
+      finish();
       return;
     }
     const hit = parseAisStreamMessage(parsed);
@@ -272,28 +396,34 @@ export async function fetchLiveAis(options: {
       } catch {
         /* already closing */
       }
+      finish();
     }
+  };
+
+  const onMessage = (ev: { data?: unknown }) => {
+    messageChain = messageChain.then(() => handleMessage(ev)).catch(() => {});
   };
 
   const openedWait = new Promise<void>((resolve) => {
     socket!.addEventListener("open", () => {
-      opened = true;
-      try {
-        socket!.send(JSON.stringify(aisSubscribeMessage(key, options.bbox)));
-      } catch {
-        failed = "ais: subscribe failed — live miss";
-      }
+      subscribe();
       resolve();
     });
     socket!.addEventListener("message", onMessage);
     socket!.addEventListener("error", () => {
-      if (!targets.size) failed = "ais: websocket failed — live miss";
+      if (!targets.size && !failed) failed = "ais: websocket failed — live miss";
+      finish();
       resolve();
     });
     socket!.addEventListener("close", () => {
+      finish();
       resolve();
     });
   });
+
+  // Listeners first, then accept() — otherwise the first AISStream error frame is dropped.
+  acceptSocket(socket);
+  if (socket.readyState === WS_OPEN) subscribe();
 
   const openedOrTimeout = Promise.race([openedWait, sleepMs(subscribeDeadlineMs)]);
   await openedOrTimeout;
@@ -316,7 +446,8 @@ export async function fetchLiveAis(options: {
     return undefined;
   }
 
-  await sleepMs(snapshotMs);
+  await Promise.race([sleepMs(snapshotMs), endedWait]);
+  await messageChain;
   try {
     socket.close();
   } catch {

@@ -37,7 +37,7 @@ async function loadFixture(omit: string[] = []) {
 }
 
 describe("layerPaintSource — no pack", () => {
-  it("ocean/weather/AIS are synthetic; other chart/ops are local", () => {
+  it("ocean/weather are synthetic; AIS is missing (never demo); other chart/ops are local", () => {
     assert.equal(layerPaintSource("sst"), "synthetic");
     assert.equal(layerPaintSource("chlorophyll"), "synthetic");
     assert.equal(layerPaintSource("altimetry"), "synthetic");
@@ -51,8 +51,9 @@ describe("layerPaintSource — no pack", () => {
     assert.equal(layerPaintSource("canyons"), "local");
     assert.equal(layerPaintSource("hms_zones"), "local");
     assert.equal(layerPaintSource("buoys"), "local");
-    assert.equal(layerPaintSource("ais"), "synthetic");
-    assert.equal(LAYER_META.ais.label, "AIS demo — not live traffic");
+    assert.equal(layerPaintSource("ais"), "missing");
+    assert.equal(LAYER_META.ais.label, "AIS");
+    assert.ok(!/demo/i.test(LAYER_META.ais.label));
     assert.equal(LAYER_META.enc.label, "ENC catalog (aid)");
     assert.equal(layerPaintSource("enc"), "local");
   });
