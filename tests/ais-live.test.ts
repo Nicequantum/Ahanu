@@ -6,6 +6,7 @@ const {
   parseAisStreamMessage,
   aisSubscribeMessage,
   aisStreamBbox,
+  aisStreamFetchUpgradeUrl,
   aisTargetsToPackedJson,
   fetchLiveAis,
   aisStreamErrorText,
@@ -74,6 +75,7 @@ function mockOpen(
     close?: { code?: number; reason?: string };
     onAccept?: () => void;
     onSend?: () => void;
+    via?: "fetch-upgrade" | "constructor";
   },
 ) {
   return () => {
@@ -91,6 +93,7 @@ function mockOpen(
     const sock = {
       readyState: opts?.alreadyOpen ? 1 : 0,
       needsAccept: true,
+      via: opts?.via,
       send(_data: string) {
         opts?.onSend?.();
       },
@@ -188,6 +191,12 @@ describe("AISStream parse", () => {
     assert.ok(sub.FilterMessageTypes.includes("ExtendedClassBPositionReport"));
     assert.ok(AIS_SNAPSHOT_MS >= 20_000 && AIS_SNAPSHOT_MS <= 25_000);
     assert.equal(AISSTREAM_URL, "wss://stream.aisstream.io/v0/stream");
+    assert.equal(
+      aisStreamFetchUpgradeUrl(AISSTREAM_URL),
+      "https://stream.aisstream.io/v0/stream",
+    );
+    assert.equal(aisStreamFetchUpgradeUrl("ws://stream.aisstream.io/v0/stream"), "http://stream.aisstream.io/v0/stream");
+    assert.equal(aisStreamFetchUpgradeUrl("https://stream.aisstream.io/v0/stream"), "https://stream.aisstream.io/v0/stream");
   });
 });
 
@@ -235,6 +244,27 @@ describe("fetchLiveAis fail-closed", () => {
     });
     assert.equal(hit, undefined);
     assert.ok(errors.some((e) => /no positions/i.test(e) && /1 frame/.test(e)));
+  });
+
+  it("0-frame miss names via, subscribed, wait, and that the socket stayed open", async () => {
+    const errors: string[] = [];
+    const hit = await fetchLiveAis({
+      bbox: BOX,
+      apiKey: "test-key",
+      errors,
+      snapshotMs: 20,
+      subscribeDeadlineMs: 20,
+      openSocket: mockOpen([], { via: "fetch-upgrade" }),
+    });
+    assert.equal(hit, undefined);
+    const miss = errors.find((e) => /no positions/i.test(e));
+    assert.ok(miss, errors.join("; "));
+    assert.match(miss!, /0 frames/);
+    assert.match(miss!, /via=fetch-upgrade/);
+    assert.match(miss!, /subscribed/);
+    assert.match(miss!, /wait=20ms/);
+    assert.match(miss!, /open/);
+    assert.ok(!miss!.includes("test-key"));
   });
 
   it("websocket close reason is a liveError", async () => {

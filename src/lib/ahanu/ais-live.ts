@@ -4,8 +4,10 @@
  * Worker-only. The API key stays on the isolate (AISSTREAM_API_KEY secret).
  * Subscribe bbox is AISStream [[[lat, lon], [lat, lon]]]. Snapshot keeps
  * PositionReport plus Class B (Standard + Extended). Workers outbound WS
- * uses fetch+Upgrade+accept() (or new WebSocket + message events) so the
- * isolate actually reads frames. AISStream {error} text is a liveError.
+ * uses fetch(https://)+Upgrade+accept() (or new WebSocket + message events) so the
+ * isolate actually reads frames. wss:// is converted — Workers fetch refuses
+ * non-http schemes, so fetch(wss://) never returns a readable socket.
+ * AISStream {error} text is a liveError.
  * Fail closed: missing key, websocket error, stream error, or zero useful
  * positions omit the overlay. Never invent tracks. Never log the key.
  *
@@ -65,11 +67,23 @@ export interface AisStreamSocket {
   onmessage?: ((ev: { data?: unknown }) => void) | null;
   onerror?: ((ev: { data?: unknown }) => void) | null;
   onclose?: ((ev: { data?: unknown }) => void) | null;
+  /** Which outbound path opened this socket. Diagnostic only — never the key. */
+  via?: "fetch-upgrade" | "constructor";
 }
 
 export type OpenAisStream = (url: string) => AisStreamSocket | Promise<AisStreamSocket>;
 
 const WS_OPEN = 1;
+
+/**
+ * Workers fetch()+Upgrade wants https://, not wss://.
+ * new WebSocket() still uses the wss:// AISSTREAM_URL.
+ */
+export function aisStreamFetchUpgradeUrl(url: string): string {
+  if (url.startsWith("wss://")) return `https://${url.slice("wss://".length)}`;
+  if (url.startsWith("ws://")) return `http://${url.slice("ws://".length)}`;
+  return url;
+}
 
 export function aisStreamBbox(bbox: PackBBox): [[number, number], [number, number]] {
   return [
@@ -324,11 +338,12 @@ function workerFetchUpgradeAvailable(): boolean {
 async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | undefined> {
   if (typeof fetch !== "function") return undefined;
   try {
-    const resp = await fetch(url, { headers: { Upgrade: "websocket" } });
+    const resp = await fetch(aisStreamFetchUpgradeUrl(url), { headers: { Upgrade: "websocket" } });
     const ws = (resp as Response & { webSocket?: (WebSocket & AisStreamSocket) | null }).webSocket;
     if (!ws) return undefined;
     armSocket(ws);
     ws.needsAccept = true;
+    ws.via = "fetch-upgrade";
     return ws;
   } catch {
     return undefined;
@@ -336,7 +351,8 @@ async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | und
 }
 
 async function defaultOpenAisStream(url: string): Promise<AisStreamSocket> {
-  // Workers: fetch + Upgrade + accept() is the documented outbound read path.
+  // Workers: fetch(https://) + Upgrade + accept() is the documented outbound read path.
+  // fetch(wss://) is refused (non-http scheme) and used to fall through silently.
   // Constructor is fallback (auto-accepted; do not accept() again).
   if (workerFetchUpgradeAvailable()) {
     const upgraded = await openAisStreamViaFetch(url);
@@ -345,6 +361,7 @@ async function defaultOpenAisStream(url: string): Promise<AisStreamSocket> {
   if (typeof WebSocket === "function") {
     const ws = new WebSocket(url) as unknown as AisStreamSocket;
     armSocket(ws);
+    ws.via = "constructor";
     return ws;
   }
   throw new Error("websocket unavailable");
@@ -385,6 +402,8 @@ export async function fetchLiveAis(options: {
   let messages = 0;
   let lastKind = "none";
   let streamEnded = false;
+  let peerCloseCode: number | undefined;
+  let peerCloseReason = "";
   let messageChain = Promise.resolve();
   let resolveEnded: () => void = () => {};
   const endedWait = new Promise<void>((resolve) => {
@@ -469,6 +488,8 @@ export async function fetchLiveAis(options: {
     listen(socket!, "close", (ev) => {
       const code = (ev as { code?: number }).code;
       const reason = String((ev as { reason?: string }).reason ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+      if (peerCloseCode === undefined && typeof code === "number") peerCloseCode = code;
+      if (reason) peerCloseReason = reason;
       if (!targets.size && !failed && (reason || (typeof code === "number" && code !== 1000))) {
         const bit = [typeof code === "number" ? String(code) : "", reason].filter(Boolean).join(" ");
         if (bit) failed = publicAisError(`websocket closed ${bit}`);
@@ -505,17 +526,38 @@ export async function fetchLiveAis(options: {
 
   await Promise.race([sleepMs(snapshotMs), endedWait]);
   await messageChain;
+
+  const snapshotMiss = (): string => {
+    if (failed) return failed;
+    const frames = `${messages} frame${messages === 1 ? "" : "s"}`;
+    const via = socket?.via ? `, via=${socket.via}` : "";
+    const sub = opened ? ", subscribed" : ", not-subscribed";
+    const wait = `, wait=${snapshotMs}ms`;
+    const closed =
+      peerCloseCode != null && (peerCloseReason || peerCloseCode !== 1000)
+        ? `, close=${[String(peerCloseCode), peerCloseReason].filter(Boolean).join(" ")}`
+        : streamEnded
+          ? ", ended"
+          : ", open";
+    const kind = lastKind !== "none" ? `, last=${lastKind}` : "";
+    return `ais: no positions in snapshot (${frames}${via}${sub}${wait}${closed}${kind}) — live miss`;
+  };
+
+  if (!targets.size) {
+    const miss = snapshotMiss();
+    try {
+      socket.close();
+    } catch {
+      /* ignore */
+    }
+    options.errors.push(miss);
+    return undefined;
+  }
+
   try {
     socket.close();
   } catch {
     /* ignore */
-  }
-
-  if (!targets.size) {
-    const frames = `${messages} frame${messages === 1 ? "" : "s"}`;
-    const kind = lastKind !== "none" ? `, last=${lastKind}` : "";
-    options.errors.push(failed ?? `ais: no positions in snapshot (${frames}${kind}) — live miss`);
-    return undefined;
   }
 
   const list = [...targets.values()];
