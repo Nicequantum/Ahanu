@@ -971,8 +971,8 @@ export function ChartMap() {
     const map = mapRef.current;
     if (!map) return;
     // Packed ENC only — never tideHarbor (Newport) or Frame pack.
-    // fitBounds official US5PVDCB ∪ US5PVDBB [[-71.55, 41.325], [-71.475, 41.475]]
-    // linear easeTo so Veatch → harbor does not fly through Narragansett.
+    // easeTo official US5PVDCB ∪ US5PVDBB pin [[-71.55, 41.325], [-71.475, 41.475]]
+    // center [-71.5125, 41.40] zoom 12.5. No fitBounds padding/offset.
     applyFrameHarbor(map, getPackedOcean()?.enc);
   }, [frameHarborSeq]);
 

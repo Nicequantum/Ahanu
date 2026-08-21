@@ -1,17 +1,14 @@
 /**
- * One-tap Frame harbor. Always fitBounds the documented official
- * US5PVDCB ∪ US5PVDBB box (Point Judith Harbor + inlet) so Galilee
+ * One-tap Frame harbor. Always easeTo the documented official
+ * US5PVDCB ∪ US5PVDBB pin (Point Judith Harbor + inlet) so Galilee
  * stays in view. Never the tide-harbor store (Newport). Never
  * US5PVDCD / US3RI1AA / US5PVDDD / whole bay. Huge or wrong extract
  * footprints are rejected — ENCProdCat 2026-08-21 / official .000
  * vertices, not invented. Drops Follow the same way a skipper pan
- * does. Camera persist is moveend → ahanu-camera. fitBounds is
- * linear easeTo (flyTo from Veatch zooms out through the bay).
- * Landscape leftover width is left-padded west of US5PVDCD.
- * MapLibre fitBounds already bakes offset into center, then easeTo
- * applies it again — so we never pass offset. Padding is stripped
- * in _fitInternal. maxZoom 14 so shoreline is readable (z12–14),
- * not the canyon. Not ECDIS.
+ * does. Camera persist is moveend → ahanu-camera. easeTo the pin
+ * (flyTo from Veatch zooms out through the bay). No fitBounds,
+ * no offset, no asymmetric padding — leftover east of −71.45
+ * (US5PVDCD at the landscape edge) is acceptable. Not ECDIS.
  */
 
 import { NEWPORT, POINT_JUDITH_HARBOR_BBOX } from "./constants";
@@ -55,7 +52,7 @@ export const US5PVDCB_OFFICIAL_BBOX: PackBBox = {
 export const US5PVDBB_OFFICIAL_BBOX: PackBBox = { ...POINT_JUDITH_HARBOR_BBOX };
 
 /**
- * Official US5PVDCB ∪ US5PVDBB. This is the box Frame harbor fitBounds.
+ * Official US5PVDCB ∪ US5PVDBB. This is the documented Frame harbor pin box.
  * west -71.55, south 41.325, east -71.475, north 41.475.
  * Galilee (41.3615) inside. Newport (41.49) outside.
  */
@@ -69,25 +66,31 @@ export const HARBOR_FRAME_BBOX: PackBBox = {
 /** Galilee / Point Judith Harbor dock. South of US5PVDCB-only (41.4). */
 export const GALILEE_DOCK = { lon: -71.51, lat: 41.3615 };
 
-/** Cap fitBounds so ENC shoreline is readable, not a canyon overview. */
+/** Documented harbor-scale cap. Camera is the pin zoom, not fitBounds. */
 export const FRAME_HARBOR_MAX_ZOOM = 14;
+
+/** Documented pin zoom — Galilee stays readable on a laptop plotter. */
+export const FRAME_HARBOR_ZOOM = 12.5;
+
+/** Midpoint of HARBOR_FRAME_BBOX. Literals so the camera is exact. */
+export const FRAME_HARBOR_CENTER: [number, number] = [-71.5125, 41.4];
 
 export const FRAME_HARBOR_FIT = {
   padding: 32,
   duration: 500,
   maxZoom: FRAME_HARBOR_MAX_ZOOM,
-  /** easeTo — flyTo from Veatch zooms out through Narragansett / US3RI1AA. */
+  /** easeTo is already linear — flyTo from Veatch zooms out through Narragansett. */
   linear: true,
   essential: true,
 } as const;
 
-/** Exact MapLibre fitBounds corners (SW, NE). Official US5PVDCB ∪ US5PVDBB. */
+/** Documented official pin corners (SW, NE). Official US5PVDCB ∪ US5PVDBB. */
 export const FRAME_HARBOR_FIT_BOUNDS: [[number, number], [number, number]] = [
   [HARBOR_FRAME_BBOX.west, HARBOR_FRAME_BBOX.south],
   [HARBOR_FRAME_BBOX.east, HARBOR_FRAME_BBOX.north],
 ];
 
-/** East of this is US5PVDCD / Newport approach. Landscape leftover width must stay west. */
+/** East of this is US5PVDCD / Newport approach. Landscape leftover there is acceptable. */
 export const HARBOR_VIEW_EAST_MAX = -71.45;
 
 export type HarborFrameSource = "US5PVDCB" | "harbor-union" | "pj-harbor-box";
@@ -306,62 +309,43 @@ export function shiftViewportWest(view: PackBBox, shiftDeg: number): PackBBox {
   };
 }
 
-/**
- * Extra left padding (px) so leftover landscape width is Block Island
- * Sound, not US5PVDCD / Newport. Same shift harbor used to pass as
- * fitBounds offset — MapLibre would apply that offset twice.
- */
-export function harborFitOffsetPx(mapSize: { width: number; height: number }): [number, number] {
-  const view = viewportAfterHarborFit(HARBOR_FRAME_BBOX, mapSize, FRAME_HARBOR_FIT);
-  if (view.east <= HARBOR_VIEW_EAST_MAX) return [0, 0];
-  const shiftDeg = view.east - HARBOR_VIEW_EAST_MAX;
-  const degPerPx = (view.east - view.west) / mapSize.width;
-  if (!Number.isFinite(degPerPx) || degPerPx <= 0) return [0, 0];
-  return [shiftDeg / degPerPx, 0];
-}
-
-export type FrameHarborFitOpts = {
-  padding: HarborFitPadding;
-  duration: number;
-  maxZoom: number;
-  linear: boolean;
-  essential: boolean;
-};
-
-function harborFitOpts(map: {
-  getContainer?: () => { clientWidth: number; clientHeight: number };
-}): FrameHarborFitOpts {
-  const el = map.getContainer?.();
-  const width = el?.clientWidth ?? 0;
-  const height = el?.clientHeight ?? 0;
-  if (width < 8 || height < 8) return { ...FRAME_HARBOR_FIT };
-  const extraLeftPx = harborFitOffsetPx({ width, height })[0];
-  if (extraLeftPx <= 0) return { ...FRAME_HARBOR_FIT };
-  const edge = FRAME_HARBOR_FIT.padding;
+/** Visible plotter at a fixed center/zoom. Used to prove Galilee is on screen. */
+export function viewportAtCamera(
+  center: [number, number],
+  zoom: number,
+  mapSize: { width: number; height: number },
+): PackBBox {
+  const tile = 512;
+  const world = tile * 2 ** zoom;
+  const cx = mercatorX(center[0]);
+  const cy = mercatorY(center[1]);
+  const halfW = mapSize.width / 2 / world;
+  const halfH = mapSize.height / 2 / world;
   return {
-    ...FRAME_HARBOR_FIT,
-    padding: { top: edge, bottom: edge, right: edge, left: edge + extraLeftPx },
+    west: lonFromMercatorX(cx - halfW),
+    east: lonFromMercatorX(cx + halfW),
+    north: latFromMercatorY(cy - halfH),
+    south: latFromMercatorY(cy + halfH),
   };
 }
 
 export function applyFrameHarbor(
   map: {
-    fitBounds: (
-      bounds: [[number, number], [number, number]],
-      opts?: {
-        padding?: HarborFitPadding;
-        duration?: number;
-        maxZoom?: number;
-        linear?: boolean;
-        essential?: boolean;
-        offset?: [number, number];
-      },
-    ) => void;
-    getContainer?: () => { clientWidth: number; clientHeight: number };
+    easeTo: (opts: {
+      center: [number, number];
+      zoom: number;
+      duration: number;
+      essential: boolean;
+    }) => void;
   },
   input?: HarborFrameInput | null,
 ): HarborFrame {
   const framed = harborFrameOf(input);
-  map.fitBounds(FRAME_HARBOR_FIT_BOUNDS, harborFitOpts(map));
+  map.easeTo({
+    center: FRAME_HARBOR_CENTER,
+    zoom: FRAME_HARBOR_ZOOM,
+    duration: 500,
+    essential: true,
+  });
   return framed;
 }

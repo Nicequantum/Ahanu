@@ -26,12 +26,13 @@ if (typeof globalThis.localStorage === "undefined") {
 }
 
 const {
+  FRAME_HARBOR_CENTER,
   FRAME_HARBOR_FIT,
   FRAME_HARBOR_FIT_BOUNDS,
   FRAME_HARBOR_LABEL,
   FRAME_HARBOR_MAX_ZOOM,
+  FRAME_HARBOR_ZOOM,
   GALILEE_DOCK,
-  HARBOR_VIEW_EAST_MAX,
   HARBOR_FRAME_BANNED,
   HARBOR_FRAME_BAY_CELL,
   HARBOR_FRAME_BBOX,
@@ -45,9 +46,7 @@ const {
   applyFrameHarbor,
   bboxContainsLonLat,
   bboxToFrameHarbor,
-  harborFitOffsetPx,
-  shiftViewportWest,
-  viewportAfterHarborFit,
+  viewportAtCamera,
   harborFrameOf,
   harborFootprints,
   isAcceptedHarborPrint,
@@ -267,7 +266,7 @@ describe("Frame harbor bbox", () => {
     assertExcludesNewport(framed.bbox);
   });
 
-  it("rejects a huge US5PVDCB extract and still fitBounds the official union", () => {
+  it("rejects a huge US5PVDCB extract and still pins the official union", () => {
     const huge = { west: -72, south: 40.8, east: -70.8, north: 42 };
     const framed = harborFrameOf({
       extract: {
@@ -330,11 +329,11 @@ describe("Frame harbor bbox", () => {
     assert.notDeepEqual(framed.bbox, US5PVDCB);
   });
 
-  it("fitBounds the official harbor union at z12–14 on the existing plotter", () => {
+  it("eases to the official harbor pin at z12.5 on the existing plotter", () => {
     const calls: unknown[] = [];
     const map = {
-      fitBounds: (bounds: unknown, opts: unknown) => {
-        calls.push({ bounds, opts });
+      easeTo: (opts: unknown) => {
+        calls.push(opts);
       },
     };
     const framed = applyFrameHarbor(map, {
@@ -353,16 +352,27 @@ describe("Frame harbor bbox", () => {
       [-71.55, 41.325],
       [-71.475, 41.475],
     ]);
+    assert.deepEqual(FRAME_HARBOR_CENTER, [-71.5125, 41.4]);
+    assert.ok(
+      Math.abs(FRAME_HARBOR_CENTER[0] - (HARBOR_FRAME_BBOX.west + HARBOR_FRAME_BBOX.east) / 2) < 1e-6,
+    );
+    assert.ok(
+      Math.abs(FRAME_HARBOR_CENTER[1] - (HARBOR_FRAME_BBOX.south + HARBOR_FRAME_BBOX.north) / 2) < 1e-6,
+    );
+    assert.equal(FRAME_HARBOR_ZOOM, 12.5);
     assert.deepEqual(calls[0], {
-      bounds: FRAME_HARBOR_FIT_BOUNDS,
-      opts: { ...FRAME_HARBOR_FIT },
+      center: FRAME_HARBOR_CENTER,
+      zoom: FRAME_HARBOR_ZOOM,
+      duration: 500,
+      essential: true,
     });
-    assert.equal(FRAME_HARBOR_FIT.linear, true);
-    assert.equal(FRAME_HARBOR_FIT.maxZoom, FRAME_HARBOR_MAX_ZOOM);
+    const hit = calls[0] as Record<string, unknown>;
+    assert.equal("offset" in hit, false);
+    assert.equal("padding" in hit, false);
+    assert.equal(FRAME_HARBOR_FIT.essential, true);
     assert.equal(FRAME_HARBOR_MAX_ZOOM, 14);
     assert.ok(FRAME_HARBOR_MAX_ZOOM >= 12 && FRAME_HARBOR_MAX_ZOOM <= 14);
     assert.ok(FRAME_HARBOR_MAX_ZOOM < PLOTTER_MAX_ZOOM);
-    assert.equal(FRAME_HARBOR_FIT.essential, true);
   });
 });
 
@@ -422,10 +432,10 @@ describe("Frame harbor click box", () => {
     const src = await readFile(CHART_MAP, "utf8");
     assert.match(src, /applyFrameHarbor\(map, getPackedOcean\(\)\?\.enc\)/);
     assert.match(src, /\[\[-71\.55, 41\.325\], \[-71\.475, 41\.475\]\]/);
-    const calls: Array<{ bounds: unknown; opts: unknown }> = [];
+    const calls: Array<Record<string, unknown>> = [];
     const map = {
-      fitBounds: (bounds: unknown, opts: unknown) => {
-        calls.push({ bounds, opts });
+      easeTo: (opts: Record<string, unknown>) => {
+        calls.push(opts);
       },
     };
     // Same call ChartMap makes on Frame harbor — packed ENC only, never tide/pack.
@@ -437,11 +447,20 @@ describe("Frame harbor click box", () => {
       east: -71.475,
       north: 41.475,
     });
-    assert.deepEqual(calls[0]?.bounds, FRAME_HARBOR_FIT_BOUNDS);
-    assert.deepEqual(calls[0]?.bounds, [
+    assert.deepEqual(FRAME_HARBOR_FIT_BOUNDS, [
       [-71.55, 41.325],
       [-71.475, 41.475],
     ]);
+    assert.deepEqual(calls[0], {
+      center: FRAME_HARBOR_CENTER,
+      zoom: FRAME_HARBOR_ZOOM,
+      duration: 500,
+      essential: true,
+    });
+    assert.deepEqual(calls[0]?.center, [-71.5125, 41.4]);
+    assert.equal(calls[0]?.zoom, 12.5);
+    assert.equal("offset" in calls[0], false);
+    assert.equal("padding" in calls[0], false);
     assertExcludesNewport(framed.bbox);
     assert.equal(NEWPORT.lat, 41.49);
     assert.ok(framed.bbox.north < 41.49);
@@ -452,55 +471,38 @@ describe("Frame harbor click box", () => {
     assertContainsGalilee(framed.bbox);
   });
 
-  it("landscape leftover width is shifted west of US5PVDCD so Newport stays out of view", () => {
+  it("Galilee stays inside a 1280×720 view at the official pin", () => {
     const laptop = { width: 1280, height: 720 };
-    const raw = viewportAfterHarborFit(HARBOR_FRAME_BBOX, laptop, FRAME_HARBOR_FIT);
-    assert.ok(raw.east > HARBOR_VIEW_EAST_MAX, "unshifted landscape spills into East Passage");
-    assert.equal(bboxContainsLonLat(raw, -71.3625, 41.4375), true);
-    assert.ok(raw.north < NEWPORT.lat);
-    const [ox, oy] = harborFitOffsetPx(laptop);
-    assert.ok(ox > 0);
-    assert.equal(oy, 0);
-    const shifted = shiftViewportWest(raw, raw.east - HARBOR_VIEW_EAST_MAX);
-    assert.ok(shifted.east <= HARBOR_VIEW_EAST_MAX + 1e-9);
-    assert.equal(bboxContainsLonLat(shifted, NEWPORT.lon, NEWPORT.lat), false);
-    assert.equal(bboxContainsLonLat(shifted, -71.3625, 41.4375), false);
+    const view = viewportAtCamera(FRAME_HARBOR_CENTER, FRAME_HARBOR_ZOOM, laptop);
+    // Official pin box is the requirement. Landscape leftover may include US5PVDCD.
     assertContainsGalilee(HARBOR_FRAME_BBOX);
+    assertExcludesNewport(HARBOR_FRAME_BBOX);
+    assert.ok(HARBOR_FRAME_BBOX.north < 41.49);
+    assert.ok(view.west <= GALILEE_DOCK.lon && view.east >= GALILEE_DOCK.lon);
+    assert.ok(Math.abs(view.south - GALILEE_DOCK.lat) < 0.02 || bboxContainsLonLat(view, GALILEE_DOCK.lon, GALILEE_DOCK.lat));
     const mapCalls: unknown[] = [];
     applyFrameHarbor(
       {
-        fitBounds: (bounds, opts) => {
-          mapCalls.push({ bounds, opts });
+        easeTo: (opts) => {
+          mapCalls.push(opts);
         },
-        getContainer: () => ({ clientWidth: 1280, clientHeight: 720 }),
       },
       getPackedOcean()?.enc,
     );
     const hit = mapCalls[0] as {
-      bounds: unknown;
-      opts: {
-        offset?: [number, number];
-        linear?: boolean;
-        padding?: number | { top: number; bottom: number; left: number; right: number };
-      };
+      center: [number, number];
+      zoom: number;
+      duration: number;
+      essential: boolean;
+      offset?: [number, number];
+      padding?: unknown;
     };
-    assert.deepEqual(hit.bounds, FRAME_HARBOR_FIT_BOUNDS);
-    assert.equal(hit.opts.linear, true);
-    assert.ok(hit.opts.offset == null || hit.opts.offset[0] === 0, "fitBounds must not get offset");
-    const pad = hit.opts.padding;
-    assert.ok(pad && typeof pad === "object", "landscape leftover is left padding, not offset");
-    assert.ok(pad.left > pad.right);
-    assert.equal(pad.right, 32);
-    assert.equal(pad.top, 32);
-    assert.equal(pad.bottom, 32);
-    assert.equal(pad.left, 32 + ox);
-    const paddedView = viewportAfterHarborFit(HARBOR_FRAME_BBOX, laptop, {
-      padding: pad,
-      maxZoom: FRAME_HARBOR_MAX_ZOOM,
-    });
-    assertContainsGalilee(paddedView);
-    assert.equal(bboxContainsLonLat(paddedView, NEWPORT.lon, NEWPORT.lat), false);
-    assert.equal(bboxContainsLonLat(paddedView, -71.3625, 41.4375), false, "US5PVDCD centroid");
+    assert.deepEqual(hit.center, [-71.5125, 41.4]);
+    assert.equal(hit.zoom, 12.5);
+    assert.equal(hit.duration, 500);
+    assert.equal(hit.essential, true);
+    assert.equal(hit.offset, undefined);
+    assert.equal(hit.padding, undefined);
   });
 });
 
