@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
-const { buildFixturePack, PACK_BUILDER_REV, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
+const { buildFixturePack, PACK_BUILDER_REV, POINT_JUDITH_CANYON_BBOX, resetBuiltPackCache, sha256Hex } = await import("../src/lib/ahanu/pack.ts");
 const {
   resetLiveNoaaCache,
   sampleCsvForTests,
@@ -18,6 +18,7 @@ const { encodeHour0Sample } = await import("../src/lib/ahanu/grid-io.ts");
 
 afterEach(() => {
   resetLiveNoaaCache();
+  resetBuiltPackCache();
 });
 
 const START = "2026-08-20T12:00:00.000Z";
@@ -438,3 +439,41 @@ describe("preview pack HTTP hour-0 GFS merge", () => {
     assert.ok(!ready.failures.some((f) => /covers 1 h/.test(f)));
   });
 });
+
+describe("preview pack HTTP objects reuse last pack bytes", () => {
+  it("GET /api/objects?layer=buoys keeps the packs hash when NDBC snapshot changes", async () => {
+    const NDBC_N = `#STN     LAT      LON  YY MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  PTDY  ATMP  WTMP  DEWP  VIS  TIDE
+#text    deg      deg   yr mo dy hr mn degT m/s  m/s     m   sec   sec degT   hPa   hPa  degC  degC  degC  nmi    ft
+44097    40.967 -71.126 26 08 20 16 40  210  5.2  6.8   1.0     8   5.4 200 1016.5 +0.0  22.1  21.8    MM   MM    MM
+`;
+    const NDBC_N1 = `#STN     LAT      LON  YY MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  PTDY  ATMP  WTMP  DEWP  VIS  TIDE
+#text    deg      deg   yr mo dy hr mn degT m/s  m/s     m   sec   sec degT   hPa   hPa  degC  degC  degC  nmi    ft
+44097    40.967 -71.126 26 08 20 16 50  220  7.1  8.4   1.3     9   5.8 210 1015.8 -0.4  22.0  21.6    MM   MM    MM
+`;
+    let ndbc = NDBC_N;
+    const base = mockNoaaSuccess();
+    const fetchImpl = async (url: string) => {
+      if (url.includes("latest_obs")) return new Response(ndbc, { status: 200 });
+      return base(url);
+    };
+    const manRes = await handlePacksRequest(new Request(`http://ahanu.test/api/packs?${Q}&live=1&skipCache=1`), {
+      fetchImpl,
+    });
+    assert.equal(manRes.status, 200);
+    const man = (await manRes.json()) as { layers: LayerRow[]; packId: string };
+    const buoys = man.layers.find((l) => l.id === "buoys");
+    assert.ok(buoys);
+    assert.equal(buoys.source, "noaa");
+    ndbc = NDBC_N1;
+    const obj = await handlePacksRequest(
+      new Request(`http://ahanu.test/api/objects?${Q}&live=1&layer=buoys`),
+      { fetchImpl },
+    );
+    assert.equal(obj.status, 200);
+    const body = await obj.text();
+    assert.equal(obj.headers.get("X-Ahanu-Hash"), buoys.hash);
+    assert.equal(await sha256Hex(body), buoys.hash);
+    assert.ok(body.includes("21.8") || body.includes("5.2"), "expected snapshot N bytes");
+  });
+});
+

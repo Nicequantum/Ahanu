@@ -72,6 +72,15 @@ export function ingestDefaultBbox(_env?: IngestEnv): PackBBox {
   return POINT_JUDITH_CANYON_BBOX;
 }
 
+/** Stable alias so objects GET can find the last hashed body without rebuilding NOAA. */
+export function latestLayerR2Key(packId: string, layerId: string): string {
+  return `packs/${packId}/${layerId}`;
+}
+
+export function packManifestR2Key(packId: string): string {
+  return `packs/${packId}/manifest.json`;
+}
+
 export function layerWrites(manifest: BuiltPack["manifest"], bodies: Record<string, string>): IngestLayerWrite[] {
   const out: IngestLayerWrite[] = [];
   for (const layer of manifest.layers) {
@@ -92,6 +101,7 @@ export async function putPackObjects(
   env: IngestEnv,
   writes: IngestLayerWrite[],
   bodies: Record<string, string>,
+  packId?: string,
 ): Promise<number> {
   const bucket = env.PACKS;
   if (!bucket || typeof bucket.put !== "function") return 0;
@@ -100,6 +110,7 @@ export async function putPackObjects(
     const body = bodies[rec.id];
     if (!body) continue;
     await bucket.put(rec.r2Key, body);
+    if (packId) await bucket.put(latestLayerR2Key(packId, rec.id), body);
     wrote += 1;
   }
   return wrote;
@@ -138,7 +149,15 @@ export async function syncPackLayers(
 
 export async function persistBuiltPack(env: IngestEnv, built: BuiltPack): Promise<IngestResult> {
   const writes = layerWrites(built.manifest, built.bodies);
-  const wrote = await putPackObjects(env, writes, built.bodies);
+  const wrote = await putPackObjects(env, writes, built.bodies, built.manifest.packId);
+  const bucket = env.PACKS;
+  if (bucket && typeof bucket.put === "function") {
+    try {
+      await bucket.put(packManifestR2Key(built.manifest.packId), JSON.stringify(built.manifest));
+    } catch {
+      /* hash + latest keys already written; objects can still use those */
+    }
+  }
   const d1 = await syncPackLayers(env, built.manifest.packId, writes, built.manifest.generatedAt);
   return {
     packId: built.manifest.packId,

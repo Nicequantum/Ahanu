@@ -4,10 +4,12 @@ import { afterEach, describe, it } from "node:test";
 
 const { ingestFixturePack, persistBuiltPack } = await import("../cloudflare/src/ingest/run.ts");
 const { resetLiveNoaaCache } = await import("../src/lib/ahanu/noaa-live.ts");
+const { resetBuiltPackCache } = await import("../src/lib/ahanu/pack.ts");
 const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
 
 afterEach(() => {
   resetLiveNoaaCache();
+  resetBuiltPackCache();
 });
 
 const START = "2026-08-20T18:00:00.000Z";
@@ -51,6 +53,8 @@ describe("ingest R2 persist", () => {
     assert.ok(buoys);
     assert.equal(buoys.source, "noaa");
     assert.ok(store.has(buoys.r2Key));
+    assert.ok(store.has(`packs/${result.packId}/buoys`), "stable latest alias");
+    assert.ok(store.has(`packs/${result.packId}/manifest.json`), "manifest write-through");
     const body = store.get(buoys.r2Key) ?? "";
     assert.ok(body.includes("44097") || body.includes("ndbc") || body.includes("buoy"), body.slice(0, 120));
     const sst = result.layers.find((l) => l.id === "sst");

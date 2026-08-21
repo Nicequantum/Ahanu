@@ -462,6 +462,53 @@ export interface BuiltPack {
   bodies: Record<string, string>;
 }
 
+/** Deterministic pack id: bbox + 6 h cycle + hours. Content hashes are not in it. */
+export async function packIdFor(bbox: PackBBox, start: string, hours: number): Promise<string> {
+  const boxed = clampBbox(bbox);
+  const cycle = cycleStamp(start);
+  const key = bboxKey(boxed);
+  return (await sha256Hex(`ahanu|${key}|${cycle}|${hours}`)).slice(0, 16);
+}
+
+const PACK_BUILD_TTL_MS = 10 * 60 * 1000;
+const lastBuilt = new Map<string, { at: number; built: BuiltPack }>();
+
+export function packBuildCacheKey(bbox: PackBBox, start: string, hours: number): string {
+  return `${bboxKey(clampBbox(bbox))}|${start}|${hours}`;
+}
+
+/** In-isolate last buildTripPack. Objects reuse these bytes so helm hash matches. */
+export function rememberBuiltPack(built: BuiltPack): void {
+  const at = Date.now();
+  lastBuilt.set(packBuildCacheKey(built.manifest.bbox, built.manifest.start, built.manifest.hours), {
+    at,
+    built,
+  });
+  lastBuilt.set(`id:${built.manifest.packId}`, { at, built });
+}
+
+export function peekBuiltPack(opts: {
+  bbox?: PackBBox;
+  start?: string;
+  hours?: number;
+  packId?: string;
+}): BuiltPack | undefined {
+  const now = Date.now();
+  if (opts.packId) {
+    const hit = lastBuilt.get(`id:${opts.packId}`);
+    if (hit && now - hit.at < PACK_BUILD_TTL_MS) return hit.built;
+  }
+  if (opts.bbox && opts.start != null && opts.hours != null) {
+    const hit = lastBuilt.get(packBuildCacheKey(opts.bbox, opts.start, opts.hours));
+    if (hit && now - hit.at < PACK_BUILD_TTL_MS) return hit.built;
+  }
+  return undefined;
+}
+
+export function resetBuiltPackCache(): void {
+  lastBuilt.clear();
+}
+
 export async function buildFixturePack(options: {
   bbox: PackBBox;
   start?: string;
@@ -477,9 +524,7 @@ export async function buildFixturePack(options: {
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
   const start = options.start ?? new Date().toISOString();
   const createdAt = options.createdAt ?? new Date().toISOString();
-  const cycle = cycleStamp(start);
-  const key = bboxKey(bbox);
-  const packId = (await sha256Hex(`ahanu|${key}|${cycle}|${hours}`)).slice(0, 16);
+  const packId = await packIdFor(bbox, start, hours);
   const r2Prefix = `packs/${packId}`;
   const bodies: Record<string, string> = {};
   const layers: PackLayerRecord[] = [];
@@ -717,7 +762,7 @@ export async function buildTripPack(options: {
     // Honesty only — Packs still lists the line. Ready / Retry ignore it.
     if (gfsMerge.note) liveErrors = capLiveErrors([gfsMerge.note, ...liveErrors]);
   }
-  return buildFixturePack({
+  const built = await buildFixturePack({
     bbox,
     start,
     hours,
@@ -726,4 +771,6 @@ export async function buildTripPack(options: {
     extraSources: extraSources.length ? extraSources : undefined,
     liveErrors,
   });
+  rememberBuiltPack(built);
+  return built;
 }

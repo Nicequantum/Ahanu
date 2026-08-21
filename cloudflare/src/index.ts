@@ -20,7 +20,8 @@ import {
   specForLayer,
   type BBox,
 } from "./ingest/pack";
-import { buildTripPack } from "../../src/lib/ahanu/pack";
+import { buildTripPack, peekBuiltPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
+import { layerBody } from "./layer-body";
 import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
@@ -187,7 +188,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id",
+  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source",
 };
 
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -307,39 +308,7 @@ function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["man
   };
 }
 
-async function layerBody(env: Env, bbox: BBox, start: string, hours: number, layerId: string): Promise<{
-  body: string;
-  hash: string;
-  contentType: string;
-  source: "r2" | "fixture" | "noaa";
-  r2Key: string;
-  persist?: { id: string; body: string };
-} | null> {
-  const built = await buildTripPack({ bbox, start, hours, tryLive: true, timeoutMs: NOAA_GRID_TIMEOUT_MS });
-  const rec = built.manifest.layers.find((l) => l.id === layerId);
-  if (!rec) return null;
-  const bucket = env.PACKS;
-  if (bucket && typeof bucket.get === "function") {
-    try {
-      const obj = await bucket.get(rec.r2Key);
-      if (obj) {
-        return { body: await obj.text(), hash: rec.hash, contentType: rec.contentType, source: "r2", r2Key: rec.r2Key };
-      }
-    } catch {
-      /* fall through to generated body */
-    }
-  }
-  const body = built.bodies[layerId];
-  if (!body) return null;
-  return {
-    body,
-    hash: rec.hash,
-    contentType: rec.contentType,
-    source: rec.source === "noaa" ? "noaa" : "fixture",
-    r2Key: rec.r2Key,
-    persist: { id: rec.id, body },
-  };
-}
+export { layerBody } from "./layer-body";
 
 function schedulePersist(ctx: ExecCtx | undefined, work: Promise<unknown>): void {
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
@@ -691,7 +660,12 @@ export default {
           timeoutMs: NOAA_GRID_TIMEOUT_MS,
           skipCache,
         });
-        schedulePersist(ctx, persistBuiltPack(env, built));
+        rememberBuiltPack(built);
+        try {
+          await persistBuiltPack(env, built);
+        } catch {
+          schedulePersist(ctx, persistBuiltPack(env, built));
+        }
         const manifest = workerManifest(built.manifest);
         return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
       }
@@ -708,10 +682,25 @@ export default {
         const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
         const spec = specForLayer(layer);
         if (!spec) return error(404, "unknown layer", { layer });
-        const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id);
+        const objSkipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+        const objSkipCache = objSkipRaw === "1" || objSkipRaw === "true" || objSkipRaw === "yes";
+        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id, {
+          skipCache: objSkipCache,
+          packId,
+        });
         if (!obj) return error(404, "layer body missing", { layer });
         if (obj.persist && env.PACKS && typeof env.PACKS.put === "function") {
-          schedulePersist(ctx, env.PACKS.put(obj.r2Key, obj.persist.body));
+          const cached = peekBuiltPack({
+            packId: obj.packId,
+            bbox: bboxOrErr,
+            start,
+            hours: Math.round(hours),
+          });
+          schedulePersist(
+            ctx,
+            cached ? persistBuiltPack(env, cached) : env.PACKS.put(obj.r2Key, obj.persist.body),
+          );
         }
         return new Response(obj.body, {
           status: 200,
@@ -720,6 +709,7 @@ export default {
             ETag: `"${obj.hash}"`,
             "X-Ahanu-Hash": obj.hash,
             "X-Ahanu-Source": obj.source,
+            "X-Ahanu-Pack-Id": obj.packId,
             ...CORS_HEADERS,
           },
         });

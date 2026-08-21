@@ -12,7 +12,7 @@
 
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
 import { NOAA_GRID_TIMEOUT_MS } from "./noaa-http";
-import { buildFixturePack, buildTripPack, type PackBBox } from "./pack";
+import { buildFixturePack, buildTripPack, peekBuiltPack, type PackBBox } from "./pack";
 import { specForLayer } from "./pack-fixtures";
 import type { CatchRecord, SpeciesId } from "./types";
 
@@ -162,9 +162,15 @@ export async function handlePacksRequest(
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
     const skipCache = wantSkipCache(url);
-    const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
-      : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
+    const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+    const cached = peekBuiltPack({ bbox, start: win.start, hours: win.hours, packId });
+    const reuse = Boolean(cached) && (!skipCache || Boolean(packId && cached?.manifest.packId === packId));
+    const built =
+      reuse && cached
+        ? cached
+        : wantLive(url)
+          ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
+          : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
     const rec = built.manifest.layers.find((l) => l.id === spec.id);
@@ -172,6 +178,7 @@ export async function handlePacksRequest(
       ETag: rec ? `"${rec.hash}"` : "",
       "X-Ahanu-Hash": rec?.hash ?? "",
       "X-Ahanu-Source": rec?.source ?? "fixture",
+      "X-Ahanu-Pack-Id": built.manifest.packId,
       ...packCacheControl(wantLive(url), skipCache),
     });
   }
