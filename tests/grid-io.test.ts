@@ -583,7 +583,11 @@ describe("paced GFS-Wave series", () => {
     const body = parseLayerBody(pack.bodies.wind!) as { fixture?: boolean; hours?: number[]; note?: string };
     assert.equal(body.fixture, false);
     assert.deepEqual(body.hours, wanted);
-    assert.ok(!(pack.manifest.liveErrors ?? []).some((e) => e.includes("fixture")));
+    // Other overlays (SST/NDBC/…) keep fixtures when this mock only serves GFS.
+    // A complete 18z pick must not leave a GFS fixture-tail honesty note.
+    assert.ok(
+      !(pack.manifest.liveErrors ?? []).some((e) => e.startsWith("gfs:") && e.includes("fixture")),
+    );
     assert.match(gfsLiveHoursNote(wanted, 72, { ymd: "20260820", cc: "18" }), /20260820 18z hours 0–72 live/);
   });
 
