@@ -28,7 +28,7 @@ import {
   resolveNdbcHealth,
   type CachedNdbcProbe,
 } from "./ndbc-probe-cache";
-import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, resolvePackManifest } from "./ingest/run";
+import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, headPackManifest, resolvePackManifest } from "./ingest/run";
 import {
   bearerToken,
   catchBindDecision,
@@ -210,7 +210,7 @@ export interface TripPackManifest {
 }
 
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
   "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source, X-Ahanu-Ndbc, Retry-After",
@@ -236,6 +236,19 @@ function maybeHead(request: Request, response: Response): Response {
     statusText: response.statusText,
     headers: response.headers,
   });
+}
+
+function isRead(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+/** HEAD miss: never start skipCache NOAA. Same headers on the empty-body HEAD. */
+function headNoRebuild(message: string, extra: Record<string, string> = {}): Response {
+  return json(
+    { error: message, hint: "HEAD does not live-rebuild NOAA" },
+    503,
+    { "Cache-Control": "no-store", "X-Ahanu-Source": "no-rebuild", ...extra },
+  );
 }
 
 function error(status: number, message: string, extra?: Record<string, unknown>): Response {
@@ -648,18 +661,38 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
         );
       }
 
-      if (request.method === "GET" && path === "/api/packs") {
+      if (isRead(request.method) && path === "/api/packs") {
         const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
-        if (bboxOrErr instanceof Response) return bboxOrErr;
+        if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");
         const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
         if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
-          return error(400, "hours must be 1–168");
+          return maybeHead(request, error(400, "hours must be 1–168"));
+        }
+        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        if (request.method === "HEAD") {
+          const headed = await headPackManifest(env, {
+            bbox: bboxOrErr,
+            start,
+            hours: Math.round(hours),
+            packId,
+          });
+          if (headed.source === "no-rebuild") {
+            return maybeHead(request, headNoRebuild("no cached pack"));
+          }
+          const manifest = workerManifest(headed.manifest);
+          return maybeHead(
+            request,
+            json(manifest, 200, {
+              "X-Ahanu-Pack-Id": manifest.packId,
+              "X-Ahanu-Source": headed.source,
+              ETag: `"${manifest.packId}"`,
+            }),
+          );
         }
         const skipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
         const skipCache = skipRaw === "1" || skipRaw === "true" || skipRaw === "yes";
-        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
         const resolved = await resolvePackManifest(env, {
           bbox: bboxOrErr,
           start,
@@ -685,31 +718,36 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
         });
       }
 
-      if (request.method === "GET" && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
+      if (isRead(request.method) && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
         const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
-        if (bboxOrErr instanceof Response) return bboxOrErr;
+        if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");
         const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
         if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
-          return error(400, "hours must be 1–168");
+          return maybeHead(request, error(400, "hours must be 1–168"));
         }
         const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
         const spec = specForLayer(layer);
-        if (!spec) return error(404, "unknown layer", { layer });
+        if (!spec) return maybeHead(request, error(404, "unknown layer", { layer }));
         const objSkipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
         const objSkipCache = objSkipRaw === "1" || objSkipRaw === "true" || objSkipRaw === "yes";
         const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
         const hash = (url.searchParams.get("hash") ?? "").trim() || undefined;
+        const head = request.method === "HEAD";
         const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id, {
-          skipCache: objSkipCache,
+          skipCache: head ? false : objSkipCache,
           packId,
           hash,
           fetchImpl: env.fetchImpl,
-          limitLiveRebuild: { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
+          limitLiveRebuild: head ? undefined : { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
+          head,
         });
-        if (!obj) return error(404, "layer body missing", { layer });
-        if (obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {
+        if (!obj) {
+          if (head) return maybeHead(request, headNoRebuild("layer body missing"));
+          return error(404, "layer body missing", { layer });
+        }
+        if (!head && obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {
           schedulePersist(
             ctx,
             persistLayerObject(env, {
@@ -721,57 +759,69 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
             }),
           );
         }
-        return new Response(obj.body, {
-          status: 200,
-          headers: {
-            "Content-Type": obj.contentType,
-            ETag: `"${obj.hash}"`,
-            "X-Ahanu-Hash": obj.hash,
-            "X-Ahanu-Source": obj.source,
-            "X-Ahanu-Pack-Id": obj.packId,
-            ...CORS_HEADERS,
-          },
-        });
+        return maybeHead(
+          request,
+          new Response(obj.body, {
+            status: 200,
+            headers: {
+              "Content-Type": obj.contentType,
+              ETag: `"${obj.hash}"`,
+              "X-Ahanu-Hash": obj.hash,
+              "X-Ahanu-Source": obj.source,
+              "X-Ahanu-Pack-Id": obj.packId,
+              ...CORS_HEADERS,
+            },
+          }),
+        );
       }
 
-      if (request.method === "GET" && path === "/api/sources") {
+      if (isRead(request.method) && path === "/api/sources") {
         const sources = listIngestSources();
-        return json({
-          count: sources.length,
-          scoring: "on-device-only",
-          notes: "Adapters return metadata and real upstream URLs. The Worker packages bytes; it does not score habitat.",
-          sources,
-        });
+        return maybeHead(
+          request,
+          json({
+            count: sources.length,
+            scoring: "on-device-only",
+            notes: "Adapters return metadata and real upstream URLs. The Worker packages bytes; it does not score habitat.",
+            sources,
+          }),
+        );
       }
 
-      if (request.method === "GET" && path === "/api/buoys") {
+      if (isRead(request.method) && path === "/api/buoys") {
         const resolved = await resolveNdbcBuoys({ env, fetchImpl: env.fetchImpl });
         if (resolved.buoys?.length) {
-          return json(
-            {
-              updatedAt: resolved.updatedAt,
-              count: resolved.count,
-              source: "ndbc-live",
-              cached: resolved.cached,
-              probedAt: resolved.probedAt,
-              ageSec: resolved.ageSec,
-              buoys: resolved.buoys,
-            },
-            200,
-            { "X-Ahanu-Ndbc": resolved.source },
+          return maybeHead(
+            request,
+            json(
+              {
+                updatedAt: resolved.updatedAt,
+                count: resolved.count,
+                source: "ndbc-live",
+                cached: resolved.cached,
+                probedAt: resolved.probedAt,
+                ageSec: resolved.ageSec,
+                buoys: resolved.buoys,
+              },
+              200,
+              { "X-Ahanu-Ndbc": resolved.source },
+            ),
           );
         }
         const snap = buoySnapshot(new Date());
-        return json(
-          {
-            updatedAt: snap[0]?.updatedAt,
-            count: snap.length,
-            source: "ndbc-snapshot",
-            cached: false,
-            buoys: snap,
-          },
-          200,
-          { "X-Ahanu-Ndbc": "snapshot" },
+        return maybeHead(
+          request,
+          json(
+            {
+              updatedAt: snap[0]?.updatedAt,
+              count: snap.length,
+              source: "ndbc-snapshot",
+              cached: false,
+              buoys: snap,
+            },
+            200,
+            { "X-Ahanu-Ndbc": "snapshot" },
+          ),
         );
       }
 

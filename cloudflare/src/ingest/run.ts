@@ -165,11 +165,30 @@ export interface ResolvedPack {
   built?: BuiltPack;
 }
 
+export type HeadPackResult =
+  | { manifest: BuiltPack["manifest"]; source: "r2" }
+  | { manifest: null; source: "no-rebuild" };
+
+/**
+ * HEAD /api/packs: last R2 only. Never buildTripPack, never take a
+ * skipCache live-rebuild slot. skipCache on the query is ignored.
+ */
+export async function headPackManifest(
+  env: IngestEnv,
+  opts: Pick<ResolvePackOptions, "bbox" | "start" | "hours" | "packId">,
+): Promise<HeadPackResult> {
+  const packId = (opts.packId ?? "").trim() || (await packIdFor(opts.bbox, opts.start, opts.hours));
+  const stored = await loadPersistedManifest(env, packId);
+  if (stored) return { manifest: stored, source: "r2" };
+  return { manifest: null, source: "no-rebuild" };
+}
+
 /**
  * skipCache off: last R2 manifest for this packId when present.
  * skipCache or miss: live buildTripPack. Caller persists a live result.
  * HTTP callers pass limitLiveRebuild so a live rebuild is fail-closed
  * per CF-Connecting-IP. An R2 hit returns before that gate.
+ * HEAD uses headPackManifest and never reaches this path.
  */
 export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptions): Promise<ResolvedPack> {
   const hours = opts.hours;

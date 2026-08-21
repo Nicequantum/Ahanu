@@ -4,6 +4,8 @@
  * by hash key / stored manifest r2Key / latest alias.
  * A pinned packId or hash must not rebuild NOAA — a second NDBC snapshot
  * would hash differently from the helm's stored manifest.
+ * HEAD (`opts.head`) is isolate/R2 only: never buildTripPack, never take
+ * a skipCache live-rebuild slot. skipCache on HEAD is treated as off.
  */
 import { specForLayer, type BBox } from "./ingest/pack";
 import {
@@ -94,11 +96,13 @@ export async function layerBody(
     fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
     /** HTTP only. Counted only when this call is about to rebuild NOAA. */
     limitLiveRebuild?: LimitLiveRebuild;
+    /** HEAD: isolate/R2 only — never rebuild, never take a live-rebuild slot. */
+    head?: boolean;
   },
 ): Promise<LayerBodyResult | null> {
   const spec = specForLayer(layerId);
   if (!spec) return null;
-  const skipCache = opts?.skipCache === true;
+  const skipCache = opts?.skipCache === true && !opts?.head;
   const wantHash = (opts?.hash ?? "").trim().toLowerCase() || undefined;
   const pinned = Boolean(opts?.packId || wantHash);
 
@@ -141,6 +145,7 @@ export async function layerBody(
     if (pinned) return null;
   }
 
+  if (opts?.head) return null;
   if (pinned && !skipCache) return null;
 
   if (opts?.limitLiveRebuild) {

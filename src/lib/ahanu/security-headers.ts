@@ -120,7 +120,7 @@ export function pwaSecurityHeaders(request: Request): Record<string, string> {
 export function packsSecurityHeaders(request: Request): Record<string, string> {
   const origin = (request.headers.get("Origin") ?? "").trim();
   const headers: Record<string, string> = {
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
     "Access-Control-Max-Age": "86400",
     "Access-Control-Expose-Headers": PACKS_EXPOSE,

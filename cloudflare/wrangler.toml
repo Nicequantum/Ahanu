@@ -61,6 +61,7 @@ new_sqlite_classes = ["CommunityHub"]
 # Isolate memory is the test fallback. R2 hits are not counted. Cron is not HTTP.
 # POST /api/catches stays device-token Bearer (helm localStorage), bound per row to SHA-256(token).
 # GET /health and GET /api/buoys reuse last-successful NDBC latest_obs (isolate + R2, 10 min TTL).
+# HEAD of GET routes matches GET status/headers with an empty body; HEAD /api/packs is R2-only.
 [triggers]
 crons = ["15 2,8,14,20 * * *"]
 

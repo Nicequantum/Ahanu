@@ -3,7 +3,8 @@
  *
  * GET /api/packs?skipCache=1 and objects rebuild-on-total-miss still hit
  * NOAA + ENC (~11s, many subrequests). A public URL must not do that
- * unbounded. R2 / isolate hits do not take a slot. Cron and POST /api/ingest
+ * unbounded. R2 / isolate hits do not take a slot. HEAD of those routes
+ * never rebuilds and never takes a slot. Cron and POST /api/ingest
  * call buildTripPack in-process and never come through this gate.
  *
  * Default: 3 live rebuilds / 60s / CF-Connecting-IP.
