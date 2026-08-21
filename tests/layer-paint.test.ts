@@ -16,7 +16,7 @@ const { fieldImage, buildPackedRaster } = await import("../src/lib/ahanu/rasters
 const { colorizeSst } = await import("../src/lib/ahanu/ocean.ts");
 const { gribAt } = await import("../src/lib/ahanu/grib.ts");
 const { windBarbGeo, waveFieldGeo } = await import("../src/lib/ahanu/wind-field.ts");
-const { VEATCH_HEAD, REGION } = await import("../src/lib/ahanu/constants.ts");
+const { VEATCH_HEAD, REGION, LAYER_META } = await import("../src/lib/ahanu/constants.ts");
 
 const START = "2026-08-20T12:00:00.000Z";
 
@@ -37,7 +37,7 @@ async function loadFixture(omit: string[] = []) {
 }
 
 describe("layerPaintSource — no pack", () => {
-  it("ocean/weather layers are synthetic; chart/ops are local", () => {
+  it("ocean/weather/AIS are synthetic; other chart/ops are local", () => {
     assert.equal(layerPaintSource("sst"), "synthetic");
     assert.equal(layerPaintSource("chlorophyll"), "synthetic");
     assert.equal(layerPaintSource("altimetry"), "synthetic");
@@ -51,7 +51,8 @@ describe("layerPaintSource — no pack", () => {
     assert.equal(layerPaintSource("canyons"), "local");
     assert.equal(layerPaintSource("hms_zones"), "local");
     assert.equal(layerPaintSource("buoys"), "local");
-    assert.equal(layerPaintSource("ais"), "local");
+    assert.equal(layerPaintSource("ais"), "synthetic");
+    assert.equal(LAYER_META.ais.label, "AIS demo — not live traffic");
     assert.equal(layerPaintSource("enc"), "local");
   });
 });
@@ -73,6 +74,7 @@ describe("layerPaintSource — fixture pack", () => {
     assert.equal(layerPaintSource("hms_zones"), "fixture");
     assert.equal(layerPaintSource("buoys"), "fixture");
     assert.equal(layerPaintSource("enc"), "fixture");
+    assert.equal(layerPaintSource("ais"), "missing");
   });
 
   it("missing chlorophyll stays missing — no synthetic fallback", async () => {

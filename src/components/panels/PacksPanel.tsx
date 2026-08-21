@@ -297,7 +297,7 @@ export function PacksPanel() {
         </div>
       ) : null}
       <p className="mt-4 text-xs text-muted">
-        AIS is a gateway, not a file. Chlorophyll and altimetry improve the pack; they do not block Ready.
+        AIS demo — not live traffic. Chlorophyll and altimetry improve the pack; they do not block Ready.
         ENC is a cell list, not a legal chart.
       </p>
     </Pane>

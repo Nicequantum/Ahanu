@@ -49,7 +49,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | CO-OPS tides        | JSON hi/lo + hourly                                           | **72 h**                 | Harbor windows, The Race, Block Island Sound.                |
 | HMS closed areas    | GeoJSON                                                       | static / as published    | Overlay, not a legal determination.                          |
 
-**Not in the pack:** habitat score, temperature-break polylines, chlorophyll edges, solunar, marks, tracks, catch history, AIS. The first four are derived on the device from SST/chl/SSH + clock. The rest is user data.
+**Not in the pack:** habitat score, temperature-break polylines, chlorophyll edges, solunar, marks, tracks, catch history. The first four are derived on the device from SST/chl/SSH + clock. Marks/tracks/catch are user data. AIS is a helm demo overlay — not live traffic. No public no-key feed served the Point Judith box (MarineCadastre is historical; AISHub / aisstream / USCG NAIS need a key or account we do not have).
 
 Identity of an object:
 

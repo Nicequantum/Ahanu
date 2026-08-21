@@ -66,7 +66,7 @@ export const LAYER_META: Record<
   routes: { label: "Routes", group: "ops" },
   hms_zones: { label: "HMS closed areas", group: "ops" },
   enc: { label: "ENC catalog (aid)", group: "ops" },
-  ais: { label: "AIS (gateway)", group: "ops" },
+  ais: { label: "AIS demo — not live traffic", group: "ops" },
 };
 
 export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number }> = {

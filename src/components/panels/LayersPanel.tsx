@@ -68,7 +68,7 @@ export function LayersPanel() {
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
         pack. ENC catalog (aid) paints cell coverage boxes from the packed list — not official S-57.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
-        before you leave the dock.
+        before you leave the dock. AIS is a demo overlay — not live traffic.
       </p>
       <p className="mt-2 text-xs text-muted">Right-click the chart to drop a mark. Measure lives on the instruments bar.</p>
     </Pane>

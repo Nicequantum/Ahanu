@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (AIS still demo, 2026-08-21)
+
+No public no-key live AIS feed served the Point Judith canyon box. MarineCadastre / PMEL ERDDAP are historical (2025 nationwide daily CSVs; AIS2024 last on PMEL; no AIS2025/2026 live table). AISHub needs a contributor receiver. aisstream.io needs a signup key. USCG NAIS is request-only. Did not invent tracks or scrape a ToS-hostile site. Helm now says **AIS demo — not live traffic** (layer label + Packs + Layers footnote). Layer paint is synthetic with no pack and missing once a pack is loaded — AIS is not a pack layer and does not fake Ready. Worker unchanged. No Worker scoring. No Flutter.
+
 ## This pass (honest SST spacing + helm age, 2026-08-21)
 
 No public ERDDAP SST for the Point Judith box was <=24 h tonight. Live last cells (~2026-08-21T01:10Z): PFEG `jplMURSST41` 2026-08-19T09:00Z (~40 h); CoastWatch GeoPolar `noaacwBLENDEDsstDNDaily` 2026-08-19T12:00Z (~37 h); CoralTemp 2026-08-18T12:00Z (~61 h); GOES-16 id still 404. Do not fake freshness — Ready still needs Accept stale SST when age is 24–48 h. MUR stride dropped 5 → 2 (~0.02°, ~869 KB PJ CSV, under 2 MB). That is not native 1 km. GeoPolar 5 km is the next in-window fallback. Helm `sstHelmLine` shows source, age hours, stale band, analysis time, and the real spacing note. Packs no longer says CoralTemp 5 km as the live SST. No Worker scoring. No Flutter.
