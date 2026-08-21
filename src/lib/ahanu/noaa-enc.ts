@@ -318,6 +318,42 @@ export function pickOfficialEncCells(
   return out;
 }
 
+/** Official S-57 cell ids on a packed ENC body (s57.cellIds, else iso8211 cells). */
+export function packedEncCellIds(enc: {
+  official?: boolean;
+  s57?: { cellIds?: string[] };
+  cells?: { id?: string; s57?: { iso8211?: boolean } }[];
+} | null | undefined): string[] {
+  const fromS57 = (enc?.s57?.cellIds ?? []).filter((id): id is string => typeof id === "string" && Boolean(id));
+  if (fromS57.length) return fromS57;
+  return (enc?.cells ?? [])
+    .filter((c) => Boolean(c.s57?.iso8211) && typeof c.id === "string" && c.id)
+    .map((c) => c.id as string);
+}
+
+/**
+ * R2 Download (skipCache off): refresh official ENC when packed cellIds
+ * are below the current picker cap, or the current picker would include
+ * harbor/approach ids this body is missing. Fixture / catalog-only is
+ * left as-is. Does not invent cells.
+ */
+export function packedEncNeedsRefresh(
+  enc: {
+    official?: boolean;
+    s57?: { cellIds?: string[] };
+    cells?: EncCatalogCell[];
+  } | null | undefined,
+  opts?: { maxCells?: number; pickerIds?: string[] },
+): boolean {
+  const have = packedEncCellIds(enc);
+  const official = Boolean(enc?.official) || have.length > 0;
+  if (!official) return false;
+  const cap = opts?.maxCells ?? ENC_S57_MAX_CELLS;
+  const pickerIds = opts?.pickerIds ?? pickOfficialEncCells(enc?.cells ?? []).map((c) => c.id);
+  if (have.length < cap) return true;
+  return pickerIds.some((id) => !have.includes(id));
+}
+
 /** Cell update files are NAME.001 … NAME.999. CATALOG.031 is the exchange catalog, not an update. */
 export function isS57UpdateFileName(name: string): boolean {
   const base = name.split("/").pop() ?? name;

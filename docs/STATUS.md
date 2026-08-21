@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (refresh short R2 ENC on Download, 2026-08-21)
+
+Helm Download without skipCache served last R2 after the SST-only refresh, including the old 8-cell official ENC (~3.4 MB, original cellIds). skipCache=1 already packed 16. GET `/api/packs` (skipCache off) now refetches official ENC on the same liveEnc path when packed `s57.cellIds.length` is below the current picker cap (16) or the body is missing harbor/approach ids the current picker would include for this bbox, persists ENC + manifest, and keeps other R2 layer hashes. Fixture / catalog-only is not rebuilt here. Does not invent cells. Does not take a skipCache slot. PWA / helm unchanged — cell list is still pack `s57.cellIds`. No Worker scoring. No Flutter.
+
 ## This pass (ACSPO ≤24 h SST + new-cell ENC updates, 2026-08-21)
 
 Re-probed public ERDDAP for POINT_JUDITH_CANYON_BBOX at ~2026-08-21T06:00Z. **ACSPO L3S-LEO NRT daily** `noaacwLEOACSPOSSTL3SnrtKDaily` last cell **2026-08-20T12:00Z (~18 h)** — HTTP 200, 867 KB PJ CSV, 93% fill, native 0.02° / ~2 km, Kelvin→°C. That is ≤24 h and fetchable, so Ready does not need Accept stale SST. Not 1 km MUR / GHRSST L4. **GOES-16 still 404** (`noaacwGEOHIRRSSTGoes16NRT` and Daily unknown datasetID). Other last cells: GeoPolar DN / CoralTemp **2026-08-19T12:00Z (~42 h)**; JPL MUR **2026-08-19T09:00Z (~45 h)** — not newer than the previous MUR stamp. MUR stride 1 still exceeds 2 MB; stride 2 stays the L4 fallback.

@@ -14,6 +14,10 @@
  * A stored SST analysis older than 24 h triggers an SST-first live fetch
  * (ACSPO path). A <=24 h grid replaces that layer and is persisted; other
  * R2 layer hashes stay. ACSPO miss keeps MUR and adds honesty.
+ * Official ENC whose packed cellIds are below the current picker cap
+ * (16) or missing harbor/approach ids the current picker would include
+ * for this bbox is refetched on the liveEnc path, persisted, and other
+ * R2 layers stay. Catalog-only / fixture ENC is not rebuilt here.
  * skipCache=1 or a total miss is a live build + persist.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
@@ -44,9 +48,16 @@ import {
   sstAgeHours,
   type SstIngest,
 } from "../../../src/lib/ahanu/noaa-sst";
+import { fetchLiveEnc } from "../../../src/lib/ahanu/noaa-live";
+import {
+  ENC_S57_MAX_CELLS,
+  packedEncCellIds,
+  packedEncNeedsRefresh,
+} from "../../../src/lib/ahanu/noaa-enc";
 import { assertLiveRebuildAllowed, type LimitLiveRebuild } from "../live-rebuild-limit";
 import {
   encodeLayerBody,
+  parseLayerBody,
   NORTHEAST_BBOX,
   POINT_JUDITH_CANYON_BBOX,
   specForLayer,
@@ -217,10 +228,13 @@ export async function headPackManifest(
  * skipCache off: last R2 manifest for this packId when present.
  * A stored SST older than 24 h is not served as-is: SST-first live fetch
  * (ACSPO) can replace that layer and persist. Other R2 hashes stay.
- * skipCache or miss: live buildTripPack. Caller persists a live result.
+ * Official ENC below the current picker cap or missing picker
+ * harbor/approach ids is refetched (liveEnc only) and persisted.
+ * Other R2 hashes stay. skipCache or miss: live buildTripPack.
+ * Caller persists a live result.
  * HTTP callers pass limitLiveRebuild so a full live rebuild is fail-closed
  * per CF-Connecting-IP. A fresh R2 hit returns before that gate. SST-only
- * refresh does not take a skipCache slot so Helm Retry still works.
+ * and ENC-only refresh do not take a skipCache slot so Helm Retry still works.
  * HEAD uses headPackManifest and never reaches this path.
  */
 export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptions): Promise<ResolvedPack> {
@@ -229,7 +243,7 @@ export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptio
   const nowMs = resolveNowMs(opts.now);
   if (!opts.skipCache) {
     const stored = await loadPersistedManifest(env, packId);
-    if (stored) return refreshStaleR2Sst(env, stored, opts, nowMs);
+    if (stored) return refreshR2PackLayers(env, stored, opts, nowMs);
   }
   if (opts.limitLiveRebuild) {
     await assertLiveRebuildAllowed(opts.limitLiveRebuild.ip, opts.limitLiveRebuild.limiter);
@@ -344,6 +358,156 @@ async function builtPackWithRefreshedSst(
       liveErrors: capLiveErrors(liveErrors),
     },
     bodies: { sst: body },
+  };
+}
+
+function mergeRefreshedBodies(sst: ResolvedPack, enc: ResolvedPack): Record<string, string> {
+  return { ...(sst.built?.bodies ?? {}), ...(enc.built?.bodies ?? {}) };
+}
+
+async function refreshR2PackLayers(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+  opts: ResolvePackOptions,
+  nowMs: number,
+): Promise<ResolvedPack> {
+  const sst = await refreshStaleR2Sst(env, stored, opts, nowMs);
+  const enc = await refreshShortR2Enc(env, sst.manifest, opts, nowMs);
+  if (!sst.built && !enc.built) return enc.source === "r2" ? enc : sst;
+  const bodies = mergeRefreshedBodies(sst, enc);
+  const manifest = enc.built ? enc.manifest : sst.manifest;
+  return { manifest, source: "live", built: { manifest, bodies } };
+}
+
+function encRefreshKeptLine(storedIds: string[], errors: string[]): string {
+  const n = storedIds.length;
+  const why =
+    errors.filter((e) => /^enc\b/i.test(e)).slice(0, 3).join("; ") || "official S-57 did not improve";
+  return `enc: live refresh failed (${why}) — kept official ENC (${n} cells)`;
+}
+
+async function loadStoredEncPayload(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+): Promise<{ official?: boolean; s57?: { cellIds?: string[] }; cells?: { id: string; usage: number; name: string; west?: number; south?: number; east?: number; north?: number; zipBytes?: number; scale?: number }[] } | null> {
+  const enc = stored.layers.find((layer) => layer.id === "enc");
+  if (!enc) return null;
+  const raw =
+    (await r2ObjectText(env.PACKS, enc.r2Key)) ??
+    (await r2ObjectText(env.PACKS, latestLayerR2Key(stored.packId, "enc")));
+  if (!raw) return null;
+  const body = await resolveR2LayerBody(env.PACKS, raw);
+  if (!body) return null;
+  const parsed = parseLayerBody(body);
+  if (!parsed || parsed.kind !== "enc-clip" || !("payload" in parsed) || !parsed.payload || typeof parsed.payload !== "object") {
+    return null;
+  }
+  return parsed.payload as {
+    official?: boolean;
+    s57?: { cellIds?: string[] };
+    cells?: { id: string; usage: number; name: string; west?: number; south?: number; east?: number; north?: number; zipBytes?: number; scale?: number }[];
+  };
+}
+
+async function builtPackWithRefreshedEnc(
+  stored: BuiltPack["manifest"],
+  enc: Awaited<ReturnType<typeof fetchLiveEnc>>,
+  liveErrors: string[],
+  nowMs: number,
+): Promise<BuiltPack> {
+  if (!enc) throw new Error("enc body missing");
+  const spec = specForLayer("enc");
+  if (!spec) throw new Error("enc spec missing");
+  const body = encodeLayerBody(enc);
+  const hash = await sha256Hex(body);
+  const bytes = utf8Bytes(body).byteLength;
+  const r2Key = hashedLayerR2Key(stored.packId, "enc", hash, spec.ext);
+  const payload = enc.payload as { official?: boolean; note?: string; s57?: { cellIds?: string[] } };
+  const label = payload.official ? "NOAA ENC (official S-57)" : spec.label;
+  const layers = stored.layers.map((layer) =>
+    layer.id === "enc"
+      ? {
+          ...layer,
+          label,
+          sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
+          sizeBytes: bytes,
+          status: "ready" as const,
+          updatedAt: new Date(nowMs).toISOString(),
+          hash,
+          r2Key,
+          source: "noaa" as const,
+        }
+      : layer,
+  );
+  const totalBytes = layers.reduce((n, layer) => n + layer.sizeBytes, 0);
+  const generatedAt = new Date(nowMs).toISOString();
+  const evidence = layers.map((layer) => ({
+    id: layer.id,
+    present: true,
+    hashExpected: layer.hash,
+    hashActual: layer.hash,
+    updatedAt: layer.updatedAt,
+    hoursCovered: layer.hours,
+    cycleAt: generatedAt,
+  }));
+  const check = evaluateReadyForOffshore({
+    hours: stored.hours,
+    start: stored.start,
+    now: nowMs,
+    layers: evidence,
+    liveErrors,
+  });
+  const note = typeof payload.note === "string" && payload.note ? payload.note : "Official NOAA S-57";
+  const sources = [...stored.sources.filter((s) => s.id !== "noaa-enc"), { id: "noaa-enc", name: note }];
+  return {
+    manifest: {
+      ...stored,
+      generatedAt,
+      readyForOffshore: check.ready,
+      layers,
+      totalBytes,
+      totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
+      sources,
+      liveErrors: capLiveErrors([...(stored.liveErrors ?? []), ...liveErrors]),
+    },
+    bodies: { enc: body },
+  };
+}
+
+async function refreshShortR2Enc(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+  opts: ResolvePackOptions,
+  nowMs: number,
+): Promise<ResolvedPack> {
+  const payload = await loadStoredEncPayload(env, stored);
+  if (!packedEncNeedsRefresh(payload, { maxCells: ENC_S57_MAX_CELLS })) {
+    return { manifest: stored, source: "r2" };
+  }
+  const errors: string[] = [];
+  let enc: Awaited<ReturnType<typeof fetchLiveEnc>>;
+  try {
+    enc = await fetchLiveEnc({
+      bbox: opts.bbox,
+      fetchImpl: opts.fetchImpl ?? defaultNoaaFetch,
+      timeoutMs: opts.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
+      errors,
+    });
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+  const nextIds = packedEncCellIds(enc?.payload as { official?: boolean; s57?: { cellIds?: string[] } } | undefined);
+  const official = Boolean((enc?.payload as { official?: boolean } | undefined)?.official) && nextIds.length > 0;
+  const oldIds = packedEncCellIds(payload);
+  const improved = official && (nextIds.length > oldIds.length || nextIds.length >= ENC_S57_MAX_CELLS);
+  if (enc && official && improved) {
+    const built = await builtPackWithRefreshedEnc(stored, enc, errors, nowMs);
+    return { manifest: built.manifest, source: "live", built };
+  }
+  const honesty = encRefreshKeptLine(oldIds, errors);
+  return {
+    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
+    source: "r2",
   };
 }
 

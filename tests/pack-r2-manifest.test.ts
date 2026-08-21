@@ -2,7 +2,7 @@ import "./register-alias.ts";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-const { resolvePackManifest, persistBuiltPack, packManifestR2Key, loadPersistedManifest } =
+const { resolvePackManifest, persistBuiltPack, packManifestR2Key, loadPersistedManifest, hashedLayerR2Key } =
   await import("../cloudflare/src/ingest/run.ts");
 const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const worker = (await import("../cloudflare/src/index.ts")).default;
@@ -342,5 +342,215 @@ describe("GET /api/packs R2 manifest", () => {
       (hit.manifest.liveErrors ?? []).some((e) => /sst: live refresh failed/.test(e) && /kept/.test(e)),
       hit.manifest.liveErrors?.join(" | "),
     );
+  });
+});
+
+const OLD_8_ENC = [
+  "US5PVDBB",
+  "US5PVDCB",
+  "US5NY2GL",
+  "US5PVDDD",
+  "US3NY01M",
+  "US3RI1AA",
+  "US3MA1AD",
+  "US3MA1AC",
+];
+const NEW_8_ENC = [
+  "US5RI1CD",
+  "US5RI1BD",
+  "US5RI1BE",
+  "US5PVDCC",
+  "US5PVDCD",
+  "US4CN22M",
+  "US4NY1CY",
+  "US4RI1EA",
+];
+const PICKER_16_ENC = [...OLD_8_ENC, ...NEW_8_ENC];
+
+const ENC_PICKER_CELLS = [
+  ["US5PVDBB", 5, "Block Island Sound - From Matunuck Point to Point Judith", 12000, 291358, -71.55, 41.325, -71.475, 41.4],
+  ["US5PVDCB", 5, "Point Judith Harbor", 12000, 114301, -71.55, 41.4, -71.475, 41.475],
+  ["US5NY2GL", 5, "Long Island - Montauk Harbor Entrance", 12000, 106892, -72.0, 41.025, -71.925, 41.1],
+  ["US5PVDDD", 5, "Narragansett Bay - East Pass and Conanicut Island", 22000, 186263, -71.4, 41.475, -71.325, 41.55],
+  ["US5RI1CD", 5, "Block Island Sound - North Block Island", 12000, 132657, -71.625, 41.175, -71.55, 41.25],
+  ["US5RI1BD", 5, "Block Island", 12000, 91709, -71.625, 41.1, -71.55, 41.175],
+  ["US5RI1BE", 5, "Block Island Sound", 12000, 52114, -71.55, 41.1, -71.475, 41.175],
+  ["US5PVDCC", 5, "Rhode Island Sound to West Pass", 22000, 114530, -71.475, 41.4, -71.4, 41.475],
+  ["US5PVDCD", 5, "Rhode Island Sound to East Passage", 22000, 146388, -71.4, 41.4, -71.325, 41.475],
+  ["US3NY01M", 3, "Approaches to New York, Nantucket Shoals to Five Fathom Bank", 350000, 179183, -74.7, 38.7667, -69.2667, 41.5833],
+  ["US3RI1AA", 3, "Rhode Island", 350000, 227577, -72.0, 40.8, -70.8, 42.0],
+  ["US3MA1AD", 3, "Massachusetts", 180000, 80045, -69.6, 39.6, -68.4, 40.8],
+  ["US3MA1AC", 3, "Massachusetts", 350000, 60971, -70.8, 39.6, -69.6, 40.8],
+  ["US4CN22M", 4, "Block Island Sound and Approaches", 80000, 36143, -72.0, 40.6668, -71.4662, 40.8],
+  ["US4NY1CY", 4, "New York", 45000, 237503, -71.7, 41.1, -71.4, 41.4],
+  ["US4RI1EA", 4, "Rhode Island", 45000, 131608, -71.7, 41.4, -71.4, 41.7],
+];
+
+function encCatalogXml() {
+  const cells = ENC_PICKER_CELLS.map((c) => {
+    const [id, _u, name, scale, zipBytes, west, south, east, north] = c;
+    return `<cell>
+    <name>${id}</name>
+    <lname>${name}</lname>
+    <cscale>${scale}</cscale>
+    <status>Active</status>
+    <zipfile_location>https://charts.noaa.gov/ENCs/${id}.zip</zipfile_location>
+    <zipfile_size>${zipBytes}</zipfile_size>
+    <cov><panel>
+      <vertex><lat>${south}</lat><long>${west}</long></vertex>
+      <vertex><lat>${north}</lat><long>${east}</long></vertex>
+    </panel></cov>
+  </cell>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8" ?><EncProductCatalog><Header><dt_valid>2026-08-21T04:59:10Z</dt_valid></Header>${cells.join("")}</EncProductCatalog>`;
+}
+
+function officialEncBody(cellIds) {
+  return JSON.stringify({
+    kind: "enc-clip",
+    layer: "enc",
+    payload: {
+      fixture: false,
+      live: true,
+      official: true,
+      encoding: "s-57",
+      source: "noaa",
+      note: "test official ENC",
+      s57: { source: "noaa", encoding: "s-57", official: true, cellIds },
+      cells: [],
+    },
+  });
+}
+
+async function persistOfficialEnc(env, built, cellIds) {
+  const { specForLayer } = await import("../src/lib/ahanu/pack-fixtures.ts");
+  const body = officialEncBody(cellIds);
+  const hash = await sha256Hex(body);
+  const spec = specForLayer("enc");
+  const r2Key = hashedLayerR2Key(built.manifest.packId, "enc", hash, spec.ext);
+  const bytes = new TextEncoder().encode(body).byteLength;
+  const next = {
+    manifest: {
+      ...built.manifest,
+      layers: built.manifest.layers.map((l) =>
+        l.id === "enc"
+          ? {
+              ...l,
+              hash,
+              r2Key,
+              sizeBytes: bytes,
+              sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
+              source: "noaa",
+              label: "NOAA ENC (official S-57)",
+            }
+          : l,
+      ),
+    },
+    bodies: { ...built.bodies, enc: body },
+  };
+  await persistBuiltPack(env, next);
+  return next;
+}
+
+function encLiveFetch() {
+  return async (url) => {
+    if (url.includes("ENCProdCat")) return new Response(encCatalogXml(), { status: 200 });
+    if (url.includes("/ENCs/") && url.endsWith(".zip")) {
+      const id = url.split("/").pop().replace(/\.zip$/i, "");
+      const { sampleS57Zip } = await import("../src/lib/ahanu/noaa-enc.ts");
+      return new Response(sampleS57Zip(id), { status: 200, headers: { "Content-Type": "application/zip" } });
+    }
+    return new Response("no", { status: 404 });
+  };
+}
+
+describe("GET /api/packs R2 ENC refresh", () => {
+  const NOW_FRESH = new Date("2026-08-20T19:00:00.000Z");
+
+  it("R2 8-cell ENC + current picker 16 refreshes ENC and keeps other hashes", async () => {
+    const { env } = mockEnv();
+    const packed = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_FRESH,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    const stored = await persistOfficialEnc(env, packed, OLD_8_ENC);
+    const oldEnc = stored.manifest.layers.find((l) => l.id === "enc");
+    const bathy = stored.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(oldEnc && bathy);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_FRESH,
+      timeoutMs: 2000,
+      fetchImpl: async (url) => {
+        fetches += 1;
+        return encLiveFetch()(url);
+      },
+    });
+    assert.equal(hit.source, "live");
+    assert.ok(fetches > 0, "short official ENC must refetch liveEnc");
+    assert.ok(hit.built);
+    const fresh = hit.manifest.layers.find((l) => l.id === "enc");
+    assert.ok(fresh);
+    assert.notEqual(fresh.hash, oldEnc.hash);
+    const body = JSON.parse(hit.built.bodies.enc);
+    const ids = body.payload?.s57?.cellIds ?? [];
+    assert.ok(ids.length >= 16, `expected 16 cellIds, got ${ids.join(",")}`);
+    for (const id of NEW_8_ENC) {
+      assert.ok(ids.includes(id), `missing ${id} in ${ids.join(",")}`);
+    }
+    const kept = hit.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(kept);
+    assert.equal(kept.hash, bathy.hash, "other R2 layers keep hashes");
+  });
+
+  it("R2 already 16 official ENC does not refetch", async () => {
+    const { env } = mockEnv();
+    const packed = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_FRESH,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    const stored = await persistOfficialEnc(env, packed, PICKER_16_ENC);
+    const oldEnc = stored.manifest.layers.find((l) => l.id === "enc");
+    assert.ok(oldEnc);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_FRESH,
+      fetchImpl: async () => {
+        fetches += 1;
+        throw new Error("complete ENC must not refetch");
+      },
+    });
+    assert.equal(hit.source, "r2");
+    assert.equal(fetches, 0);
+    assert.equal(hit.built, undefined);
+    assert.equal(hit.manifest.layers.find((l) => l.id === "enc")?.hash, oldEnc.hash);
   });
 });

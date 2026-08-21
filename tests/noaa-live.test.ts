@@ -2231,6 +2231,57 @@ describe("official S-57 pack", () => {
     );
   });
 
+  it("packedEncNeedsRefresh is true for 8-cell official vs picker 16 and false when already 16", async () => {
+    const { packedEncNeedsRefresh, ENC_S57_MAX_CELLS } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const old8 = [
+      "US5PVDBB",
+      "US5PVDCB",
+      "US5NY2GL",
+      "US5PVDDD",
+      "US3NY01M",
+      "US3RI1AA",
+      "US3MA1AD",
+      "US3MA1AC",
+    ];
+    const next16 = [
+      ...old8,
+      "US5RI1CD",
+      "US5RI1BD",
+      "US5RI1BE",
+      "US5PVDCC",
+      "US5PVDCD",
+      "US4CN22M",
+      "US4NY1CY",
+      "US4RI1EA",
+    ];
+    assert.equal(
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: old8 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      true,
+    );
+    assert.equal(
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: next16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      false,
+    );
+    const leftover16 = [
+      ...old8,
+      "US3MA1BD",
+      "US3NY1AG",
+      "US3CT1AA",
+      "US5MA1CL",
+      "US4MA1BD",
+      "US3XX01M",
+      "US3YY01M",
+      "US3ZZ01M",
+    ];
+    assert.equal(leftover16.length, 16);
+    assert.equal(
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: leftover16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      true,
+      "16 leftover without a picker harbor/approach id must refresh",
+    );
+    assert.equal(packedEncNeedsRefresh({ official: false, cells: [] }), false);
+  });
+
   it("live NOAA packs official S-57 when the zip is ISO 8211", async () => {
     const { sampleS57Zip } = await import("../src/lib/ahanu/noaa-enc.ts");
     const zip = sampleS57Zip("US5PVDBB");

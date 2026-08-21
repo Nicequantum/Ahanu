@@ -901,6 +901,18 @@ export function encodeLiveLayer(body: PackedJson): string {
   return encodeLayerBody(body);
 }
 
+/** Same path as tryLiveNoaa ENC. Official S-57 when zips parse; catalog-only otherwise. */
+export async function fetchLiveEnc(options: {
+  bbox: PackBBox;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  errors: string[];
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<PackedJson | undefined> {
+  return liveEnc(options.bbox, options.fetchImpl, options.timeoutMs, options.errors, options.sleep);
+}
+
+
 export {
   defaultNoaaFetch,
   fetchNoaaBytes,
@@ -912,7 +924,7 @@ export {
   noaaStatusRetryable,
   isNoaaAbortError,
 } from "./noaa-http";
-export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds, pickOfficialEncCells, parseS57ExchangeSet, sampleS57Zip, isIso8211 } from "./noaa-enc";
+export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds, pickOfficialEncCells, packedEncCellIds, packedEncNeedsRefresh, parseS57ExchangeSet, sampleS57Zip, isIso8211 } from "./noaa-enc";
 export {
   gfsWaveFilterUrl,
   gfsWaveCycleCandidates,
