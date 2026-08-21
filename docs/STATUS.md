@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (Frame pack, 2026-08-21)
+
+Keyboard pan from Veatch to Point Judith Harbor is slow. Helm now has a compact **Frame pack** control (plotter next to Follow, and Packs) that fits the existing plotter to the downloaded pack bbox (`west`/`south`/`east`/`north`) or `POINT_JUDITH_CANYON_BBOX` when no pack is loaded. Framing drops Follow the same way a skipper pan does. The framed view is written to `ahanu-camera` on `moveend` (existing persist). One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
+
 ## This pass (persist Follow, 2026-08-21)
 
 Follow on/off is kept on this device (`ahanu-follow`) the same way night-bridge and Accept stale SST are — written on the Follow tap or a skipper pan/zoom drop, read at store init and again after persist rehydrate. First visit stays ON. A dropped Follow stays off after reload so harbor ENC is not yanked back to Veatch. Exiting replay restores the persisted value and does not force ON. Replay still owns the camera while it is on. First paint is still Veatch until a gesture (camera center is not persisted). No invented GPS. No Worker scoring. No Flutter.

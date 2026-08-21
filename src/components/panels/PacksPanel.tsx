@@ -17,7 +17,18 @@ import {
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
-import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, ENC_S57_EXTRACT_NOTE, encCellUpdateLine, encHelmLabel, encPackRowLabel, packedEncCells, packedEncExtract, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
+import {
+  ENC_AID_DISCLAIMER,
+  ENC_S57_DISCLAIMER,
+  ENC_S57_EXTRACT_NOTE,
+  encCellUpdateLine,
+  encHelmLabel,
+  encPackRowLabel,
+  packedEncCells,
+  packedEncExtract,
+  packedEncOfficial,
+  packedOfficialEncCells,
+} from "@/lib/ahanu/packed-chart";
 
 /** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
@@ -49,6 +60,7 @@ export function PacksPanel() {
   const setLive = useAhanu((s) => s.setPackLive);
   const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
   const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
+  const framePack = useAhanu((s) => s.framePack);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
   useAhanu((s) => s.packEpoch);
@@ -86,7 +98,10 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (public ERDDAP — ACSPO / MUR / GeoPolar / CoralTemp when that grid parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay fixture.
+            SST (public ERDDAP — ACSPO / MUR / GeoPolar / CoralTemp when that grid parses; not
+            claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides,
+            and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay
+            fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -114,8 +129,11 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC. Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; helm extract applies .00n updates when those files are in the zip. Client re-checks hashes after download.
-        Worker ready flag is a hint only
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST,
+        chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC.
+        Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; helm extract applies
+        .00n updates when those files are in the zip. Client re-checks hashes after download. Worker
+        ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>
       <p className="mb-3 text-[11px] text-muted">
@@ -194,17 +212,21 @@ export function PacksPanel() {
           />
         </label>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mb-3"
-        onClick={() => {
-          setBbox({ ...POINT_JUDITH_CANYON_BBOX });
-          setWindow(new Date().toISOString(), 72);
-        }}
-      >
-        Reset PJ 72h
-      </Button>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setBbox({ ...POINT_JUDITH_CANYON_BBOX });
+            setWindow(new Date().toISOString(), 72);
+          }}
+        >
+          Reset PJ 72h
+        </Button>
+        <Button variant="outline" size="sm" onClick={framePack}>
+          Frame pack
+        </Button>
+      </div>
 
       {error && !offshore ? <p className="mb-3 text-xs text-nogo">{error}</p> : null}
 
@@ -255,7 +277,10 @@ export function PacksPanel() {
 
       <ul className="space-y-2">
         {packs.map((p) => (
-          <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2">
+          <li
+            key={p.id}
+            className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2"
+          >
             <div>
               <p className="text-sm">
                 {p.id === "enc"
@@ -270,9 +295,7 @@ export function PacksPanel() {
                     : p.label}
               </p>
               <p className="text-[11px] text-muted">
-                {p.sizeBytes
-                  ? `${p.sizeBytes} B`
-                  : `${p.sizeMb} MB`}
+                {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}
                 {p.hours ? ` · ${p.hours}h` : ""}
                 {p.id === "sst" && p.updatedAt ? ` · ${p.updatedAt}` : ""}
                 {p.hash ? ` · ${p.hash.slice(0, 12)}` : ""}
@@ -291,7 +314,9 @@ export function PacksPanel() {
         ))}
       </ul>
       {packs.length === 0 ? (
-        <p className="text-xs text-muted">No objects stored. Download on marina Wi-Fi before you leave Galilee.</p>
+        <p className="text-xs text-muted">
+          No objects stored. Download on marina Wi-Fi before you leave Galilee.
+        </p>
       ) : null}
       {packedEncCells().length ? (
         <div className="mt-4">
@@ -321,7 +346,8 @@ export function PacksPanel() {
         </div>
       ) : null}
       <p className="mt-4 text-xs text-muted">
-        AIS demo — not live traffic. Chlorophyll and altimetry improve the pack; they do not block Ready.
+        AIS demo — not live traffic. Chlorophyll and altimetry improve the pack; they do not block
+        Ready.
         {packedEncOfficial()
           ? " ENC official S-57 is packed NOAA exchange-set bytes — not an ECDIS."
           : " ENC is a cell list, not a legal chart."}

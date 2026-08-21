@@ -10,14 +10,25 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { compass, formatCoord, measureSummary, metersToFathoms, metersToFeet } from "@/lib/ahanu/geo";
+import {
+  compass,
+  formatCoord,
+  measureSummary,
+  metersToFathoms,
+  metersToFeet,
+} from "@/lib/ahanu/geo";
 import { gribAt, scoreGoNoGo } from "@/lib/ahanu/grib";
 import { sstC } from "@/lib/ahanu/ocean";
 import { habitatScore, zoneLabel } from "@/lib/ahanu/scoring";
 import { nearestCanyon } from "@/lib/data/canyons";
 import { SPECIES_LABELS } from "@/lib/data/species";
 import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display-mode";
-import { bindUnsyncedCatchRetry, hydrateAhanuStore, markFishHere, useAhanu } from "@/lib/ahanu/store";
+import {
+  bindUnsyncedCatchRetry,
+  hydrateAhanuStore,
+  markFishHere,
+  useAhanu,
+} from "@/lib/ahanu/store";
 import { hashedPackCount, readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { packsApiBase } from "@/lib/ahanu/pack-client";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
@@ -43,6 +54,7 @@ import {
   Sparkles,
   RotateCcw,
   Ruler,
+  Scan,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -155,7 +167,6 @@ export function AppShell() {
   );
 }
 
-
 function TideHud() {
   const clock = useAhanu((s) => s.clockMs);
   const packEpoch = useAhanu((s) => s.packEpoch);
@@ -167,7 +178,12 @@ function TideHud() {
   return (
     <div className="pointer-events-none absolute top-20 left-2 z-20 hidden w-44 rounded-2xl bg-surface/90 px-2.5 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md md:block md:left-[4.25rem]">
       <div className="pointer-events-auto">
-        <TideHarborChips harbors={harbors} selected={curve?.harbor ?? harbor} onSelect={setTideHarbor} className="mb-1" />
+        <TideHarborChips
+          harbors={harbors}
+          selected={curve?.harbor ?? harbor}
+          onSelect={setTideHarbor}
+          className="mb-1"
+        />
       </div>
       <TideCurveCard curve={curve} now={new Date(clock)} compact />
     </div>
@@ -189,7 +205,9 @@ function TopBar() {
     <header className="absolute top-2 right-2 left-2 z-30 flex items-center gap-2 rounded-2xl bg-surface/90 px-3 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md md:left-[4.25rem]">
       <div className="min-w-0">
         <p className="font-display text-lg leading-none">Ahanu</p>
-        <p className="truncate text-[10px] tracking-[0.18em] text-muted uppercase">ah-HAH-noo · {canyon.name}</p>
+        <p className="truncate text-[10px] tracking-[0.18em] text-muted uppercase">
+          ah-HAH-noo · {canyon.name}
+        </p>
       </div>
       <div className="ml-auto hidden items-center gap-3 md:flex">
         <HudChip label="SOG" value={`${v.sog.toFixed(1)} kt`} />
@@ -248,6 +266,7 @@ function InstrumentBar() {
   const toggleMeasure = useAhanu((s) => s.toggleMeasure);
   const follow = useAhanu((s) => s.followShip);
   const setFollow = useAhanu((s) => s.setFollow);
+  const framePack = useAhanu((s) => s.framePack);
   const drop = useAhanu((s) => s.dropAnchor);
   const weigh = useAhanu((s) => s.weighAnchor);
   const score = habitatScore(v.lat, v.lon, species, hour, new Date(useAhanu.getState().clockMs));
@@ -264,11 +283,22 @@ function InstrumentBar() {
     <div className="absolute right-2 bottom-16 left-2 z-30 flex flex-col gap-2 md:bottom-3 md:left-[4.25rem]">
       <div className="flex items-center gap-3 rounded-2xl bg-surface/90 px-3 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md">
         <span className="text-[10px] tracking-widest text-faint uppercase">+{hour}h</span>
-        <IconBtn title={playing ? "Pause forecast" : "Play 72h"} onClick={() => setPlaying(!playing)} active={playing}>
+        <IconBtn
+          title={playing ? "Pause forecast" : "Play 72h"}
+          onClick={() => setPlaying(!playing)}
+          active={playing}
+        >
           {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
         </IconBtn>
         {live ? (
-          <Slider className="flex-1" min={0} max={72} step={3} value={[hour]} onValueChange={([h]) => setHour(h ?? 0)} />
+          <Slider
+            className="flex-1"
+            min={0}
+            max={72}
+            step={3}
+            value={[hour]}
+            onValueChange={([h]) => setHour(h ?? 0)}
+          />
         ) : (
           <div className="h-1.5 flex-1 rounded-full bg-elevated" />
         )}
@@ -276,7 +306,8 @@ function InstrumentBar() {
       </div>
       <div className="flex items-center gap-2 rounded-2xl bg-surface/90 px-2 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md">
         <p className="hidden px-2 text-[11px] text-muted md:block">
-          {formatCoord(v)} · {metersToFeet(v.depthM).toFixed(0)} ft · {SPECIES_LABELS[species]} {zoneLabel(score)} {score}
+          {formatCoord(v)} · {metersToFeet(v.depthM).toFixed(0)} ft · {SPECIES_LABELS[species]}{" "}
+          {zoneLabel(score)} {score}
         </p>
         <div className="ml-auto flex items-center gap-1">
           <IconBtn title="Measure" onClick={toggleMeasure} active={measure.active}>
@@ -284,6 +315,9 @@ function InstrumentBar() {
           </IconBtn>
           <IconBtn title="Follow" onClick={() => setFollow(!follow)} active={follow}>
             <Crosshair className="size-4" />
+          </IconBtn>
+          <IconBtn title="Frame pack" onClick={framePack}>
+            <Scan className="size-4" />
           </IconBtn>
           <IconBtn title="Anchor" onClick={v.anchored ? weigh : drop} active={v.anchored}>
             <Anchor className="size-4" />
@@ -315,8 +349,10 @@ function InstrumentBar() {
       {measure.active && (
         <p className="rounded-xl bg-elevated px-3 py-1.5 text-xs text-muted">
           Tap the chart to measure. {summary.legs} legs
-          {summary.nm ? ` · ${summary.nm.toFixed(2)} nm · ${summary.bearing.toFixed(0)}° ${compass(summary.bearing)}` : ""}.
-          Right-click drops a waypoint.
+          {summary.nm
+            ? ` · ${summary.nm.toFixed(2)} nm · ${summary.bearing.toFixed(0)}° ${compass(summary.bearing)}`
+            : ""}
+          . Right-click drops a waypoint.
         </p>
       )}
       {live && replayT != null && (
@@ -330,7 +366,9 @@ function InstrumentBar() {
             value={[Math.round((replayT ?? 1) * 100)]}
             onValueChange={([n]) => setReplayT((n ?? 100) >= 99 ? null : (n ?? 0) / 100)}
           />
-          <span className="text-[10px] text-muted">{replayT == null ? "live" : `${Math.round(replayT * 100)}%`}</span>
+          <span className="text-[10px] text-muted">
+            {replayT == null ? "live" : `${Math.round(replayT * 100)}%`}
+          </span>
         </div>
       )}
     </div>

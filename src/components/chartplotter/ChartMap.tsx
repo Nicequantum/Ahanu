@@ -38,7 +38,12 @@ import { aisGeo, aisTargets } from "@/lib/data/ais";
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
-import { followAfterSkipperMapMove, isUserPlotterGesture, shouldRecenterOnOwnship } from "@/lib/ahanu/follow-camera";
+import {
+  followAfterSkipperMapMove,
+  isUserPlotterGesture,
+  shouldRecenterOnOwnship,
+} from "@/lib/ahanu/follow-camera";
+import { applyFramePack } from "@/lib/ahanu/frame-pack";
 import {
   cameraForChartLoad,
   createDebouncedCameraPersist,
@@ -46,7 +51,6 @@ import {
   readPersistedCamera,
 } from "@/lib/ahanu/plotter-camera";
 import { useAhanu } from "@/lib/ahanu/store";
-
 
 function emptyFc(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
@@ -100,8 +104,7 @@ function applyRaster(
   image: FieldImage | null,
 ) {
   const src = map.getSource(id) as
-    | { updateImage?: (a: { url: string; coordinates: OverlayBounds }) => void }
-    | undefined;
+    { updateImage?: (a: { url: string; coordinates: OverlayBounds }) => void } | undefined;
   src?.updateImage?.(rasterOrEmpty(image));
 }
 
@@ -151,7 +154,6 @@ function windLines(hour: number): GeoJSON.FeatureCollection {
   };
 }
 
-
 function applyEncPaintFromStore(map: import("maplibre-gl").Map) {
   const enc = useAhanu.getState().layers.enc;
   applyEncLayerPaint(map, Boolean(enc?.visible), enc?.opacity);
@@ -187,6 +189,7 @@ export function ChartMap() {
   const replayT = useAhanu((s) => s.replayT);
   const catches = useAhanu((s) => s.catches);
   const packEpoch = useAhanu((s) => s.packEpoch);
+  const framePackSeq = useAhanu((s) => s.framePackSeq);
 
   useEffect(() => {
     let dead = false;
@@ -224,10 +227,7 @@ export function ChartMap() {
       map.on("load", () => {
         if (!map) return;
         const live = useAhanu.getState();
-        jumpToPersistedCamera(
-          map,
-          shouldRecenterOnOwnship(live.followShip, live.replayT),
-        );
+        jumpToPersistedCamera(map, shouldRecenterOnOwnship(live.followShip, live.replayT));
         const skipperLayers = live.layers;
         const encNow = skipperLayers.enc;
         const encPaint = encLayerPaint(Boolean(encNow?.visible), encNow?.opacity);
@@ -247,7 +247,11 @@ export function ChartMap() {
 
         const bathy = fieldImage("depth", 0, 280, 192);
         const bathyImg = rasterOrEmpty(bathy);
-        map.addSource("bathy", { type: "image", url: bathyImg.url, coordinates: bathyImg.coordinates });
+        map.addSource("bathy", {
+          type: "image",
+          url: bathyImg.url,
+          coordinates: bathyImg.coordinates,
+        });
         map.addLayer({
           id: "bathy",
           type: "raster",
@@ -327,7 +331,11 @@ export function ChartMap() {
           id: "hms-outline",
           type: "line",
           source: "hms",
-          paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": hmsPaint["hms-outline"].opacity },
+          paint: {
+            "line-color": "#e06b5a",
+            "line-width": 1.2,
+            "line-opacity": hmsPaint["hms-outline"].opacity,
+          },
         });
 
         map.addSource("enc-land", { type: "geojson", data: encLandPolygons() });
@@ -357,21 +365,33 @@ export function ChartMap() {
           id: "enc-coast",
           type: "line",
           source: "enc-coast",
-          paint: { "line-color": "#d4c4a8", "line-width": 1.35, "line-opacity": encPaint["enc-coast"].opacity },
+          paint: {
+            "line-color": "#d4c4a8",
+            "line-width": 1.35,
+            "line-opacity": encPaint["enc-coast"].opacity,
+          },
         });
         map.addSource("enc-shore", { type: "geojson", data: encShoreForChart() });
         map.addLayer({
           id: "enc-shore",
           type: "line",
           source: "enc-shore",
-          paint: { "line-color": "#b8a070", "line-width": 1.15, "line-opacity": encPaint["enc-shore"].opacity },
+          paint: {
+            "line-color": "#b8a070",
+            "line-width": 1.15,
+            "line-opacity": encPaint["enc-shore"].opacity,
+          },
         });
         map.addSource("enc-depth-contours", { type: "geojson", data: encDepthContoursForChart() });
         map.addLayer({
           id: "enc-depth-contours",
           type: "line",
           source: "enc-depth-contours",
-          paint: { "line-color": "#6a8a9a", "line-width": 0.8, "line-opacity": encPaint["enc-depth-contours"].opacity },
+          paint: {
+            "line-color": "#6a8a9a",
+            "line-width": 0.8,
+            "line-opacity": encPaint["enc-depth-contours"].opacity,
+          },
         });
         map.addSource("enc-hazard-areas", { type: "geojson", data: encHazardAreas() });
         map.addLayer({
@@ -385,7 +405,11 @@ export function ChartMap() {
           id: "enc-hazard-lines",
           type: "line",
           source: "enc-hazard-areas",
-          paint: { "line-color": "#e4b56a", "line-width": 1.1, "line-opacity": encPaint["enc-hazard-lines"].opacity },
+          paint: {
+            "line-color": "#e4b56a",
+            "line-width": 1.1,
+            "line-opacity": encPaint["enc-hazard-lines"].opacity,
+          },
         });
         map.addSource("enc", { type: "geojson", data: encForChart() });
         map.addLayer({
@@ -412,7 +436,12 @@ export function ChartMap() {
           source: "enc-aids",
           paint: {
             "circle-radius": ["case", ["==", ["get", "kind"], "enc-s57-light"], 4.2, 3.4],
-            "circle-color": ["case", ["==", ["get", "kind"], "enc-s57-light"], "#f4d35e", "#4ecdc4"],
+            "circle-color": [
+              "case",
+              ["==", ["get", "kind"], "enc-s57-light"],
+              "#f4d35e",
+              "#4ecdc4",
+            ],
             "circle-opacity": encPaint["enc-aids"].opacity,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
@@ -437,7 +466,12 @@ export function ChartMap() {
           source: "enc-hazards",
           paint: {
             "circle-radius": ["case", ["==", ["get", "kind"], "enc-s57-wreck"], 4.6, 3.6],
-            "circle-color": ["case", ["==", ["get", "kind"], "enc-s57-wreck"], "#e06b5a", "#e4b56a"],
+            "circle-color": [
+              "case",
+              ["==", ["get", "kind"], "enc-s57-wreck"],
+              "#e06b5a",
+              "#e4b56a",
+            ],
             "circle-opacity": encPaint["enc-hazards"].opacity,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
@@ -553,7 +587,12 @@ export function ChartMap() {
           id: "range",
           type: "line",
           source: "range",
-          paint: { "line-color": "#4ecdc4", "line-width": 1, "line-opacity": 0.35, "line-dasharray": [4, 3] },
+          paint: {
+            "line-color": "#4ecdc4",
+            "line-width": 1,
+            "line-opacity": 0.35,
+            "line-dasharray": [4, 3],
+          },
         });
         map.addSource("anchor", { type: "geojson", data: emptyFc() });
         map.addLayer({
@@ -795,7 +834,11 @@ export function ChartMap() {
       map.setPaintProperty("wind", "line-opacity", layers.wind.visible ? layers.wind.opacity : 0);
     }
     if (map.getLayer("waves")) {
-      map.setPaintProperty("waves", "circle-opacity", layers.waves.visible ? layers.waves.opacity : 0);
+      map.setPaintProperty(
+        "waves",
+        "circle-opacity",
+        layers.waves.visible ? layers.waves.opacity : 0,
+      );
     }
     if (map.getLayer("ais")) {
       map.setPaintProperty("ais", "circle-opacity", layers.ais.visible ? layers.ais.opacity : 0);
@@ -812,7 +855,11 @@ export function ChartMap() {
     applyRaster(map, "chl", fieldImage("chl", hour, 220, 150));
     applyRaster(map, "ssh", fieldImage("ssh", hour, 180, 120));
     applyRaster(map, "bathy", fieldImage("depth", 0, 280, 192));
-    applyRaster(map, "habitat", habitatImage(species, hour, new Date(useAhanu.getState().clockMs), 120, 82));
+    applyRaster(
+      map,
+      "habitat",
+      habitatImage(species, hour, new Date(useAhanu.getState().clockMs), 120, 82),
+    );
     const set = (id: string, data: GeoJSON.GeoJSON) => {
       const src = map.getSource(id) as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
       src?.setData?.(data);
@@ -911,6 +958,13 @@ export function ChartMap() {
   }, [catches]);
 
   useEffect(() => {
+    if (framePackSeq <= 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+    applyFramePack(map, useAhanu.getState().packManifest);
+  }, [framePackSeq]);
+
+  useEffect(() => {
     const map = mapRef.current;
     shipRef.current?.setLngLat([vessel.lon, vessel.lat]);
     const el = shipRef.current?.getElement();
@@ -962,9 +1016,7 @@ export function ChartMap() {
     };
   }, [ripple]);
 
-  return (
-    <div ref={host} className="absolute inset-0 h-full w-full bg-abyss" data-map="ahanu" />
-  );
+  return <div ref={host} className="absolute inset-0 h-full w-full bg-abyss" data-map="ahanu" />;
 }
 
 export const MAP_REGION = REGION;

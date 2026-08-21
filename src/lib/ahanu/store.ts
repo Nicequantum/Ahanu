@@ -1,11 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  DEFAULT_BOAT,
-  DEFAULT_LAYERS,
-  POINT_JUDITH,
-  VEATCH_HEAD,
-} from "./constants";
+import { DEFAULT_BOAT, DEFAULT_LAYERS, POINT_JUDITH, VEATCH_HEAD } from "./constants";
 import { destination, haversineNm, initialBearing } from "./geo";
 import { depthM } from "./bathymetry";
 import { sstC } from "./ocean";
@@ -27,7 +22,13 @@ import type {
   Waypoint,
 } from "./types";
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
-import { capLiveErrors, evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type TripPackManifestV1 } from "./pack";
+import {
+  capLiveErrors,
+  evaluateReadyForOffshore,
+  type PackBBox,
+  type ReadyOffshoreResult,
+  type TripPackManifestV1,
+} from "./pack";
 import {
   downloadTripPack as fetchTripPack,
   evidenceFromPackLayers,
@@ -48,12 +49,10 @@ import {
   readPersistedTideHarbor,
   writePersistedTideHarbor,
 } from "./tide-curve";
-import {
-  readPersistedSstStaleOverride,
-  writePersistedSstStaleOverride,
-} from "./sst-override";
+import { readPersistedSstStaleOverride, writePersistedSstStaleOverride } from "./sst-override";
 import {
   followAfterReplayExit,
+  followAfterSkipperMapMove,
   readPersistedFollow,
   writePersistedFollow,
 } from "./follow-camera";
@@ -123,6 +122,8 @@ export interface AhanuState {
   setTideHarbor: (harbor: string) => void;
   setMode: (m: NavMode) => void;
   setFollow: (v: boolean) => void;
+  framePackSeq: number;
+  framePack: () => void;
   setBreakSensitivity: (n: number) => void;
   addWaypoint: (w: Omit<Waypoint, "id" | "createdAt">) => void;
   removeWaypoint: (id: string) => void;
@@ -196,7 +197,12 @@ export const useAhanu = create<AhanuState>()(
         notes: "",
       },
       contacts: [
-        { id: "c1", name: "USCG Sector Southeastern New England", role: "Rescue", phone: "401-435-2300" },
+        {
+          id: "c1",
+          name: "USCG Sector Southeastern New England",
+          role: "Rescue",
+          phone: "401-435-2300",
+        },
         { id: "c2", name: "Dock / home", role: "Float plan", phone: "" },
       ],
       packLayers: [],
@@ -213,6 +219,7 @@ export const useAhanu = create<AhanuState>()(
       sstStaleOverride: readPersistedSstStaleOverride(),
       simT: 0.12,
       followShip: readPersistedFollow(),
+      framePackSeq: 0,
       markRipple: null,
       articleId: null,
       breakSensitivity: 1,
@@ -263,16 +270,16 @@ export const useAhanu = create<AhanuState>()(
         writePersistedFollow(followShip);
         set({ followShip });
       },
+      framePack: () => {
+        get().setFollow(followAfterSkipperMapMove());
+        set((s) => ({ framePackSeq: s.framePackSeq + 1 }));
+      },
       setBreakSensitivity: (breakSensitivity) => set({ breakSensitivity }),
       addWaypoint: (w) =>
         set((s) => ({
-          waypoints: [
-            ...s.waypoints,
-            { ...w, id: uid("wp"), createdAt: new Date().toISOString() },
-          ],
+          waypoints: [...s.waypoints, { ...w, id: uid("wp"), createdAt: new Date().toISOString() }],
         })),
-      removeWaypoint: (id) =>
-        set((s) => ({ waypoints: s.waypoints.filter((w) => w.id !== id) })),
+      removeWaypoint: (id) => set((s) => ({ waypoints: s.waypoints.filter((w) => w.id !== id) })),
       addCatch: (c) => {
         const rec: CatchRecord = { ...c, id: uid("catch"), synced: c.synced ?? false };
         set((s) => ({ catches: [rec, ...s.catches] }));
@@ -388,8 +395,7 @@ export const useAhanu = create<AhanuState>()(
       clearMeasure: () => set({ measure: { active: false, points: [] } }),
       updateBoat: (b) => set((s) => ({ boat: { ...s.boat, ...b } })),
       updateFloatPlan: (f) => set((s) => ({ floatPlan: { ...s.floatPlan, ...f } })),
-      addContact: (c) =>
-        set((s) => ({ contacts: [...s.contacts, { ...c, id: uid("em") }] })),
+      addContact: (c) => set((s) => ({ contacts: [...s.contacts, { ...c, id: uid("em") }] })),
       markPack: (id, status) =>
         set((s) => ({
           packLayers: s.packLayers.map((p) =>
@@ -480,9 +486,10 @@ export const useAhanu = create<AhanuState>()(
         const next = applyDisplayMode(state.displayMode);
         writePersistedDisplayMode(next);
         if (next !== state.displayMode) state.displayMode = next;
-        const harbor = (typeof state.tideHarbor === "string" && state.tideHarbor.trim())
-          ? state.tideHarbor.trim()
-          : readPersistedTideHarbor();
+        const harbor =
+          typeof state.tideHarbor === "string" && state.tideHarbor.trim()
+            ? state.tideHarbor.trim()
+            : readPersistedTideHarbor();
         writePersistedTideHarbor(harbor);
         if (harbor !== state.tideHarbor) state.tideHarbor = harbor;
         const sstOn = readPersistedSstStaleOverride();
@@ -592,7 +599,10 @@ type WakeDoc = Pick<Document, "addEventListener" | "removeEventListener"> & {
 type WakeWin = Pick<Window, "addEventListener" | "removeEventListener">;
 
 /** visibilitychange + online → one leftover-catch retry. Remove on unmount. */
-export function bindUnsyncedCatchRetry(opts?: { document?: WakeDoc; window?: WakeWin }): () => void {
+export function bindUnsyncedCatchRetry(opts?: {
+  document?: WakeDoc;
+  window?: WakeWin;
+}): () => void {
   const doc = opts?.document ?? (typeof document !== "undefined" ? document : undefined);
   const win = opts?.window ?? (typeof window !== "undefined" ? window : undefined);
   const onVisible = () => {
