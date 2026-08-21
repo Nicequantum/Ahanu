@@ -127,7 +127,7 @@ All of the following must be true:
 
 1. **ENC clip present** for the bbox, including Harbor/Approach coverage of the departure (Point Judith, Montauk, or Newport) and Coastal coverage out to the 100-fathom curve in the box.
 2. **Bathymetry** present (COG readable).
-3. **SST composite** present and not stale (< 24 h). The helm **Accept stale SST** switch (default off, persisted) lets a present, hash-ok composite older than 24 h — including a ~48 h CoralTemp file — pass Ready with a visible warning. When SST age is the only Ready failure, Packs highlights that switch (caution) and names the age; it does not flip the switch. Missing SST (no body) still fails. The Worker manifest does not auto-pass.
+3. **SST composite** present and not stale (< 24 h). The helm **Accept stale SST** switch (default off, persisted) lets a present, hash-ok composite older than 24 h — including a ~48 h CoralTemp file — pass Ready with a visible warning. When SST age is the only Ready failure, Packs highlights that switch (caution) and names the age; the compact helm Ready badge says **SST N h** instead of generic Not ready. It does not flip the switch. Missing SST (no body) still fails. The Worker manifest does not auto-pass.
 4. **Wind GRIB** and **wave GRIB** present, covering `start` … `start+hours`, cycle age ≤ 6 h.
 5. **CO-OPS window** present for the departure harbor over the same 72 h.
 6. **HMS closed areas** present (even if empty geometry — the layer file exists).

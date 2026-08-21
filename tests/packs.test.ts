@@ -12,6 +12,7 @@ const {
   POINT_JUDITH_CANYON_BBOX,
   REQUIRED_OFFSHORE_LAYERS,
   sha256Hex,
+  readyOffshoreBadge,
   sstStaleReadyCue,
   sstHelmLine,
   sstLandedName,
@@ -321,7 +322,13 @@ describe("sstStaleReadyCue", () => {
     const cue = sstStaleReadyCue(ready);
     assert.equal(cue.highlight, true);
     assert.equal(cue.line, `SST is 36 h old — ${SST_STALE_FLIP_COPY}`);
+    assert.equal(cue.ageH, 36);
     assert.match(cue.line ?? "", /Accept stale SST to pass Ready/);
+    const badge = readyOffshoreBadge(ready);
+    assert.equal(badge.ready, false);
+    assert.equal(badge.short, "SST 36 h");
+    assert.equal(badge.long, "Not ready · SST 36 h");
+    assert.equal(ready.sstOverride, false);
   });
 
   it("still highlights SST age plus optional-layer warnings", async () => {
@@ -378,6 +385,7 @@ describe("sstStaleReadyCue", () => {
     const cue = sstStaleReadyCue(ready);
     assert.equal(cue.highlight, false);
     assert.equal(cue.line, null);
+    assert.equal(readyOffshoreBadge(ready).short, "Not ready");
   });
 
   it("does not highlight after skipper override makes Ready", async () => {

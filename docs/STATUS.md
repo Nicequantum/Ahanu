@@ -2,6 +2,12 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (helm wall clock + SST-age Ready badge, 2026-08-21)
+
+Helm `clockMs` was still the leftover demo stamp `2026-08-20T21:40Z`. Packed 8455083 next high/low and the tide now-marker were vs that clock, not wall time — skipper-facing lie. Clock now follows `Date.now()` (local TZ display is fine). Tests that freeze time inject `setHelmNowMs`. tickSim no longer warps 12× from the leftover stamp. Do not invent NOAA tide data.
+
+Compact Ready badge said generic **Not ready** when the only hash-ok block was SST age. Packs already names the age; badge now says **SST N h** / **Not ready · SST N h**. Does not auto-flip Accept stale. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (leftover COG bathy + canyon axes labels, 2026-08-21)
 
 Live GET /api/packs on api.ahanu.dev labeled bathymetry **Bathymetry (COG)** after a live NCEI ETOPO 2022 JSON grid landed (121×64, ~0.033°, sources[] already named that product) and canyons **Canyon axes & heads** after a live MarineCadastre heads-only GeoJSON landed (14 named Point heads, no axes). COG is not packed; live canyons invent no axes — leftover fixture/catalog copy, same class as leftover WW3 on GFS-Wave. Generation now names fixture **ETOPO bathymetry (fixture)** / live **ETOPO bathymetry**, and live **Canyon heads** (fixture still **Canyon axes & heads** because the hashed fixture still has synthetic axes). Persist / serving R2 GET/HEAD rewrite leftover COG and axes labels — no NOAA. Helm Packs remaps the stored leftover. Do not invent a newer SST. NOAA ACSPO last cell is still 2026-08-20T12:00Z. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.

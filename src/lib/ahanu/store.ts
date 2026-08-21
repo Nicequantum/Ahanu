@@ -66,6 +66,7 @@ import {
   writePersistedGpsOn,
   type GpsStatus,
 } from "./ownship-gps";
+import { helmNowMs } from "./helm-clock";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -238,7 +239,7 @@ export const useAhanu = create<AhanuState>()(
       markRipple: null,
       articleId: null,
       breakSensitivity: 1,
-      clockMs: Date.parse("2026-08-20T21:40:00Z"),
+      clockMs: helmNowMs(),
       hydrated: false,
       forecastPlaying: false,
       nmeaGateway: false,
@@ -384,7 +385,7 @@ export const useAhanu = create<AhanuState>()(
           }
         }
         if (!s.vessel.simulating || s.vessel.anchored) {
-          set({ clockMs: s.clockMs + dtMs, forecastHour: hour, forecastPlaying: playing });
+          set({ clockMs: helmNowMs(), forecastHour: hour, forecastPlaying: playing });
           return;
         }
         const hours = (dtMs / 3600000) * 48;
@@ -421,7 +422,7 @@ export const useAhanu = create<AhanuState>()(
             : track;
         set({
           simT: t,
-          clockMs: s.clockMs + dtMs * 12,
+          clockMs: helmNowMs(),
           forecastHour: hour,
           forecastPlaying: playing,
           track: nextTrack,

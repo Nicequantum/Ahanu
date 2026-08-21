@@ -562,7 +562,10 @@ describe("hydrateAhanuStore SST override persist", () => {
     assert.ok(s.packReady);
     assert.equal(s.packReady.ready, false);
     assert.equal(s.packReady.sstOverrideUsed, false);
-    assert.equal(readyOffshoreBadge(s.packReady).long, "Not ready");
+    const badge = readyOffshoreBadge(s.packReady);
+    assert.match(badge.short, /^SST \d+ h$/);
+    assert.match(badge.long, /^Not ready · SST \d+ h$/);
+    assert.notEqual(badge.short, "Not ready");
     const count = hashedPackCount(s.packLayers);
     assert.equal(count.hashed, 13);
     assert.equal(count.stale, 1);

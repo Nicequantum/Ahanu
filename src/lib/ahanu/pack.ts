@@ -495,6 +495,16 @@ export function readyOffshoreBadge(result: ReadyOffshoreResult | null): {
   if (result.ready) {
     return { ready: true, caution: false, short: "Offshore", long: "Ready for offshore" };
   }
+  const cue = sstStaleReadyCue(result);
+  if (cue.highlight && cue.ageH != null) {
+    const age = Math.round(cue.ageH);
+    return {
+      ready: false,
+      caution: true,
+      short: `SST ${age} h`,
+      long: `Not ready · SST ${age} h`,
+    };
+  }
   return { ready: false, caution: true, short: "Not ready", long: "Not ready" };
 }
 
@@ -545,28 +555,30 @@ const SST_AGE_REASON = /SST age ([\d.]+) h/;
 export function sstStaleReadyCue(result: ReadyOffshoreResult | null): {
   highlight: boolean;
   line: string | null;
+  ageH: number | null;
 } {
-  if (!result || result.ready) return { highlight: false, line: null };
+  if (!result || result.ready) return { highlight: false, line: null, ageH: null };
 
   const sst = result.layers.find((l) => l.id === "sst");
   if (!sst?.present || !sst.hashOk || sst.fresh || sst.ok) {
-    return { highlight: false, line: null };
+    return { highlight: false, line: null, ageH: null };
   }
 
   const ageMatch = sst.reason.match(SST_AGE_REASON);
   const age = ageMatch ? Number(ageMatch[1]) : Number.NaN;
-  if (!Number.isFinite(age)) return { highlight: false, line: null };
-  if (!result.hoursOk) return { highlight: false, line: null };
+  if (!Number.isFinite(age)) return { highlight: false, line: null, ageH: null };
+  if (!result.hoursOk) return { highlight: false, line: null, ageH: null };
 
   const otherRequiredFail = result.layers.some((l) => l.required && l.id !== "sst" && !l.ok);
-  if (otherRequiredFail) return { highlight: false, line: null };
+  if (otherRequiredFail) return { highlight: false, line: null, ageH: null };
 
   const otherFailures = result.failures.filter((f) => !/^sst:/i.test(f));
-  if (otherFailures.length) return { highlight: false, line: null };
+  if (otherFailures.length) return { highlight: false, line: null, ageH: null };
 
   return {
     highlight: true,
     line: `SST is ${Math.round(age)} h old — ${SST_STALE_FLIP_COPY}`,
+    ageH: age,
   };
 }
 
