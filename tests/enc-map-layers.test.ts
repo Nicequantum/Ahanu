@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const { ENC_PAINT_LAYERS, encLayerPaint } = await import("../src/lib/ahanu/enc-paint.ts");
+const { ENC_PAINT_LAYERS, ENC_STROKE_LAYERS, encLayerPaint } = await import("../src/lib/ahanu/enc-paint.ts");
+const { PLOTTER_MAX_ZOOM } = await import("../src/lib/ahanu/constants.ts");
 const {
   ENC_MAP_LAYERS,
   ENC_MUST_PAINT_ABOVE,
@@ -97,6 +98,21 @@ describe("ENC map layer contract", () => {
       const layer = byId.get(spec.id)!;
       assert.equal(layer.beforeId, null, `${spec.id} beforeId would bury ENC under ${layer.beforeId}`);
     }
+
+    for (const id of ENC_STROKE_LAYERS) {
+      const re = new RegExp(`id: "${id}"[\\s\\S]*?circle-stroke-opacity": encPaint\\["${id}"\\]\\.stroke\\?\\.opacity`);
+      assert.match(src, re, `${id} addLayer must paint circle-stroke-opacity from ENC paint`);
+    }
+  });
+
+  it("raises plotter maxZoom past 12.5 so harbor ENC cells are usable", async () => {
+    const src = await readFile(CHART_MAP, "utf8");
+    assert.ok(PLOTTER_MAX_ZOOM >= 15, `harbor cells need >= 15, got ${PLOTTER_MAX_ZOOM}`);
+    assert.ok(PLOTTER_MAX_ZOOM <= 22, "MapLibre default ceiling is 22");
+    assert.match(src, /maxZoom:\s*PLOTTER_MAX_ZOOM/);
+    assert.doesNotMatch(src, /maxZoom:\s*12\.5/);
+    assert.doesNotMatch(src, /maxzoom:\s*12\.5/i);
+    assert.match(src, /image overlays \(no native maxzoom\)/);
   });
 
   it("binds the MapLibre worker before constructing the map", async () => {

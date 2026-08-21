@@ -674,7 +674,7 @@ describe("ENC official S-57 helm", () => {
   });
 });
 
-const { ENC_PAINT_LAYERS, applyEncLayerPaint, encLayerPaint } = await import("../src/lib/ahanu/enc-paint.ts");
+const { ENC_PAINT_LAYERS, ENC_STROKE_LAYERS, applyEncLayerPaint, encLayerPaint } = await import("../src/lib/ahanu/enc-paint.ts");
 const { DEFAULT_LAYERS } = await import("../src/lib/ahanu/constants.ts");
 
 describe("encLayerPaint — skipper toggle", () => {
@@ -697,6 +697,19 @@ describe("encLayerPaint — skipper toggle", () => {
     for (const id of ENC_PAINT_LAYERS) {
       assert.equal(paint[id].opacity, 0, `${id} must stay 0 when ENC is off`);
     }
+  });
+
+  it("toggle off → circle-stroke-opacity is 0 (default MapLibre stroke is 1)", () => {
+    const off = encLayerPaint(false, 0.95);
+    for (const id of ENC_STROKE_LAYERS) {
+      assert.equal(off[id].stroke?.prop, "circle-stroke-opacity", `${id} must own stroke paint`);
+      assert.equal(off[id].stroke?.opacity, 0, `${id} stroke must be 0 when ENC is off`);
+    }
+    const on = encLayerPaint(true, 0.32);
+    for (const id of ENC_STROKE_LAYERS) {
+      assert.ok((on[id].stroke?.opacity ?? 0) > 0, `${id} stroke should paint when ENC is on`);
+    }
+    assert.equal(off["enc-soundings"].stroke, undefined, "soundings have no stroke-width");
   });
 
   it("default helm ENC (on, 0.32) paints; does not stay at the old addLayer 0", () => {
@@ -722,12 +735,14 @@ describe("encLayerPaint — skipper toggle", () => {
     assert.equal(set.enc?.["fill-opacity"], 0.95);
     assert.ok((set["enc-outline"]?.["line-opacity"] ?? 0) > 0);
     assert.ok((set["enc-aids"]?.["circle-opacity"] ?? 0) > 0);
+    assert.ok((set["enc-aids"]?.["circle-stroke-opacity"] ?? 0) > 0);
     assert.ok((set["enc-soundings"]?.["circle-opacity"] ?? 0) > 0);
     assert.equal(set["enc-coast"], undefined, "missing layer is not invented");
     applyEncLayerPaint(map, false, 0.95);
     assert.equal(set.enc?.["fill-opacity"], 0);
     assert.equal(set["enc-outline"]?.["line-opacity"], 0);
     assert.equal(set["enc-aids"]?.["circle-opacity"], 0);
+    assert.equal(set["enc-aids"]?.["circle-stroke-opacity"], 0);
     assert.equal(set["enc-soundings"]?.["circle-opacity"], 0);
   });
 });

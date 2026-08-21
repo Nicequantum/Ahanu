@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { REGION } from "@/lib/ahanu/constants";
+import { PLOTTER_MAX_ZOOM, REGION } from "@/lib/ahanu/constants";
 import { landPolygon } from "@/lib/ahanu/bathymetry";
 import {
   EMPTY_RASTER_URL,
@@ -208,7 +208,8 @@ export function ChartMap() {
         },
         center: [vessel.lon, vessel.lat],
         zoom: 7.4,
-        maxZoom: 12.5,
+        // Harbor ENC. Rasters are image overlays (no native maxzoom); they stretch.
+        maxZoom: PLOTTER_MAX_ZOOM,
         minZoom: 5.4,
         attributionControl: false,
         fadeDuration: 0,
@@ -405,6 +406,7 @@ export function ChartMap() {
             "circle-opacity": encPaint["enc-aids"].opacity,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
+            "circle-stroke-opacity": encPaint["enc-aids"].stroke?.opacity ?? 0,
           },
         });
         map.addSource("enc-soundings", { type: "geojson", data: encSoundingsForChart() });
@@ -429,6 +431,7 @@ export function ChartMap() {
             "circle-opacity": encPaint["enc-hazards"].opacity,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
+            "circle-stroke-opacity": encPaint["enc-hazards"].stroke?.opacity ?? 0,
           },
         });
 

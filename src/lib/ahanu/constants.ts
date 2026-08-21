@@ -31,6 +31,10 @@ export const HUDSON_HEAD = { lat: 39.55, lon: -72.4 };
 export const DEFAULT_CENTER = { lat: 39.92, lon: -69.85 };
 export const DEFAULT_ZOOM = 7.35;
 
+/** Harbor S-57 aids/soundings need ~z15. Not a tile-schema cap — GeoJSON has none.
+ *  Bathy/SST/chl/ssh/habitat are image overlays (no native maxzoom); they stretch. */
+export const PLOTTER_MAX_ZOOM = 16;
+
 export const NM_PER_DEG_LAT = 60;
 export const METERS_PER_NM = 1852;
 
