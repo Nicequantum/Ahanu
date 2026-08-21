@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (production AIS from AISStream, 2026-08-21)
+
+Optional pack layer `ais`. Worker ingest opens `wss://stream.aisstream.io/v0/stream` with secret `AISSTREAM_API_KEY` (not a `[vars]` value, not `VITE_`). Subscribe JSON uses AISStream `[[lat,lon],[lat,lon]]` corners for the trip bbox (PJ: west -72.8, south 39.4, east -68.8, north 41.5). Short PositionReport snapshot, unique MMSI last-known. Missing key / WS error / zero positions: miss + liveError. Never the 14 invented demo tracks. Helm paints packed live GeoJSON only; pack miss stays missing. Label `AIS · AISStream` only when live bytes exist. Does not block Ready. No MarineTraffic. No Flutter.
+
 ## This pass (dock-to-canyon steam ENC, 2026-08-21)
 
 ENCProdCat 2026-08-21T04:55:06Z: still 237 usage 3–5 cells in the Point Judith box (~20.7 MB). The packed 16 already had PJ harbor/pond, Block Island inlets, Narragansett approaches, and coastal over Veatch / Atlantis / Hydrographer. **No usage-4/5 cell covers those canyon heads** — cannot invent one. Leftover official in-bbox: **US5RI1CE** (Block Island Sound, 29 KB, 12k, `-71.55..-71.475, 41.175..41.25`) sits on the PJ–BI steam; **US5PVDAB** / **US5PVDAA** (23–24 KB) are the harbor-scale gap between packed US5PVDBB and Block Island / Great Salt Pond; **US4NY1BY** (42 KB + `.001`) is the usage-4 gap 40.8–41.1 south of Block Island toward packed US4CN22M. **US4RI1EB** (359 KB) is Newport-east / Sakonnet — not the canyon steam. Leftover coastal **US3MA1BD** / **US3NY1AG** / **US3CT1AA** are real and in-bbox but either miss the loop or duplicate packed US3NY01M at the same 350k scale. Picker now ranks those four steam cells (cap **20** / 400 KB each / 3.2 MB; catalog zip ~2.31 MB). +4 Worker zip subrequests vs 16; paid Workers allow 10k — 237-cell box is still too many. Did not invent cells. Not an ECDIS. Helm cell list is pack `s57.cellIds` — PWA not redeployed. Frame harbor, tide 8455083, PWA manifest, Flutter, merlinus-* unchanged. No Worker scoring.
@@ -286,7 +290,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.
-- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
+- AISStream snapshot when `AISSTREAM_API_KEY` lands; miss otherwise — never the invented demo fleet. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
 
 ## What works now (finish-pack-loop)
 
@@ -302,6 +306,6 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 
 ## Constraints that do not move
 
-Workers package bytes. AIS demo only. No helm toast jokes. No invented S-57 or R2 NOAA bytes. Ahanu is an aid to navigation and fishing.
+Workers package bytes. AIS is AISStream or a miss — never invented tracks. No helm toast jokes. No invented S-57 or R2 NOAA bytes. Ahanu is an aid to navigation and fishing.
 
 See ARCHITECTURE.md and DATA_PACKS.md.

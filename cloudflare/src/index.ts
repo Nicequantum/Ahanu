@@ -96,6 +96,8 @@ export interface Env {
   GFS_WAVE_SERIES?: string;
   INGEST_TOKEN?: string;
   AHANU_INGEST_TOKEN?: string;
+  /** Secret. Never a [vars] value. Never log. */
+  AISSTREAM_API_KEY?: string;
   /** Node tests inject a stub. Production isolate has none. */
   fetchImpl?: FetchLike;
   LIVE_REBUILD?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };

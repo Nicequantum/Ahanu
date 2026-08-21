@@ -96,6 +96,7 @@ export interface IngestEnv {
   };
   AHANU_GFS_WAVE_SERIES?: string;
   GFS_WAVE_SERIES?: string;
+  AISSTREAM_API_KEY?: string;
   REGION_WEST?: string;
   REGION_SOUTH?: string;
   REGION_EAST?: string;
@@ -284,6 +285,7 @@ export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptio
       AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
       GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
     }),
+    aisstreamApiKey: env.AISSTREAM_API_KEY,
   });
   return { manifest: built.manifest, source: "live", built };
 }
@@ -996,6 +998,7 @@ export async function ingestFixturePack(env: IngestEnv, options: IngestOptions =
     timeoutMs: options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
     fetchImpl: options.fetchImpl,
     gfsWaveSeries: seriesOn,
+    aisstreamApiKey: env.AISSTREAM_API_KEY,
   });
   return persistBuiltPack(env, built);
 }

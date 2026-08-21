@@ -167,7 +167,7 @@ describe("downloadTripPack surfaces liveErrors", () => {
       assert.equal(got.manifest.layers.find((l) => l.id === "sst")?.source, "fixture");
       const errors = got.manifest.liveErrors ?? [];
       assert.ok(errors.some((e) => e.startsWith("sst")));
-      assert.ok(errors.length <= 8);
+      assert.ok(errors.length <= 12);
     } finally {
       globalThis.fetch = orig;
     }

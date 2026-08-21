@@ -295,7 +295,7 @@ describe("cron ingest is not HTTP-limited", () => {
         timeoutMs: 50,
       },
     );
-    assert.equal(result.layers.length, 12);
+    assert.equal(result.layers.length, 13);
     assert.equal(result.source, "memory");
   });
 

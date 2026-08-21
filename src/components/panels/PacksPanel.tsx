@@ -350,7 +350,7 @@ export function PacksPanel() {
         </div>
       ) : null}
       <p className="mt-4 text-xs text-muted">
-        AIS demo — not live traffic. Chlorophyll and altimetry improve the pack; they do not block
+        AIS is an AISStream snapshot when packed live; a miss stays missing — never the demo fleet. Chlorophyll and altimetry improve the pack; they do not block
         Ready.
         {packedEncOfficial()
           ? " ENC official S-57 is packed NOAA exchange-set bytes — not an ECDIS."

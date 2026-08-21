@@ -37,7 +37,7 @@ Until Flutter exists, treat `src/lib/ahanu` as frozen API: additive changes only
 │  Pages (app shell) · Worker ahanu-packs · R2 · D1 · DO      │
 └────────────────────────────▲────────────────────────────────┘
                              │ ingest (cron, not request path)
-           NOAA ENC · GFS-Wave · NDFD · GHRSST · CMEMS · CO-OPS · NDBC
+           NOAA ENC · GFS-Wave · NDFD · GHRSST · CMEMS · CO-OPS · NDBC · AISStream
 ```
 
 ---

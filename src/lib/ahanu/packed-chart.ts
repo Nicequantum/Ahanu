@@ -11,6 +11,8 @@ import type { Buoy } from "./types";
 import { getPackedOcean } from "./packed-fields";
 import type { PackedBuoyRow } from "./noaa-live";
 import { encCatalogBounds } from "./noaa-enc";
+import { LAYER_META } from "./constants";
+import { aisGeo, aisTargets } from "@/lib/data/ais";
 
 export const ENC_AID_DISCLAIMER =
   "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
@@ -27,6 +29,32 @@ export const HMS_AID_DISCLAIMER =
 
 function emptyFc(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
+}
+
+/** Live packed AIS only — fixture/empty is not live traffic. */
+export function livePackedAis(): GeoJSON.FeatureCollection | null {
+  const ocean = getPackedOcean();
+  if (!ocean?.ais?.features.length) return null;
+  if (ocean.aisSource !== "noaa" && ocean.aisSource !== "r2") return null;
+  return ocean.ais;
+}
+
+export function aisHelmLabel(): string {
+  if (livePackedAis()) return "AIS · AISStream";
+  if (getPackedOcean()) return "AIS";
+  return LAYER_META.ais.label;
+}
+
+/**
+ * Packed live AIS GeoJSON when that layer exists.
+ * Pack session without live AIS: empty — never the invented demo fleet.
+ * No pack: demo generator (synthetic).
+ */
+export function aisForChart(clockMs: number, hour: number): GeoJSON.FeatureCollection {
+  const live = livePackedAis();
+  if (live) return live;
+  if (getPackedOcean()) return emptyFc();
+  return aisGeo(aisTargets(clockMs, hour));
 }
 
 function seedCanyons(): GeoJSON.FeatureCollection {

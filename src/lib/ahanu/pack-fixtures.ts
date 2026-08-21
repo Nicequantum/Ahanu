@@ -54,7 +54,8 @@ export type PackLayerId =
   | "waves"
   | "buoys"
   | "tides"
-  | "hms_zones";
+  | "hms_zones"
+  | "ais";
 
 export interface PackLayerSpec {
   id: PackLayerId;
@@ -79,6 +80,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", required: false },
   { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", required: true },
   { id: "hms_zones", label: "HMS closed areas", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: true },
+  { id: "ais", label: "AIS · AISStream", hours: 1, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
 ];
 
 export const REQUIRED_OFFSHORE_LAYERS: readonly PackLayerId[] = PACK_LAYER_SPECS.filter((s) => s.required).map(
@@ -431,6 +433,21 @@ function tidesJson(start: string, hours: number): PackedJson {
   };
 }
 
+function aisEmpty(): PackedJson {
+  return {
+    kind: "geojson",
+    layer: "ais",
+    payload: {
+      type: "FeatureCollection",
+      fixture: true,
+      live: false,
+      source: "fixture",
+      note: "AIS fixture — empty. Live AISStream snapshot only. No invented tracks.",
+      features: [],
+    },
+  };
+}
+
 function buoysJson(start: string): PackedJson {
   return {
     kind: "json",
@@ -487,6 +504,8 @@ export function generateLayerPayload(
       return tidesJson(start, hours);
     case "hms_zones":
       return hmsGeo();
+    case "ais":
+      return aisEmpty();
   }
 }
 

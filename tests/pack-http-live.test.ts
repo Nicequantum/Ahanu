@@ -356,7 +356,7 @@ describe("preview pack HTTP liveErrors", () => {
     assert.equal(man.layers.find((l) => l.id === "sst")!.source, "fixture");
     const errors = man.liveErrors ?? [];
     assert.ok(errors.length > 0, "expected live SST errors");
-    assert.ok(errors.length <= 8);
+    assert.ok(errors.length <= 12);
     assert.ok(errors.some((e) => e.startsWith("sst") && (e.includes("fetch failed") || e.includes("fixture kept"))));
   });
 
@@ -392,8 +392,11 @@ describe("preview pack HTTP liveErrors", () => {
     for (const id of overlayIds) {
       assert.equal(man.layers.find((l) => l.id === id)?.source, "noaa", id);
     }
+    assert.equal(man.layers.find((l) => l.id === "ais")?.source, "fixture");
     const errors = man.liveErrors ?? [];
-    assert.ok(errors.every((e) => e.includes("hour-0 live") && e.includes("fixture")));
+    assert.ok(errors.some((e) => e.startsWith("ais:")), errors.join(" | "));
+    const other = errors.filter((e) => !e.startsWith("ais:"));
+    assert.ok(other.every((e) => e.includes("hour-0 live") && e.includes("fixture")), other.join(" | "));
     assert.ok(!errors.some((e) => e.includes("f000–f072")));
     assert.equal(man.layers.find((l) => l.id === "wind")!.hours, 72);
     assert.equal(man.layers.find((l) => l.id === "waves")!.hours, 72);

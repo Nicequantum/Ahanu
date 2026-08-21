@@ -615,6 +615,34 @@ export function marineCadastreCanyons(): IngestMeta {
   });
 }
 
+/**
+ * AISStream live vessel positions (Worker secret).
+ *
+ * Snapshot over wss://stream.aisstream.io/v0/stream. The API key is the
+ * AISSTREAM_API_KEY Worker secret — never a [vars] value, never VITE_.
+ * Subscribe JSON uses AISStream [[lat,lon],[lat,lon]] corners for the
+ * trip bbox (PJ default: west -72.8, south 39.4, east -68.8, north 41.5).
+ * PositionReport (+ Class B). Missing key / WS error / zero positions
+ * is a miss. Never invent tracks. AIS does not block Ready.
+ */
+export function aisStream(): IngestMeta {
+  return meta({
+    id: "aisstream",
+    name: "AISStream PositionReport snapshot",
+    provider: "AISStream",
+    kind: "vector",
+    cadence: "hourly",
+    license: "AISStream terms — snapshot packed for the skipper, not redistributed as a live feed",
+    layerIds: ["ais"],
+    endpoints: [
+      { label: "AISStream WebSocket", url: "wss://stream.aisstream.io/v0/stream" },
+      { label: "AISStream documentation", url: "https://aisstream.io/documentation" },
+    ],
+    notes:
+      "Worker secret AISSTREAM_API_KEY. Fail-closed if missing or the snapshot has no useful positions. Unique MMSI last-known lat/lon/sog/cog/heading/name. Does not block Ready. Never the invented demo fleet.",
+  });
+}
+
 export const ADAPTERS = {
   noaaEnc,
   nceiBathymetry,
@@ -627,6 +655,7 @@ export const ADAPTERS = {
   ndbc,
   hmsClosedAreas,
   marineCadastreCanyons,
+  aisStream,
 } as const;
 
 export function listIngestSources(): IngestMeta[] {

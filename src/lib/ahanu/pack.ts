@@ -70,7 +70,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "landed-body-persist-2026-08-21";
+export const PACK_BUILDER_REV = "ais-aisstream-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -110,7 +110,7 @@ export interface TripPackManifestV1 {
   builder: { rev: string };
 }
 
-export const LIVE_ERROR_CAP = 8;
+export const LIVE_ERROR_CAP = 12;
 
 /** Layers Live NOAA can paint. Canyon live paint is named heads only. */
 export const LIVE_OVERLAY_LAYER_IDS = [
@@ -126,6 +126,7 @@ export const LIVE_OVERLAY_LAYER_IDS = [
   "buoys",
   "tides",
   "hms_zones",
+  "ais",
 ] as const;
 
 export function capLiveErrors(errors: readonly string[] | undefined | null): string[] {
@@ -193,7 +194,17 @@ function overlaySstMeta(overlay?: string): { dataset?: string; note?: string } {
   };
 }
 
+function overlayIsLiveAis(overlay?: string): boolean {
+  if (!overlay) return false;
+  const parsed = parseLayerBody(overlay);
+  if (!parsed || !("payload" in parsed) || !parsed.payload || typeof parsed.payload !== "object") return false;
+  const p = parsed.payload as { live?: boolean; fixture?: boolean; source?: string; features?: unknown[] };
+  return Boolean(p.live) && !p.fixture && p.source === "aisstream" && Array.isArray(p.features) && p.features.length > 0;
+}
+
 function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
+  if (spec.id === "ais" && overlayIsLiveAis(overlay)) return "AIS · AISStream";
+  if (spec.id === "ais") return "AIS";
   if (spec.id === "enc" && overlayIsOfficialEnc(overlay)) return "NOAA ENC (official S-57)";
   if (spec.id === "sst") {
     const meta = overlaySstMeta(overlay);
@@ -260,6 +271,7 @@ const LIVE_MISS_PREFIX: Record<string, string> = {
   waves: "gfs-wave",
   buoys: "ndbc",
   tides: "coops",
+  ais: "ais",
 };
 
 /** Honest miss lines when a live result has no error list (stale cache shape). */
@@ -715,7 +727,7 @@ export async function buildFixturePack(options: {
   const sources = mergePackSources(liveIds, options.extraSources, overlays);
   const liveErrors = capLiveErrors(options.liveErrors);
   const baseNotes = liveIds.length
-    ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; catalog-only otherwise. Packed zips keep .00n update files when NOAA shipped them; helm extract applies those records. Cells with no .001 stay base .000 only. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."
+    ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; catalog-only otherwise. Packed zips keep .00n update files when NOAA shipped them; helm extract applies those records. Cells with no .001 stay base .000 only. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). AIS is source noaa only when an AISStream snapshot yields unique MMSI positions — empty fixture on miss, never invented tracks. Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."
     : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.";
   const landedSources = landedProductSources({ sources, layers, liveErrors });
   const notes = landedPackNotes({ sources, layers, liveErrors, notes: baseNotes });
@@ -834,6 +846,10 @@ export async function buildTripPack(options: {
   sleep?: (ms: number) => Promise<void>;
   skipCache?: boolean;
   now?: Date;
+  /** Worker secret. Never log. Missing key is an AIS miss. */
+  aisstreamApiKey?: string;
+  openAisStream?: import("./ais-live").OpenAisStream;
+  aisSnapshotMs?: number;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -853,6 +869,9 @@ export async function buildTripPack(options: {
       gfsWaveSeries: options.gfsWaveSeries,
       sleep: options.sleep,
       now: options.now,
+      aisstreamApiKey: options.aisstreamApiKey,
+      openAisStream: options.openAisStream,
+      aisSnapshotMs: options.aisSnapshotMs,
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
@@ -896,6 +915,10 @@ export async function buildTripPack(options: {
       overlays.bathymetry = encodeLayerBody(live.bathymetry.grid);
       extraSources.push({ id: "noaa-bathy", name: live.bathymetry.note });
       if (live.bathymetry.contours) overlays.contours = encodeLiveLayer(live.bathymetry.contours);
+    }
+    if (live.ais) {
+      overlays.ais = encodeLiveLayer(live.ais);
+      extraSources.push({ id: "aisstream", name: live.aisNote ?? "AISStream PositionReport snapshot" });
     }
     if (live.gfsWave || series) {
       const painted = Boolean(gfsMerge.wind || gfsMerge.waves);

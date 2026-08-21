@@ -543,8 +543,8 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     assert.ok(restored);
     assert.equal(restored.packId, manifest.packId);
     assert.equal(restored.manifest.packId, manifest.packId);
-    assert.equal(restored.layers.length, 12);
-    assert.equal(hashedPackCount(restored.layers).hashed, 12);
+    assert.equal(restored.layers.length, 13);
+    assert.equal(hashedPackCount(restored.layers).hashed, 13);
     assert.notEqual(readyOffshoreBadge(restored.ready).short, "No pack");
     assert.equal((await loadCurrentManifest())?.packId, manifest.packId);
     assert.ok((await bodiesForPack(manifest.packId)).sst);
@@ -593,8 +593,8 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     assert.equal(sst?.verified, true);
     assert.equal(sst?.status, "stale");
     const count = hashedPackCount(restored.layers);
-    assert.equal(count.hashed, 12);
-    assert.equal(count.total, 12);
+    assert.equal(count.hashed, 13);
+    assert.equal(count.total, 13);
     assert.equal(count.stale, 1);
     assert.equal(restored.ready.ready, false);
     assert.notEqual(readyOffshoreBadge(restored.ready).short, "No pack");
@@ -640,7 +640,7 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     assert.equal(sst?.verified, true);
     assert.equal(sst?.status, "stale");
     const count = hashedPackCount(restored.layers);
-    assert.equal(count.hashed, 12);
+    assert.equal(count.hashed, 13);
     assert.equal(count.stale, 1);
     assert.deepEqual(count.misses, []);
   });
@@ -709,7 +709,7 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     const restored = await restorePackedSession({ now: START, sstOverride: true });
     assert.ok(restored);
     const count = hashedPackCount(restored.layers);
-    assert.equal(count.hashed, 12, `miss ${count.misses.join(",")}`);
+    assert.equal(count.hashed, 13, `miss ${count.misses.join(",")}`);
     assert.deepEqual(count.misses, []);
     assert.equal(restored.layers.find((l) => l.id === "buoys")?.verified, true);
     assert.equal(restored.layers.find((l) => l.id === "tides")?.verified, true);

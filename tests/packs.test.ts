@@ -47,8 +47,8 @@ describe("fixture pack hashes", () => {
       hours: 72,
       createdAt: START,
     });
-    assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "landed-body-persist-2026-08-21");
+    assert.equal(manifest.layers.length, 13);
+    assert.equal(PACK_BUILDER_REV, "ais-aisstream-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -693,7 +693,7 @@ const {
 
 describe("live ingest errors on pack session", () => {
   it("caps honest lines and stays empty when live is off", () => {
-    assert.equal(LIVE_ERROR_CAP, 8);
+    assert.equal(LIVE_ERROR_CAP, 12);
     assert.deepEqual(liveErrorsForSession({ live: false, errors: ["sst: fetch failed"] }), []);
     assert.deepEqual(liveErrorsForSession({ live: true, overlayLanded: true, errors: ["sst mur: fetch failed"] }), []);
     const prefer = "sst: preferred noaacwLEOACSPOSSTL3SnrtKDaily lost (timeout) — using jplMURSST41";
@@ -711,9 +711,9 @@ describe("live ingest errors on pack session", () => {
     assert.ok(hiddenSst.some((e) => e.startsWith("sst")), hiddenSst.join(" | "));
     const many = Array.from({ length: 12 }, (_, i) => `sst path ${i}: fetch failed`);
     const capped = capLiveErrors(many);
-    assert.equal(capped.length, 8);
+    assert.equal(capped.length, 12);
     assert.equal(capped[0], "sst path 0: fetch failed");
-    assert.equal(capped[7], "sst path 7: fetch failed");
+    assert.equal(capped[11], "sst path 11: fetch failed");
   });
 
   it("enables retry when live is on and a live layer is still fixture", () => {
@@ -1191,10 +1191,10 @@ describe("hashedPackCount", () => {
     assert.equal(sst?.status, "stale");
     assert.equal(sst?.verified, true);
     const count = hashedPackCount(rows);
-    assert.equal(count.total, 12);
-    assert.equal(count.hashed, 12);
+    assert.equal(count.total, 13);
+    assert.equal(count.hashed, 13);
     assert.equal(count.stale, 1);
-    assert.equal(rows.filter((r) => r.status === "ready").length, 11);
+    assert.equal(rows.filter((r) => r.status === "ready").length, 12);
   });
 
   it("does not count a real hash miss as hashed", async () => {
@@ -1223,8 +1223,8 @@ describe("hashedPackCount", () => {
     const sst = rows.find((r) => r.id === "sst");
     assert.equal(sst?.verified, false);
     const count = hashedPackCount(rows);
-    assert.equal(count.hashed, 11);
-    assert.equal(count.total, 12);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.total, 13);
     assert.equal(count.stale, 0);
     assert.deepEqual(count.misses, ["sst"]);
   });
@@ -1262,8 +1262,8 @@ describe("hashedPackCount", () => {
     assert.equal(sst?.verified, true);
     assert.equal(sst?.status, "stale");
     const count = hashedPackCount(rows);
-    assert.equal(count.total, 12);
-    assert.equal(count.hashed, 12);
+    assert.equal(count.total, 13);
+    assert.equal(count.hashed, 13);
     assert.equal(count.stale, 3);
     assert.deepEqual(count.misses, []);
   });

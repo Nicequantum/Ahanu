@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { LAYER_META } from "@/lib/ahanu/constants";
-import { encHelmLabel } from "@/lib/ahanu/packed-chart";
+import { aisHelmLabel, encHelmLabel } from "@/lib/ahanu/packed-chart";
 import { layerPaintSource, layerPaintTone } from "@/lib/ahanu/layer-status";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { LayerId } from "@/lib/ahanu/types";
@@ -32,7 +32,7 @@ export function LayersPanel() {
                 <div key={id} className="mb-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-2 text-sm">
-                      <span className="truncate">{id === "enc" ? encHelmLabel() : LAYER_META[id].label}</span>
+                      <span className="truncate">{id === "enc" ? encHelmLabel() : id === "ais" ? aisHelmLabel() : LAYER_META[id].label}</span>
                       <Badge
                         tone={layerPaintTone(origin)}
                         className="shrink-0 text-[10px] uppercase tracking-wider"
@@ -69,7 +69,8 @@ export function LayersPanel() {
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
         pack. ENC official S-57 paints an extract from packed NOAA .000 bytes plus ISO 8211 .00n updates when those files are in the zip (coastline, shoreline, depth areas/contours, wrecks/obstructions when present, aids, lights, soundings) — S-57 extract, not an ECDIS. A zip with no .001 is base .000 only. Catalog-only packs stay aid boxes.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
-        before you leave the dock. AIS is a demo overlay — not live traffic.
+        before you leave the dock. AIS paints a packed AISStream snapshot when that layer is live;
+        a miss stays missing. Without a pack the overlay is still the invented demo fleet.
       </p>
       <p className="mt-2 text-xs text-muted">Right-click the chart to drop a mark. Measure lives on the instruments bar.</p>
     </Pane>

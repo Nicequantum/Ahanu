@@ -56,6 +56,7 @@ import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
 import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
 import { fetchLiveBathy, type BathyIngest } from "./noaa-bathy";
 import { fetchLiveCanyons, type CanyonIngest } from "./noaa-canyons";
+import { fetchLiveAis, type AisIngest, type OpenAisStream } from "./ais-live";
 import {
   defaultNoaaFetch,
   fetchNoaaBytes,
@@ -370,6 +371,8 @@ export interface LiveNoaaResult {
   hms?: HmsIngest;
   bathymetry?: BathyIngest;
   canyons?: CanyonIngest;
+  ais?: PackedJson;
+  aisNote?: string;
   errors: string[];
 }
 
@@ -404,6 +407,7 @@ const LIVE_PROBE_GATES: {
   { landed: (v) => Boolean(v.hms), prefix: "hms", miss: "hms: live miss — fixture kept" },
   { landed: (v) => Boolean(v.bathymetry), prefix: "bathy", miss: "bathy: live miss — fixture kept" },
   { landed: (v) => Boolean(v.canyons), prefix: "canyons", miss: "canyons: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.ais), prefix: "ais", miss: "ais: live miss — fixture kept" },
 ];
 
 /** Every live-capable overlay landed. Used to decide if empty errors are honest. */
@@ -825,6 +829,9 @@ export async function tryLiveNoaa(options: {
   now?: Date;
   gfsWaveSeries?: GfsWaveSeriesFlag;
   sleep?: (ms: number) => Promise<void>;
+  aisstreamApiKey?: string;
+  openAisStream?: OpenAisStream;
+  aisSnapshotMs?: number;
 }): Promise<LiveNoaaResult> {
   const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const sleep = options.sleep;
@@ -870,7 +877,7 @@ export async function tryLiveNoaa(options: {
           ingest,
         }),
       );
-  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons] = await Promise.all([
+  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons, ais] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
@@ -910,6 +917,13 @@ export async function tryLiveNoaa(options: {
       errors,
       sleep,
     }),
+    fetchLiveAis({
+      bbox: options.bbox,
+      apiKey: options.aisstreamApiKey,
+      errors,
+      openSocket: options.openAisStream,
+      snapshotMs: options.aisSnapshotMs,
+    }),
   ]);
   if (buoys) out.buoys = buoys;
   if (tides) out.tides = tides;
@@ -920,6 +934,10 @@ export async function tryLiveNoaa(options: {
   if (hms) out.hms = hms;
   if (bathy) out.bathymetry = bathy;
   if (canyons) out.canyons = canyons;
+  if (ais) {
+    out.ais = ais.body;
+    out.aisNote = ais.note;
+  }
   if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
     out.gfsWaveSeries = gfs.series;
     if (gfs.ingest) out.gfsWave = gfs.ingest;
@@ -1063,6 +1081,15 @@ export {
   fetchLiveBathy,
   sampleBathyCsvForTests,
 } from "./noaa-bathy";
+export {
+  AISSTREAM_URL,
+  AIS_SNAPSHOT_MS,
+  fetchLiveAis,
+  parseAisStreamMessage,
+  aisSubscribeMessage,
+  aisStreamBbox,
+  aisTargetsToPackedJson,
+} from "./ais-live";
 export {
   CANYON_ENDPOINTS,
   CANYON_AID_NOTE,

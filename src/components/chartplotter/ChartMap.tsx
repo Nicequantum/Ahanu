@@ -28,13 +28,14 @@ import {
   encShoreForChart,
   encSoundingsForChart,
   hmsForChart,
+  aisForChart,
 } from "@/lib/ahanu/packed-chart";
 import { applyEncLayerPaint, encLayerPaint } from "@/lib/ahanu/enc-paint";
 import { ensureMaplibreWorker } from "@/lib/ahanu/maplibre-worker";
 import { applyHmsLayerPaint, hmsLayerPaint } from "@/lib/ahanu/hms-paint";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
-import { aisGeo, aisTargets } from "@/lib/data/ais";
+
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
@@ -649,7 +650,7 @@ export function ChartMap() {
           },
         });
 
-        map.addSource("ais", { type: "geojson", data: aisGeo(aisTargets(clock, hour)) });
+        map.addSource("ais", { type: "geojson", data: aisForChart(clock, hour) });
         map.addLayer({
           id: "ais",
           type: "circle",
@@ -918,8 +919,8 @@ export function ChartMap() {
   useEffect(() => {
     const map = mapRef.current;
     const src = map?.getSource("ais") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    src?.setData?.(aisGeo(aisTargets(clock, hour)));
-  }, [aisTick, hour]);
+    src?.setData?.(aisForChart(clock, hour));
+  }, [aisTick, hour, packEpoch]);
 
   useEffect(() => {
     const map = mapRef.current;

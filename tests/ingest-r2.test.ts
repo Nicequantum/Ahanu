@@ -49,7 +49,7 @@ describe("ingest R2 persist", () => {
       },
     );
     assert.equal(result.source, "r2");
-    assert.equal(result.wrote, 12);
+    assert.equal(result.wrote, 13);
     assert.ok(result.noaa >= 1, "expected at least buoys live");
     const buoys = result.layers.find((l) => l.id === "buoys");
     assert.ok(buoys);
@@ -81,7 +81,7 @@ describe("ingest R2 persist", () => {
     assert.equal(result.wrote, 0);
     assert.equal(result.source, "memory");
     assert.equal(result.d1, false);
-    assert.equal(result.layers.length, 12);
+    assert.equal(result.layers.length, 13);
   });
 
   it("skips D1 when pack_layers is unused", async () => {

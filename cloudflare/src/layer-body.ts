@@ -37,6 +37,7 @@ export interface LayerBodyEnv {
   };
   AHANU_GFS_WAVE_SERIES?: string;
   GFS_WAVE_SERIES?: string;
+  AISSTREAM_API_KEY?: string;
 }
 
 export interface LayerBodyResult {
@@ -164,6 +165,7 @@ export async function layerBody(
       AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
       GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
     }),
+    aisstreamApiKey: env.AISSTREAM_API_KEY,
   });
   rememberBuiltPack(built);
   const rec = built.manifest.layers.find((l) => l.id === layerId);

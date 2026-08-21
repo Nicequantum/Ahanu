@@ -21,7 +21,7 @@ Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They ar
 | SST / wind / wave / bathy grids                                                    | Hashed fixtures. Live GHRSST / GFS-Wave / NDFD / CMEMS not ingested. |
 | ENC                                                                                | Official S-57 zips when packed; client paints an extract, not ECDIS. |
 | NDBC buoys and CO-OPS tides                                                        | Public fetch when the network allows; failure degrades to fixtures   |
-| AIS                                                                                | Demo gateway in src/lib/data/ais.ts                                  |
+| AIS                                                                                | Packed AISStream snapshot when the Worker secret lands; else miss    |
 | Production R2 objects / ingest cron                                                | Not provisioned here                                                 |
 | Flutter helm                                                                       | Not started. flutter/ is a Dart domain stub                          |
 

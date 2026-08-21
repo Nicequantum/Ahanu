@@ -88,7 +88,9 @@ export function layerPaintSource(id: LayerId): LayerPaintSource {
     return "local";
   }
   if (id === "ais") {
-    // Demo generator only. Not a pack layer. Not a live gateway.
+    if (ocean?.ais && ocean.ais.features.length > 0 && (ocean.aisSource === "noaa" || ocean.aisSource === "r2")) {
+      return packLabel(ocean, ocean.aisSource);
+    }
     if (ocean) return "missing";
     return "synthetic";
   }

@@ -55,6 +55,8 @@ new_sqlite_classes = ["CommunityHub"]
 # fixtures otherwise. Custom domain is api.ahanu.dev; workers.dev stays up.
 # GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1).
 # POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
+# Secret AISSTREAM_API_KEY is bound on this Worker (not a [vars] value).
+# Fail-closed if missing — no invented AIS tracks.
 # Cron is in-process and does not HTTP POST /api/ingest.
 # HTTP skipCache / objects total-miss live NOAA rebuilds are fail-closed
 # 3/60s per CF-Connecting-IP via LIVE_REBUILD binding (per colo).

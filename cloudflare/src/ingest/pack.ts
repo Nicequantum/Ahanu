@@ -65,6 +65,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", baseMb: 0.04 },
   { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", baseMb: 0.12 },
   { id: "hms_zones", label: "HMS closed areas", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", baseMb: 0.18 },
+  { id: "ais", label: "AIS · AISStream", hours: 1, format: "geojson", contentType: "application/geo+json", ext: "geojson", baseMb: 0.08 },
 ];
 
 export const REQUIRED_OFFSHORE_LAYERS: readonly string[] = [

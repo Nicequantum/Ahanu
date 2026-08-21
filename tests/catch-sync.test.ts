@@ -440,7 +440,7 @@ describe("hydrateAhanuStore pack restore", () => {
     );
     await hydrateAhanuStore();
     const s = useAhanu.getState();
-    assert.equal(s.packLayers.length, 12);
+    assert.equal(s.packLayers.length, 13);
     assert.ok(s.packReady);
     assert.ok(s.packManifest);
     assert.equal(s.packManifest.packId, manifest.packId);
@@ -537,8 +537,8 @@ describe("hydrateAhanuStore SST override persist", () => {
     assert.equal(s.packReady.sstOverrideUsed, true);
     assert.equal(readyOffshoreBadge(s.packReady).long, "Ready · stale SST");
     const count = hashedPackCount(s.packLayers);
-    assert.equal(count.hashed, 12);
-    assert.equal(count.total, 12);
+    assert.equal(count.hashed, 13);
+    assert.equal(count.total, 13);
     assert.equal(count.stale, 1);
     assert.deepEqual(count.misses, []);
   });
@@ -564,7 +564,7 @@ describe("hydrateAhanuStore SST override persist", () => {
     assert.equal(s.packReady.sstOverrideUsed, false);
     assert.equal(readyOffshoreBadge(s.packReady).long, "Not ready");
     const count = hashedPackCount(s.packLayers);
-    assert.equal(count.hashed, 12);
+    assert.equal(count.hashed, 13);
     assert.equal(count.stale, 1);
   });
 });

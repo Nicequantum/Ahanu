@@ -139,6 +139,7 @@ export interface PackedOcean {
   buoys?: PackedBuoyRow[];
   tides?: PackedTideWindow;
   enc?: EncClip;
+  ais?: GeoJSON.FeatureCollection;
   buoySource?: PackFieldSource;
   tideSource?: PackFieldSource;
   windSource?: PackFieldSource;
@@ -151,6 +152,7 @@ export interface PackedOcean {
   contoursSource?: PackFieldSource;
   canyonsSource?: PackFieldSource;
   encSource?: PackFieldSource;
+  aisSource?: PackFieldSource;
   source: PackFieldSource;
 }
 
@@ -233,6 +235,7 @@ function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSo
       p.source === "noaa-enc-s57" ||
       p.source === "noaa" ||
       p.source === "nmfs" ||
+      p.source === "aisstream" ||
       p.live
     )
       return "noaa";
@@ -363,11 +366,19 @@ export function packedOceanFromBodies(
       out.encSource = payloadSource(payload, packSource);
     }
   });
+  takeJson("ais", (payload) => {
+    const fc = asFeatureCollection(payload);
+    const src = payloadSource(payload, packSource);
+    if (fc && (src === "noaa" || src === "r2") && fc.features.length > 0) {
+      out.ais = fc;
+      out.aisSource = src;
+    }
+  });
   return out;
 }
 
 export function packedHasChart(
-  kind: "canyons" | "contours" | "hms" | "buoys" | "tides" | "enc" | "depth",
+  kind: "canyons" | "contours" | "hms" | "buoys" | "tides" | "enc" | "depth" | "ais",
 ): boolean {
   if (!packed) return false;
   if (kind === "hms") return Boolean(packed.hms);
