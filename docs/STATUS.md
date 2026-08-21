@@ -2,6 +2,11 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (limit skipCache live rebuilds per IP, 2026-08-21)
+
+Public `GET /api/packs?skipCache=1` still forces a full NOAA+ENC rebuild (~11s). That path is now fail-closed at **3 live rebuilds / 60s / CF-Connecting-IP** (missing IP or limiter error → 429 + Retry-After). R2/manifest hits do not take a slot, so helm restore stays cheap. Objects rebuild-on-total-miss uses the same gate; isolate/R2 hits do not. Cron and POST /api/ingest stay in-process and are not limited. Helm Retry (`skipCache=1`) still works, just not unbounded. Catch bind, ENC updates, GFS cycle pick, ingest lock unchanged. No Worker scoring. No Flutter.
+
+
 ## This pass (bind catch rows to the creating device, 2026-08-21)
 
 `POST /api/catches` still opens on any non-empty device bearer (not `INGEST_TOKEN`). Each D1 row now stores `device_hash` = SHA-256 of that bearer. Same token updates (201 insert / 200 update). A different token on the same id is 403 and does not overwrite. Empty bearer stays 401. `GET /api/catches` stays 404 — no list of other devices. Existing four probe rows were kept; NULL `device_hash` is unbound-once (first successful same-id write binds) so a skipper is not locked out of their own log. Safer than treating unknown owners as permanently unwritable. Ingest stay fail-closed. ENC update extract and GFS cycle pick unchanged. Helm catch-sync unchanged (no PWA deploy). No Worker scoring. No Flutter.

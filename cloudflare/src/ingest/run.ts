@@ -23,6 +23,7 @@
 import { buildTripPack, packIdFor, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
 import { workerGfsWaveSeriesFlag } from "../../../src/lib/ahanu/noaa-gfs";
 import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
+import { assertLiveRebuildAllowed, type LimitLiveRebuild } from "../live-rebuild-limit";
 import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../../src/lib/ahanu/pack-fixtures";
 
 export interface IngestEnv {
@@ -154,6 +155,8 @@ export interface ResolvePackOptions {
   packId?: string;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  /** HTTP only. Cron / ingestFixturePack omit this so they are not limited. */
+  limitLiveRebuild?: LimitLiveRebuild;
 }
 
 export interface ResolvedPack {
@@ -165,6 +168,8 @@ export interface ResolvedPack {
 /**
  * skipCache off: last R2 manifest for this packId when present.
  * skipCache or miss: live buildTripPack. Caller persists a live result.
+ * HTTP callers pass limitLiveRebuild so a live rebuild is fail-closed
+ * per CF-Connecting-IP. An R2 hit returns before that gate.
  */
 export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptions): Promise<ResolvedPack> {
   const hours = opts.hours;
@@ -172,6 +177,9 @@ export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptio
   if (!opts.skipCache) {
     const stored = await loadPersistedManifest(env, packId);
     if (stored) return { manifest: stored, source: "r2" };
+  }
+  if (opts.limitLiveRebuild) {
+    assertLiveRebuildAllowed(opts.limitLiveRebuild.ip);
   }
   const built = await buildTripPack({
     bbox: opts.bbox,

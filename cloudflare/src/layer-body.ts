@@ -24,6 +24,7 @@ import {
   r2ObjectText,
 } from "./ingest/run";
 import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
+import { assertLiveRebuildAllowed, type LimitLiveRebuild } from "./live-rebuild-limit";
 
 export interface LayerBodyEnv {
   PACKS?: {
@@ -91,6 +92,8 @@ export async function layerBody(
     packId?: string;
     hash?: string;
     fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+    /** HTTP only. Counted only when this call is about to rebuild NOAA. */
+    limitLiveRebuild?: LimitLiveRebuild;
   },
 ): Promise<LayerBodyResult | null> {
   const spec = specForLayer(layerId);
@@ -139,6 +142,10 @@ export async function layerBody(
   }
 
   if (pinned && !skipCache) return null;
+
+  if (opts?.limitLiveRebuild) {
+    assertLiveRebuildAllowed(opts.limitLiveRebuild.ip);
+  }
 
   const built = await buildTripPack({
     bbox,

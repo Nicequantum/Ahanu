@@ -23,7 +23,7 @@ import {
 import { buildTripPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
 import { layerBody } from "./layer-body";
 import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
-import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
+import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT, type FetchLike } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, resolvePackManifest } from "./ingest/run";
 import {
@@ -33,6 +33,12 @@ import {
   requireDeviceAuth,
   requireIngestAuth,
 } from "./ingest-auth";
+import {
+  LIVE_REBUILD_LIMIT,
+  LIVE_REBUILD_WINDOW_MS,
+  LiveRebuildLimitError,
+  connectingIp,
+} from "./live-rebuild-limit";
 
 export type { BBox } from "./ingest/pack";
 
@@ -86,6 +92,8 @@ export interface Env {
   GFS_WAVE_SERIES?: string;
   INGEST_TOKEN?: string;
   AHANU_INGEST_TOKEN?: string;
+  /** Node tests inject a stub. Production isolate has none. */
+  fetchImpl?: FetchLike;
 }
 
 interface ExecCtx {
@@ -201,7 +209,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source",
+  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source, Retry-After",
 };
 
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -218,6 +226,20 @@ function json(data: unknown, status = 200, extra: Record<string, string> = {}): 
 
 function error(status: number, message: string, extra?: Record<string, unknown>): Response {
   return json({ error: message, ...extra }, status, { "Cache-Control": "no-store" });
+}
+
+function tooManyLiveRebuilds(retryAfter: number): Response {
+  return json(
+    {
+      error: "too many live rebuilds",
+      hint: "skipCache / miss NOAA rebuilds are limited per client IP; R2 hits are not",
+      retryAfter,
+      limit: LIVE_REBUILD_LIMIT,
+      windowSec: LIVE_REBUILD_WINDOW_MS / 1000,
+    },
+    429,
+    { "Cache-Control": "no-store", "Retry-After": String(retryAfter) },
+  );
 }
 
 function envBbox(env: Env): BBox {
@@ -652,6 +674,8 @@ export default {
           hours: Math.round(hours),
           skipCache,
           packId,
+          fetchImpl: env.fetchImpl,
+          limitLiveRebuild: { ip: connectingIp(request) },
         });
         if (resolved.built) {
           rememberBuiltPack(resolved.built);
@@ -689,6 +713,8 @@ export default {
           skipCache: objSkipCache,
           packId,
           hash,
+          fetchImpl: env.fetchImpl,
+          limitLiveRebuild: { ip: connectingIp(request) },
         });
         if (!obj) return error(404, "layer body missing", { layer });
         if (obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {
@@ -814,6 +840,7 @@ export default {
 
       return error(404, "not found", { path });
     } catch (err) {
+      if (err instanceof LiveRebuildLimitError) return tooManyLiveRebuilds(err.retryAfter);
       const message = err instanceof Error ? err.message : "internal error";
       return error(500, message);
     }

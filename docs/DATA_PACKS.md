@@ -162,6 +162,7 @@ Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone
 | Hash mismatch       | Bytes ≠ manifest           | Delete object, retry once, then fail the pack                           |
 | 401 on catch POST   | No device token            | Keep the catch local, `synced: false`                                   |
 | 401 on ingest POST  | Missing/wrong INGEST_TOKEN | Cron still runs in-process; do not put the secret in VITE_              |
+| 429 on skipCache    | Live NOAA rebuild cap      | 3/60s per CF-Connecting-IP. Wait Retry-After. R2 restore is not capped  |
 | No network mid-trip | Expected                   | Freeze last buoy snapshot, keep scoring on packed rasters               |
 
 Never block logging a catch on the network. The logbook is user data; it belongs on the boat first.
