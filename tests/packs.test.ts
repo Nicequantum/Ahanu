@@ -843,6 +843,53 @@ describe("live ingest errors on pack session", () => {
       true,
     );
   });
+
+  it("enables retry when SST is stale even if Live NOAA is off", () => {
+    const nowMs = Date.parse("2026-08-21T14:45:00.000Z");
+    const acspo = "2026-08-20T12:00:00.000Z";
+    assert.equal(sstLayerIsStale({ updatedAt: acspo }, nowMs), true);
+    assert.equal(
+      canRetryLiveOverlays({
+        live: false,
+        downloading: false,
+        layers: [{ id: "sst", source: "noaa", updatedAt: acspo }],
+        liveErrors: [],
+        ready: false,
+        nowMs,
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: false,
+        downloading: false,
+        layers: [{ id: "sst", source: "noaa", updatedAt: acspo }],
+        liveErrors: [],
+        ready: true,
+        nowMs,
+      }),
+      true,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: false,
+        downloading: false,
+        layers: [{ id: "sst", source: "fixture" }],
+        liveErrors: ["sst: fetch failed"],
+      }),
+      false,
+    );
+    assert.equal(
+      canRetryLiveOverlays({
+        live: false,
+        downloading: true,
+        layers: [{ id: "sst", source: "noaa", updatedAt: acspo }],
+        ready: false,
+        nowMs,
+      }),
+      false,
+    );
+  });
 });
 
 describe("sstHelmLine", () => {

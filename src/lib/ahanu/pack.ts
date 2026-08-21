@@ -322,11 +322,17 @@ export function canRetryLiveOverlays(input: {
   ready?: boolean | null;
   nowMs?: number;
 }): boolean {
-  if (!input.live || input.downloading) return false;
-  if (blockingLiveErrors(input.liveErrors).length > 0) return true;
-  if (input.ready === false) return true;
+  if (input.downloading) return false;
   const sst = input.layers.find((l) => l.id === "sst");
-  if (sstLayerIsStale(sst, input.nowMs ?? Date.now())) return true;
+  const sstStale = sstLayerIsStale(sst, input.nowMs ?? Date.now());
+  const notReady = input.ready === false;
+  // Production helm hits the live Worker even when Live NOAA is off
+  // (`?live=1` is preview-only). SST > 24 h / Not ready must still
+  // expose skipCache so Retry can land a newer ACSPO when NOAA publishes.
+  if (!input.live) return notReady || sstStale;
+  if (blockingLiveErrors(input.liveErrors).length > 0) return true;
+  if (notReady) return true;
+  if (sstStale) return true;
   return input.layers.some(
     (l) => l.source === "fixture" && (LIVE_OVERLAY_LAYER_IDS as readonly string[]).includes(l.id),
   );
