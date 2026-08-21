@@ -18,9 +18,8 @@ import { nearestCanyon } from "@/lib/data/canyons";
 import { SPECIES_LABELS } from "@/lib/data/species";
 import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display-mode";
 import { bindUnsyncedCatchRetry, hydrateAhanuStore, markFishHere, useAhanu } from "@/lib/ahanu/store";
-import { readyOffshoreBadge } from "@/lib/ahanu/pack";
-import { packsApiBase, restorePackedSession } from "@/lib/ahanu/pack-client";
-import { capLiveErrors } from "@/lib/ahanu/pack";
+import { hashedPackCount, readyOffshoreBadge } from "@/lib/ahanu/pack";
+import { packsApiBase } from "@/lib/ahanu/pack-client";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
 import { packedTideCurve, packedTideHarbors, resolveTideHarbor } from "@/lib/ahanu/tide-curve";
 import type { PanelId } from "@/lib/ahanu/types";
@@ -94,15 +93,6 @@ export function AppShell() {
         })
         .catch(() => undefined);
     }
-    void restorePackedSession().then((manifest) => {
-      if (manifest) {
-        useAhanu.setState({
-          packManifest: manifest,
-          packEpoch: packedEpoch(),
-          packLiveErrors: capLiveErrors(manifest.liveErrors),
-        });
-      }
-    });
     return bindUnsyncedCatchRetry();
   }, []);
 
@@ -191,7 +181,7 @@ function TopBar() {
   const hour = useAhanu((s) => s.forecastHour);
   const boat = useAhanu((s) => s.boat);
   const clock = useAhanu((s) => s.clockMs);
-  const ready = packs.filter((p) => p.status === "ready").length;
+  const hashed = hashedPackCount(packs);
   const grib = gribAt(v.lat, v.lon, hour);
   const go = scoreGoNoGo(grib.windKt, grib.waveFt, boat);
   const canyon = nearestCanyon(v);
@@ -219,8 +209,8 @@ function TopBar() {
       >
         {packReady
           ? readyOffshoreBadge(packReady).short
-          : packs.length
-            ? `${ready}/${packs.length}`
+          : hashed.total
+            ? `${hashed.hashed}/${hashed.total}`
             : "No pack"}
       </Badge>
       <span className="hidden text-xs text-muted tabular md:inline">

@@ -54,6 +54,10 @@ if (!globalThis.window.localStorage) {
 
 const { bindUnsyncedCatchRetry, hydrateAhanuStore, retryUnsyncedCatchesOnce, useAhanu } =
   await import("../src/lib/ahanu/store.ts");
+const { resetPackMemory, putObject, saveManifest } = await import("../src/lib/ahanu/pack-store.ts");
+const { buildFixturePack, POINT_JUDITH_CANYON_BBOX, readyOffshoreBadge } =
+  await import("../src/lib/ahanu/pack.ts");
+const { clearPackedOcean } = await import("../src/lib/ahanu/packed-fields.ts");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -382,5 +386,80 @@ describe("visibility / online leftover retry", () => {
     assert.equal(second.synced, 1);
     assert.equal(useAhanu.getState().catches.find((c) => c.id === "leftover-wake")?.synced, true);
     unbind();
+  });
+});
+
+describe("hydrateAhanuStore pack restore", () => {
+  afterEach(() => {
+    resetPackMemory();
+    clearPackedOcean();
+    useAhanu.setState({
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      packError: null,
+      hydrated: false,
+    });
+  });
+
+  it("fills packLayers and packReady from IDB when persist has no pack", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    const { manifest, bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: "2026-08-20T12:00:00.000Z",
+      hours: 72,
+      createdAt: "2026-08-20T12:00:00.000Z",
+    });
+    for (const layer of manifest.layers) {
+      const body = bodies[layer.id];
+      await putObject({
+        r2Key: layer.r2Key,
+        layerId: layer.id,
+        packId: manifest.packId,
+        hash: layer.hash,
+        contentType: layer.contentType,
+        body,
+        storedAt: "2026-08-20T12:00:00.000Z",
+      });
+    }
+    await saveManifest(manifest);
+    useAhanu.setState({
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      hydrated: false,
+    });
+    globalThis.localStorage.setItem(
+      "ahanu-bridge-v1",
+      JSON.stringify({ state: { packLayers: [] }, version: 0 }),
+    );
+    await hydrateAhanuStore();
+    const s = useAhanu.getState();
+    assert.equal(s.packLayers.length, 12);
+    assert.ok(s.packReady);
+    assert.ok(s.packManifest);
+    assert.equal(s.packManifest.packId, manifest.packId);
+    assert.notEqual(readyOffshoreBadge(s.packReady).short, "No pack");
+  });
+
+  it("does not invent a pack when IDB is empty", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    useAhanu.setState({
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      hydrated: false,
+    });
+    globalThis.localStorage.setItem(
+      "ahanu-bridge-v1",
+      JSON.stringify({ state: { packLayers: [] }, version: 0 }),
+    );
+    await hydrateAhanuStore();
+    const s = useAhanu.getState();
+    assert.equal(s.packLayers.length, 0);
+    assert.equal(s.packReady, null);
+    assert.equal(s.packManifest, null);
   });
 });

@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 const {
   buildFixturePack,
   evaluateReadyForOffshore,
+  hashedPackCount,
   PACK_BUILDER_REV,
   POINT_JUDITH_CANYON_BBOX,
   REQUIRED_OFFSHORE_LAYERS,
@@ -12,6 +13,7 @@ const {
   sstStaleReadyCue,
   SST_STALE_FLIP_COPY,
 } = await import("../src/lib/ahanu/pack.ts");
+const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
 const { hashesMatch, generateLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { habitatScore } = await import("../src/lib/ahanu/scoring.ts");
@@ -764,5 +766,71 @@ describe("live ingest errors on pack session", () => {
       }),
       false,
     );
+  });
+});
+
+describe("hashedPackCount", () => {
+  it("counts stale verified SST as hashed, not a miss", async () => {
+    const { manifest } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const evidence = manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.id === "sst" ? "2026-08-19T06:00:00.000Z" : l.updatedAt,
+      hoursCovered: l.hours || 72,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers: evidence,
+    });
+    const rows = tripPackLayersFromReady(manifest, ready);
+    const sst = rows.find((r) => r.id === "sst");
+    assert.equal(sst?.status, "stale");
+    assert.equal(sst?.verified, true);
+    const count = hashedPackCount(rows);
+    assert.equal(count.total, 12);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.stale, 1);
+    assert.equal(rows.filter((r) => r.status === "ready").length, 11);
+  });
+
+  it("does not count a real hash miss as hashed", async () => {
+    const { manifest } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const evidence = manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.id === "sst" ? "0".repeat(64) : l.hash,
+      updatedAt: l.updatedAt,
+      hoursCovered: l.hours || 72,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: START,
+      layers: evidence,
+    });
+    const rows = tripPackLayersFromReady(manifest, ready);
+    const sst = rows.find((r) => r.id === "sst");
+    assert.equal(sst?.verified, false);
+    const count = hashedPackCount(rows);
+    assert.equal(count.hashed, 11);
+    assert.equal(count.total, 12);
+    assert.equal(count.stale, 0);
   });
 });

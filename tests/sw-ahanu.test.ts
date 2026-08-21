@@ -21,6 +21,7 @@ const {
 
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
 const { restorePackedSession } = await import("../src/lib/ahanu/pack-client.ts");
+const { hashedPackCount, readyOffshoreBadge } = await import("../src/lib/ahanu/pack.ts");
 const { putObject, saveManifest, resetPackMemory, loadCurrentManifest, bodiesForPack } =
   await import("../src/lib/ahanu/pack-store.ts");
 const { buildFixturePack, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
@@ -499,11 +500,64 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     clearPackedOcean();
     assert.equal(getPackedOcean(), null);
 
-    const restored = await restorePackedSession();
+    const restored = await restorePackedSession({ now: START });
     assert.ok(restored);
     assert.equal(restored.packId, manifest.packId);
+    assert.equal(restored.manifest.packId, manifest.packId);
+    assert.equal(restored.layers.length, 12);
+    assert.equal(hashedPackCount(restored.layers).hashed, 12);
+    assert.notEqual(readyOffshoreBadge(restored.ready).short, "No pack");
     assert.equal((await loadCurrentManifest())?.packId, manifest.packId);
     assert.ok((await bodiesForPack(manifest.packId)).sst);
     assert.ok(getPackedOcean()?.sst, "helm should see packed SST after restore");
+  });
+
+  it("returns null when IDB has no current pack (does not invent)", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    const restored = await restorePackedSession();
+    assert.equal(restored, null);
+  });
+
+  it("counts stale verified SST as hashed after restore", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    const { manifest, bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const aged = {
+      ...manifest,
+      layers: manifest.layers.map((l) =>
+        l.id === "sst" ? { ...l, updatedAt: "2026-08-17T12:00:00.000Z" } : l,
+      ),
+    };
+    for (const layer of aged.layers) {
+      const body = bodies[layer.id];
+      assert.ok(body, layer.id);
+      await putObject({
+        r2Key: layer.r2Key,
+        layerId: layer.id,
+        packId: aged.packId,
+        hash: layer.hash,
+        contentType: layer.contentType,
+        body,
+        storedAt: START,
+      });
+    }
+    await saveManifest(aged);
+    const restored = await restorePackedSession({ now: "2026-08-20T12:00:00.000Z" });
+    assert.ok(restored);
+    const sst = restored.layers.find((l) => l.id === "sst");
+    assert.equal(sst?.verified, true);
+    assert.equal(sst?.status, "stale");
+    const count = hashedPackCount(restored.layers);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.total, 12);
+    assert.equal(count.stale, 1);
+    assert.equal(restored.ready.ready, false);
+    assert.notEqual(readyOffshoreBadge(restored.ready).short, "No pack");
   });
 });

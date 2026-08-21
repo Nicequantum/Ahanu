@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (offline pack chip + hashed count, 2026-08-20)
+
+`restorePackedSession` now rebuilds `packLayers` + on-device Ready from IndexedDB (`ahanu-packs` meta.current + objects). Helm hydrate runs persist first, then IDB, so the compact chip matches the stored pack after offline reload and does not invent a pack when IDB is empty. Hashed numerator is SHA-256 verify (`verified` / hashOk), not Ready freshness — stale SST still counts as hashed and is marked stale separately. A real hash miss stays 11/12. No ENC/S-57 invented. No Worker scoring. No Flutter.
+
 ## This pass (SW caches CF packs origin, 2026-08-20)
 
 `public/sw-ahanu.js` now allowlists pack GETs from the helm origin (local Vite) and `https://ahanu-packs.hombre3536.workers.dev` — the live `VITE_AHANU_PACKS_URL`. Paths stay `/api/packs`, `/api/objects`, `/api/objects/*`. Arbitrary cross-origin is not cached. Cross-origin fetch is CORS, not no-cors; a CORS failure does not invent a cached body. Helm also postMessages the packs origin on SW register. Fixture cache-first / `?live=1` network-first unchanged. Cache name remains `ahanu-packs-v2`. A real airplane-mode browser pass still needs a later sea trial. No ENC/S-57 invented. No Worker scoring. No Flutter.

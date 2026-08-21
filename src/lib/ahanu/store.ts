@@ -28,7 +28,12 @@ import type {
 } from "./types";
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
 import { capLiveErrors, evaluateReadyForOffshore, type PackBBox, type ReadyOffshoreResult, type TripPackManifestV1 } from "./pack";
-import { downloadTripPack as fetchTripPack, evidenceFromPackLayers } from "./pack-client";
+import {
+  downloadTripPack as fetchTripPack,
+  evidenceFromPackLayers,
+  restorePackedSession,
+  tripPackLayersFromReady,
+} from "./pack-client";
 import { packedEpoch } from "./packed-fields";
 import { deviceToken, retryUnsyncedCatches as postUnsyncedCatches, syncCatch } from "./catch-sync";
 import {
@@ -418,30 +423,7 @@ export const useAhanu = create<AhanuState>()(
             skipCache: Boolean(opts?.skipCache),
             sstOverride: s.sstStaleOverride,
           });
-          const packLayers: TripPackLayer[] = result.manifest.layers.map((l) => {
-            const ev = result.ready.layers.find((r) => r.id === l.id);
-            const status: TripPackLayer["status"] = !ev?.present
-              ? "missing"
-              : !ev.hashOk
-                ? "missing"
-                : !ev.fresh
-                  ? "stale"
-                  : "ready";
-            return {
-              id: l.id,
-              label: l.label,
-              sizeMb: l.sizeMb,
-              status,
-              updatedAt: l.updatedAt,
-              hours: l.hours,
-              hash: l.hash,
-              r2Key: l.r2Key,
-              contentType: l.contentType,
-              sizeBytes: l.sizeBytes,
-              verified: ev?.hashOk,
-              source: l.source,
-            };
-          });
+          const packLayers = tripPackLayersFromReady(result.manifest, result.ready);
           set({
             packLayers,
             packManifest: result.manifest,
@@ -499,6 +481,8 @@ export const useAhanu = create<AhanuState>()(
         packBbox: s.packBbox,
         packHours: s.packHours,
         packStart: s.packStart,
+        packManifest: s.packManifest,
+        packReady: s.packReady,
         packLive: s.packLive,
         packLiveErrors: s.packLiveErrors,
         sstStaleOverride: s.sstStaleOverride,
@@ -542,6 +526,21 @@ export async function hydrateAhanuStore() {
   hydrateInflight = (async () => {
     try {
       await useAhanu.persist?.rehydrate?.();
+      // IDB is source of truth for a dock pack. Persist can be empty or
+      // raced to [] if a parallel setState wrote before rehydrate.
+      const restored = await restorePackedSession({
+        sstOverride: useAhanu.getState().sstStaleOverride,
+      });
+      if (restored) {
+        useAhanu.setState({
+          packManifest: restored.manifest,
+          packLayers: restored.layers,
+          packReady: restored.ready,
+          packError: restored.ready.ready ? null : restored.ready.failures.join("; "),
+          packLiveErrors: capLiveErrors(restored.manifest.liveErrors),
+          packEpoch: packedEpoch(),
+        });
+      }
       useAhanu.getState().setHydrated();
       return await retryUnsyncedCatchesOnce();
     } finally {

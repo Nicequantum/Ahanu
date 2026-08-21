@@ -6,7 +6,13 @@ import { Pane } from "@/components/panels/pane";
 import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
-import { canRetryLiveOverlays, PACK_BUILDER_REV, readyOffshoreBadge, sstStaleReadyCue } from "@/lib/ahanu/pack";
+import {
+  canRetryLiveOverlays,
+  hashedPackCount,
+  PACK_BUILDER_REV,
+  readyOffshoreBadge,
+  sstStaleReadyCue,
+} from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 /** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
@@ -42,8 +48,7 @@ export function PacksPanel() {
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
   useAhanu((s) => s.packEpoch);
-  const total = packs.length;
-  const ok = packs.filter((p) => p.status === "ready").length;
+  const { hashed: ok, total, stale } = hashedPackCount(packs);
   const noaaCount = packs.filter((p) => p.source === "noaa").length;
   const fixtureCount = packs.filter((p) => p.source === "fixture").length;
   const pct = total ? (ok / total) * 100 : 0;
@@ -200,6 +205,7 @@ export function PacksPanel() {
       <div className="mb-1 flex items-baseline justify-between text-[11px] text-muted">
         <span>
           {ok}/{total || "—"} hashed
+          {stale ? ` · ${stale} stale` : ""}
           {total ? ` · ${noaaCount} NOAA / ${fixtureCount} fixture` : ""}
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>

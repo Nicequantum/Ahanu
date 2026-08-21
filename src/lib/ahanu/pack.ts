@@ -240,6 +240,29 @@ export function readyOffshoreBadge(result: ReadyOffshoreResult | null): {
   return { ready: false, caution: true, short: "Not ready", long: "Not ready" };
 }
 
+/**
+ * Hashed numerator is verify (SHA-256 ok), not Ready freshness.
+ * Stale SST / hour-0 weather still count when hashOk. A real hash miss does not.
+ */
+export function layerIsHashed(layer: { verified?: boolean; status?: string }): boolean {
+  if (layer.verified === true) return true;
+  if (layer.verified === false) return false;
+  return layer.status === "ready" || layer.status === "stale";
+}
+
+export function hashedPackCount(
+  layers: readonly { verified?: boolean; status?: string }[],
+): { hashed: number; total: number; stale: number } {
+  let hashed = 0;
+  let stale = 0;
+  for (const layer of layers) {
+    if (!layerIsHashed(layer)) continue;
+    hashed += 1;
+    if (layer.status === "stale") stale += 1;
+  }
+  return { hashed, total: layers.length, stale };
+}
+
 /** Copy shown only when SST age is the sole Ready block (hash-ok, body present). */
 export const SST_STALE_FLIP_COPY = "Accept stale SST to pass Ready";
 

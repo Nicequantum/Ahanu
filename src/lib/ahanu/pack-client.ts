@@ -11,6 +11,7 @@ import {
   type ReadyOffshoreResult,
   type TripPackManifestV1,
 } from "./pack";
+import type { TripPackLayer } from "./types";
 import { hashesMatch } from "./pack-fixtures";
 import { packedOceanFromBodies, setPackedOcean, type PackFieldSource } from "./packed-fields";
 import { bodiesForPack, putObject, saveManifest } from "./pack-store";
@@ -215,6 +216,37 @@ export function evidenceFromStored(
   }));
 }
 
+/** Map Ready evidence onto helm pack rows. Hash-ok + not-fresh → stale, not a hash miss. */
+export function tripPackLayersFromReady(
+  manifest: TripPackManifestV1,
+  ready: ReadyOffshoreResult,
+): TripPackLayer[] {
+  return manifest.layers.map((l) => {
+    const ev = ready.layers.find((r) => r.id === l.id);
+    const status: TripPackLayer["status"] = !ev?.present
+      ? "missing"
+      : !ev.hashOk
+        ? "missing"
+        : !ev.fresh
+          ? "stale"
+          : "ready";
+    return {
+      id: l.id,
+      label: l.label,
+      sizeMb: l.sizeMb,
+      status,
+      updatedAt: l.updatedAt,
+      hours: l.hours,
+      hash: l.hash,
+      r2Key: l.r2Key,
+      contentType: l.contentType,
+      sizeBytes: l.sizeBytes,
+      verified: ev?.hashOk,
+      source: l.source,
+    };
+  });
+}
+
 /** Rebuild evidence from a downloaded pack so Ready can re-run when the skipper flips SST override. */
 export function evidenceFromPackLayers(
   manifest: TripPackManifestV1,
@@ -235,11 +267,50 @@ export function evidenceFromPackLayers(
   });
 }
 
-export async function restorePackedSession(): Promise<TripPackManifestV1 | null> {
-  const { loadCurrentManifest, bodiesForPack } = await import("./pack-store");
+export interface RestoredPackSession {
+  packId: string;
+  manifest: TripPackManifestV1;
+  layers: TripPackLayer[];
+  ready: ReadyOffshoreResult;
+}
+
+/**
+ * IndexedDB is the source of truth after dock download.
+ * Rebuilds helm pack rows + on-device Ready. Does not invent a pack when
+ * meta.current / the current manifest is missing.
+ */
+export async function restorePackedSession(opts?: {
+  now?: string;
+  sstOverride?: boolean;
+}): Promise<RestoredPackSession | null> {
+  const { loadCurrentManifest, listObjects } = await import("./pack-store");
   const manifest = await loadCurrentManifest();
   if (!manifest) return null;
-  const bodies = await bodiesForPack(manifest.packId);
-  if (Object.keys(bodies).length) setPackedOcean(packedOceanFromBodies(bodies));
-  return manifest;
+
+  const objects = await listObjects(manifest.packId);
+  const bodies: Record<string, string> = {};
+  const actualHashes: Record<string, string> = {};
+  for (const o of objects) {
+    if (!o.body) continue;
+    bodies[o.layerId] = o.body;
+    actualHashes[o.layerId] = await sha256Hex(o.body);
+  }
+  if (Object.keys(bodies).length) {
+    setPackedOcean(packedOceanFromBodies(bodies, sourceFromManifest(manifest)));
+  }
+
+  const ready = evaluateReadyForOffshore({
+    hours: manifest.hours,
+    start: manifest.start,
+    now: opts?.now ?? new Date().toISOString(),
+    sstOverride: Boolean(opts?.sstOverride),
+    layers: evidenceFromStored(manifest, bodies, actualHashes),
+    liveErrors: manifest.liveErrors,
+  });
+  return {
+    packId: manifest.packId,
+    manifest,
+    layers: tripPackLayersFromReady(manifest, ready),
+    ready,
+  };
 }
