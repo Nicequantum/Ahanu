@@ -90,12 +90,17 @@ export function IntelPanel() {
         disabled={busy}
         onClick={async () => {
           setBusy(true);
-          const res = await askSkipper({ data: { prompt: text } });
-          setAi(res.ok ? res.text : res.error);
+          try {
+            const res = await askSkipper({ data: { prompt: text } });
+            setAi(res.ok ? res.text : res.error);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "";
+            setAi(msg === "Unauthorized" ? "Sign in to ask the skipper" : "Skipper AI is not available");
+          }
           setBusy(false);
         }}
       >
-        {busy ? "Asking the skipper…" : "Ask Grok to read this scene"}
+        {busy ? "Asking the skipper…" : "Ask the skipper to read this scene"}
       </Button>
       {ai && <p className="mt-3 text-sm leading-relaxed text-foam/90">{ai}</p>}
     </Pane>

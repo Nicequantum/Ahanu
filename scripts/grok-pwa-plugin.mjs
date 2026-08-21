@@ -13,6 +13,7 @@ import {
   injectGrokPwaHead,
   isDocumentPath,
   isInstallQuery,
+  isWebManifestPath,
   renderInstallPageHtml,
   renderWebManifest,
   snapshotOgIdentity,
@@ -52,7 +53,7 @@ function serveGrokPwa(middlewares) {
       return;
     }
 
-    if (pathOnly === "/__grok/manifest.webmanifest" || pathOnly === "/__grok/manifest.json") {
+    if (isWebManifestPath(pathOnly)) {
       const body = Buffer.from(renderWebManifest(requestHost(req)), "utf8");
       res.statusCode = 200;
       res.setHeader("content-type", "application/manifest+json; charset=utf-8");
@@ -66,7 +67,7 @@ function serveGrokPwa(middlewares) {
       try {
         sendHtml(res, renderInstallPage(requestHost(req), rawUrl));
       } catch (err) {
-        console.error("[app-builder] install page missing:", err);
+        console.error("[ahanu] install page missing:", err);
         res.statusCode = 500;
         res.end("install page unavailable");
       }
@@ -152,7 +153,7 @@ function wrapHtmlResponses(middlewares) {
 
 export function grokPwaPlugin() {
   return {
-    name: "app-builder:grok-pwa",
+    name: "ahanu:pwa",
     resolveId(id) {
       if (id === GROK_OG_IDENTITY_ID) return `\0${GROK_OG_IDENTITY_ID}`;
     },

@@ -1,114 +1,119 @@
 # Ahanu
 
-**ah-HAH-noo** — Algonquin for *He Laughs*.
+**ah-HAH-noo** — Algonquin for _He Laughs_.
 
-Ahanu is an offline-first marine operating system for captains who run the Northeast canyons. Point Judith, Montauk, the steam to Veatch and Atlantis, a night on the wall, and home on a falling weather window. The plotter is an aid. The lookout is not optional. The name is allowed to smile; the helm is not a toy.
+Offline-first marine OS for Northeast canyon runs (Point Judith, Montauk, the steam to Veatch and Atlantis). The plotter is an aid. The lookout is not optional.
 
-This repository is the product: a web PWA you can run now, a Cloudflare data plane for trip packs, and the TypeScript domain a future Flutter helm will share. Production bytes (chart clips, GRIB, SST) move through Cloudflare Workers, Pages, R2, D1, and Durable Objects — zero egress on R2. Vercel hosts only this Grok preview web client.
+This repo is the product: a web PWA, a Cloudflare data plane for trip packs, and the TypeScript domain a future Flutter helm will share. Production bytes move through Cloudflare Workers, R2, D1, and Durable Objects. The Grok preview web client may still build through Nitro/Vercel; that path is not production.
 
----
+## Safety
 
-## Vision
+Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They are not a substitute for current official ENC, a competent lookout, a float plan left ashore, or the decision to stay in. HMS overlays are not legal advice. Go/no-go is a briefing against _your_ vessel limits, not permission.
 
-Build the operating system you actually want on the boat.
+## What is real vs fixture
 
-- Download the ocean **at the dock**, over marina Wi-Fi.
-- Steam with **no cell**. Scoring, solunar, and go/no-go run on the device, against packed rasters and the skipper’s own vessel limits.
-- Read water the way a canyon captain already does: temperature breaks, color edges, SSH filaments, the 100-fathom curve, a buoy that disagrees with the model.
-- Keep a log, a float plan, and a night-bridge display that does not blind you at 02:00.
+| Piece                                                                              | State                                                                |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Pack loop (manifest, object GET, SHA-256, IndexedDB, on-device Ready-for-offshore) | Real                                                                 |
+| Helm paint of packed SST / wind / wave / bathy / buoys / tides when bodies exist   | Real                                                                 |
+| Habitat score and go/no-go                                                         | On-device only. Worker does not score.                               |
+| Preview GET /api/packs                                                             | Deterministic hashed fixtures                                        |
+| SST / wind / wave / bathy grids                                                    | Live NOAA when fetch succeeds (ACSPO SST, GFS-Wave, NCEI ETOPO). Not 1 km MUR / CMEMS / NDFD. Miss keeps hashed fixture. |
+| ENC                                                                                | Official S-57 zips when packed; client paints an extract, not ECDIS. |
+| NDBC buoys and CO-OPS tides                                                        | Public fetch when the network allows; failure degrades to fixtures   |
+| AIS                                                                                | Packed AISStream snapshot when the Worker secret lands; else miss    |
+| Ownship GPS                                                                        | GPS mode watches this device. Denied keeps last position. Trolling / steaming simulated. NMEA gateway future. |
+| Production R2 objects / ingest cron                                                | Provisioned. R2 ahanu-trip-packs + D1 ahanu-core (ENAM). Cron 15 2,8,14,20. |
+| Flutter helm                                                                       | Not started. flutter/ is a Dart domain stub                          |
 
-Ahanu does not replace NOAA ENC, NMFS/HMS regulations, or seamanship. It packages bytes honestly and then gets out of the way.
+Missing stays missing. Packed paint does not silently fall back to a seed model.
 
----
+## Requirements
 
-## Features
+Node 22. The test runner uses Node 22 type stripping. `.nvmrc` pins 22.
 
-- **Chart plotter** — MapLibre, Northeast shelf default, canyon heads labeled (Hudson, Veatch, Atlantis, Hydrographer).
-- **ENC-derived bathymetry and contours** — official ENC remains the legal chart; Ahanu is an aid.
-- **Ocean layers** — SST (GHRSST / CoastWatch), chlorophyll (Copernicus), altimetry (SSH anomaly).
-- **On-device intel** — habitat score, temperature breaks, color edges. Never computed on a Worker.
-- **72-hour GRIB** — GFS-Wave / WAVEWATCH III seas, NDFD + model wind, go/no-go against `BoatLimits`.
-- **NDBC buoys and CO-OPS tides** — snapshot in the pack, not a live dependency offshore.
-- **HMS closed-area overlay** — a reminder, not a legal determination.
-- **Trip packs** — bbox + window + hashed R2 objects. **Ready for offshore** is a real checklist ([docs/DATA_PACKS.md](docs/DATA_PACKS.md)).
-- **Catch log and community reports** — species contract: bigeye, yellowfin, bluefin, mahi, white marlin, blue marlin, swordfish, albacore.
-- **Solunar, float plan, safety panel** — including the unfashionable parts (contacts, radios, souls on board).
-- **Display modes** — night bridge, high contrast, pure black, daylight.
-- **AIS (demo gateway)** — simulated contacts on the canyon walls and TSS; the adapter is `src/lib/data/ais.ts` so a real NMEA/Wi-Fi feed can replace it.
-- **NMEA 0183 gateway** — encoded RMC/GGA/VTG/DBT/MWV/HDT on the instrument rail; same checksum the Dart package uses.
-- **72h playback and track replay** — animate the GRIB, scrub the trolling track against marked fish.
-- **Tricks of the Trade** — offline canyon tactics, weather windows, float-plan/EPIRB, HMS caution.
-
----
-
-## Stack
-
-| Layer | What |
-| --- | --- |
-| Web client (this repo) | React, MapLibre GL JS, TypeScript domain in `src/lib/ahanu` |
-| Preview host | Vercel — Grok web client only, not production delivery |
-| Production app shell | Cloudflare Workers (`ahanu`, root `wrangler.jsonc`) |
-| Production data | Worker `ahanu-packs`, R2 `ahanu-trip-packs`, D1 `ahanu-core`, Durable Object `CommunityHub` |
-| Ingest (adapters, then cron) | NOAA ENC, GFS-Wave/WW3, NDFD, GHRSST/CoastWatch SST, Copernicus chl-a, altimetry, CO-OPS, NDBC |
-| Native helm | Flutter + MapLibre GL native — **planned**, domain package in [`flutter/`](flutter/README.md), see [docs/FLUTTER_ROADMAP.md](docs/FLUTTER_ROADMAP.md). |
-
-Domain types (`CatchRecord`, `TripPackLayer`, `Buoy`, `LayerId`, `SpeciesId`, …) are the contract between PWA, Worker, and the future Dart port. Additive changes only.
-
----
-
-## Offline-first
-
-1. At Point Judith (or Montauk, or Newport), set a bbox and a 72 h window.
-2. `GET /api/packs` returns a manifest: layers, sizes, hashes, R2 keys.
-3. The client stores objects in IndexedDB (PWA) or SQLite (Flutter, later).
-4. Hashes verify. Required layers present and fresh → **Ready for offshore**.
-5. At sea, habitat and go/no-go run locally. Catch logs stay local if the radio path is down.
-
-Workers package bytes. They do not score fish. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DATA_PACKS.md](docs/DATA_PACKS.md).
-
----
-
-## How to run the web client
+## Run
 
 ```bash
+npm install
 npm run dev
 ```
 
-Requires Node 22. The Vite app binds `0.0.0.0:8080`. This is the PWA preview — packs in the preview may be generated manifests without real R2 bodies; the shape is the production shape.
+Vite binds `0.0.0.0:8080`. Preview packs may be generated manifests; the shape is the production shape.
 
-### Trip-pack Worker (`ahanu-packs`)
+## Test
 
 ```bash
-cd cloudflare
-npx wrangler deploy
+npm test
 ```
 
-Endpoints: `GET /health`, `GET /api/packs?west=&south=&east=&north=&hours=72`, `GET /api/sources`, `GET /api/buoys`, `POST /api/catches`.
+```bash
+npm run typecheck
+```
 
-### Production helm (Worker `ahanu`)
+Lint and format scripts live in package.json.
 
-Root [`wrangler.jsonc`](wrangler.jsonc) is the app shell.
+## Deploy (Cloudflare)
 
-**Change the Cloudflare dashboard deploy command** from `npx wrangler deploy` to:
+Root wrangler.jsonc is the app shell (Worker ahanu). Do not run bare wrangler deploy; it skips Vite. The dashboard command must be:
 
 ```bash
 npm run deploy:cf
 ```
 
-The wizard command skips Vite. `@tanstack/react-start/server-entry` is virtual — the Cloudflare plugin writes it during `vite build`. `deploy:cf` builds with `AHANU_CF=1` and then uploads. Do not let Wrangler rewrite the `preview` script.
+That builds with AHANU_CF=1 (writes the virtual server entry) then uploads. MapLibre stays in the browser.
 
-MapLibre stays in the browser. Habitat scoring stays on-device.
+Trip-pack Worker (ahanu-packs):
 
----
+```bash
+cd cloudflare
+npx wrangler deploy --config wrangler.toml
+```
 
-## Safety
+`--config wrangler.toml` is required. Wrangler 4 find-up would otherwise pick the parent `wrangler.jsonc` (PWA) and run `AHANU_CF=1 npx vite build`.
+PWA custom domains: https://ahanu.dev and https://www.ahanu.dev. Packs: https://api.ahanu.dev. workers.dev stays up as fallback. ahanu.dev only — personal + Galilee friends, not a commercial product.
 
-Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They are not a substitute for current official ENC, a competent lookout, a float plan left ashore, or the decision to stay in. HMS overlays are not legal advice. Go/no-go is a briefing against *your* vessel limits, not permission.
+Helm Packs download uses `VITE_AHANU_PACKS_URL` (`packsApiBase()` in `src/lib/ahanu/pack-client.ts`):
 
----
+- Local Vite: unset env, same-origin packs route.
+- CF/prod PWA: defaults to https://api.ahanu.dev. Override with VITE_AHANU_PACKS_URL (workers.dev still allowed).
+- Grok/Nitro preview stays same-origin fixture packs. Not the ship path.
 
-## Repository
+Endpoints: GET /health, GET /api/packs, GET /api/objects, GET /api/sources, GET /api/buoys, POST /api/ingest (INGEST_TOKEN), POST /api/catches (device token).
 
-[Nicequantum/Ahanu](https://github.com/Nicequantum/Ahanu)
+R2 ahanu-trip-packs and D1 ahanu-core exist in ENAM. Live PJ pack on api.ahanu.dev is live NOAA for SST/wind/waves/bathy/ENC when those overlays land. AIS miss stays fixture — never invented tracks. Preview packs without live=1 stay fixtures.
 
-Named for a laugh. Built for the steam south of Block.
+## Pack loop
+
+1. At the dock, set a bbox and a 72 h window.
+2. GET /api/packs returns a manifest: layers, sizes, hashes, keys.
+3. Client stores objects in IndexedDB (PWA) or SQLite (Flutter, later).
+4. Hashes verify. Required layers present and fresh -> Ready for offshore.
+5. At sea, habitat and go/no-go run locally. Catch logs stay local if POST fails.
+
+Workers package bytes. They do not score fish.
+
+## Stack
+
+| Layer                | What                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| Web client           | React, MapLibre GL JS, TypeScript domain in src/lib/ahanu                           |
+| Preview host         | Nitro/Vercel — Grok web client only, not production                                                       |
+| Production app shell | Cloudflare Worker ahanu (root wrangler.jsonc)                                       |
+| Production data      | Worker ahanu-packs, R2 ahanu-trip-packs, D1 ahanu-core, Durable Object CommunityHub |
+| Ingest               | Public NDBC / CO-OPS / ENC S-57 / GFS-Wave / CoastWatch SST / ETOPO now. NDFD / CMEMS / 1 km MUR not ingested. |
+| Native helm          | Planned. Domain stub in flutter/. See docs/FLUTTER_ROADMAP.md                       |
+
+Domain types (CatchRecord, TripPackLayer, Buoy, LayerId, SpeciesId) are the contract. Additive changes only.
+
+## Docs
+
+- docs/ARCHITECTURE.md — separations, data plane, what the Worker may not do
+- docs/DATA_PACKS.md — pack contents, Ready-for-offshore, ingest ops
+- docs/STATUS.md — what works vs fixture, this-pass file list
+- docs/FLUTTER_ROADMAP.md — native helm is not started
+- CONTRIBUTING.md — tests and the pack-loop contract
+
+## License
+
+MIT. See LICENSE.

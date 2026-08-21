@@ -1,8 +1,41 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Pane } from "@/components/panels/pane";
+import { POINT_JUDITH_CANYON_BBOX } from "@/lib/ahanu/constants";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
-import { Pane } from "@/components/panels/pane";
+import {
+  canRetryLiveOverlays,
+  gfsHelmLine,
+  hashedPackCount,
+  PACK_BUILDER_REV,
+  readyOffshoreBadge,
+  sstHelmLine,
+  chlPackRowLabel,
+  sstPackRowLabel,
+  sstStaleReadyCue,
+  wavePackRowLabel,
+  windPackRowLabel,
+  bathyPackRowLabel,
+  canyonPackRowLabel,
+} from "@/lib/ahanu/pack";
+import { getPackedOcean } from "@/lib/ahanu/packed-fields";
+import {
+  ENC_AID_DISCLAIMER,
+  ENC_S57_DISCLAIMER,
+  ENC_S57_EXTRACT_NOTE,
+  encCellUpdateLine,
+  encHelmLabel,
+  encPackRowLabel,
+  packedEncCells,
+  packedEncExtract,
+  packedEncOfficial,
+  packedOfficialEncCells,
+} from "@/lib/ahanu/packed-chart";
+
+/** Helm-only: production Download 72h is live Worker (tryLive); Live NOAA is preview-only (?live=1). Per-layer NOAA / fixture / miss + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -10,66 +43,350 @@ function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | 
   return "nogo";
 }
 
+function sourceTone(source: TripPackLayer["source"]): "muted" | "sunrise" | "go" {
+  if (source === "noaa" || source === "r2") return "go";
+  if (source === "fixture") return "sunrise";
+  return "muted";
+}
+
 export function PacksPanel() {
   const packs = useAhanu((s) => s.packLayers);
-  const mark = useAhanu((s) => s.markPack);
-  const all = useAhanu((s) => s.downloadAllPacks);
-  const total = packs.length;
-  const ready = packs.filter((p) => p.status === "ready").length;
-  const pct = total ? (ready / total) * 100 : 0;
-  const offshore = packs.every((p) => p.status === "ready" || p.id === "ais");
+  const bbox = useAhanu((s) => s.packBbox);
+  const hours = useAhanu((s) => s.packHours);
+  const start = useAhanu((s) => s.packStart);
+  const setBbox = useAhanu((s) => s.setPackBbox);
+  const setWindow = useAhanu((s) => s.setPackWindow);
+  const download = useAhanu((s) => s.downloadTripPack);
+  const ready = useAhanu((s) => s.packReady);
+  const downloading = useAhanu((s) => s.packDownloading);
+  const error = useAhanu((s) => s.packError);
+  const live = useAhanu((s) => s.packLive);
+  const liveErrors = useAhanu((s) => s.packLiveErrors) ?? [];
+  const setLive = useAhanu((s) => s.setPackLive);
+  const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
+  const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
+  const framePack = useAhanu((s) => s.framePack);
+  const frameHarbor = useAhanu((s) => s.frameHarbor);
+  const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
+  const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
+  useAhanu((s) => s.packEpoch);
+  const { hashed: ok, total, stale, misses } = hashedPackCount(packs);
+  const noaaCount = packs.filter((p) => p.source === "noaa").length;
+  const fixtureCount = packs.filter((p) => p.source === "fixture").length;
+  const pct = total ? (ok / total) * 100 : 0;
+  const offshore = Boolean(ready?.ready);
+  const badge = readyOffshoreBadge(ready);
+  const sstCue = sstStaleReadyCue(ready);
+  const retryLive = canRetryLiveOverlays({
+    live: Boolean(live),
+    downloading,
+    layers: packs,
+    liveErrors,
+    ready: ready?.ready,
+  });
 
   return (
     <Pane title="Trip packs" kicker="Pre-departure">
       <div className="mb-3 flex items-center justify-between">
-        <Badge tone={offshore ? "go" : "caution"}>
-          {offshore ? "Ready for offshore" : `${ready}/${total} ready`}
-        </Badge>
-        <Button size="sm" onClick={all}>
-          Sync remaining
+        <Badge tone={badge.caution ? "caution" : "go"}>{badge.long}</Badge>
+        <Button
+          size="sm"
+          disabled={downloading}
+          onClick={() => {
+            void download();
+          }}
+        >
+          {downloading ? "Downloading…" : "Download 72h"}
         </Button>
       </div>
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm">Live NOAA</p>
+          <p className="text-[11px] text-muted">
+            Preview only (?live=1). Production Download 72h already hits api.ahanu.dev live NOAA,
+            ENC, and tides with this off. A missed layer (AIS) is a miss — not a fixture pack.
+          </p>
+        </div>
+        <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
+      </div>
+
+      <div
+        className={
+          sstCue.highlight
+            ? "mb-3 flex items-center justify-between gap-3 rounded-lg bg-caution/15 px-3 py-2"
+            : "mb-3 flex items-center justify-between gap-3"
+        }
+      >
+        <div>
+          <p className={sstCue.highlight ? "text-sm text-caution" : "text-sm"}>Accept stale SST</p>
+          <p className={sstCue.highlight ? "text-[11px] text-caution" : "text-[11px] text-muted"}>
+            {sstCue.line ??
+              "Present, hash-ok composite older than 24 h can pass Ready. Aid only — not permission."}
+          </p>
+        </div>
+        <Switch
+          checked={Boolean(sstStaleOverride)}
+          onCheckedChange={setSstStaleOverride}
+          disabled={downloading}
+        />
+      </div>
+
+      <p className="mb-3 text-xs text-muted">
+        Point Judith canyon box. Download 72h on marina Wi-Fi hits api.ahanu.dev live NOAA, ENC, and
+        tides. Live NOAA is preview-only (?live=1), not the live path. Official S-57 packs only when
+        NOAA zips fetch and the .000 is ISO 8211; helm extract applies .00n updates when those files
+        are in the zip. A missed layer (AIS) is a miss — do not call the whole pack fixtures. Client
+        re-checks hashes after download. Worker ready flag is a hint only
+        {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
+      </p>
+      <p className="mb-3 text-[11px] text-muted">
+        {gfsHelmLine({
+          liveErrors,
+          wind: packs.find((layer) => layer.id === "wind"),
+          waves: packs.find((layer) => layer.id === "waves"),
+        })}
+      </p>
+      <p className="mb-3 text-[11px] text-muted">
+        {sstHelmLine({
+          source: packs.find((layer) => layer.id === "sst")?.source,
+          updatedAt: packs.find((layer) => layer.id === "sst")?.updatedAt,
+          note: getPackedOcean()?.sst?.note,
+          dataset: getPackedOcean()?.sst?.dataset,
+        })}
+      </p>
+
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <label className="text-[11px] text-muted">
+          West
+          <Input
+            type="number"
+            step="0.1"
+            value={bbox.west}
+            onChange={(e) => setBbox({ west: Number(e.target.value) })}
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          East
+          <Input
+            type="number"
+            step="0.1"
+            value={bbox.east}
+            onChange={(e) => setBbox({ east: Number(e.target.value) })}
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          South
+          <Input
+            type="number"
+            step="0.1"
+            value={bbox.south}
+            onChange={(e) => setBbox({ south: Number(e.target.value) })}
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          North
+          <Input
+            type="number"
+            step="0.1"
+            value={bbox.north}
+            onChange={(e) => setBbox({ north: Number(e.target.value) })}
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          Start (UTC)
+          <Input
+            type="text"
+            value={start.slice(0, 16)}
+            onChange={(e) => {
+              const v = e.target.value;
+              const iso = v.length === 16 ? `${v}:00.000Z` : v;
+              setWindow(Number.isNaN(Date.parse(iso)) ? start : new Date(iso).toISOString(), hours);
+            }}
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          Hours
+          <Input
+            type="number"
+            min={1}
+            max={168}
+            value={hours}
+            onChange={(e) => setWindow(start, Number(e.target.value) || 72)}
+          />
+        </label>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setBbox({ ...POINT_JUDITH_CANYON_BBOX });
+            setWindow(new Date().toISOString(), 72);
+          }}
+        >
+          Reset PJ 72h
+        </Button>
+        <Button variant="outline" size="sm" onClick={framePack}>
+          Frame pack
+        </Button>
+        <Button variant="outline" size="sm" onClick={frameHarbor}>
+          Frame harbor
+        </Button>
+      </div>
+
+      {error && !offshore ? <p className="mb-3 text-xs text-nogo">{error}</p> : null}
+
+      {ready ? (
+        <ul className="mb-3 space-y-1 text-[11px] text-muted">
+          {ready.failures.map((f) => (
+            <li key={f} className="text-nogo">
+              {f}
+            </li>
+          ))}
+          {ready.warnings.slice(0, 4).map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+
       <div className="mb-1 flex items-baseline justify-between text-[11px] text-muted">
         <span>
-          {ready}/{total} packed
+          {ok}/{total || "—"} hashed
+          {stale ? ` · ${stale} stale` : ""}
+          {misses.length ? ` · miss ${misses.join(", ")}` : ""}
+          {total ? ` · ${noaaCount} NOAA / ${fixtureCount} fixture` : ""}
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>
       </div>
-      <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+      <p className="mb-1 text-[11px] text-muted">builder {builderRev}</p>
+      {liveErrors.length ? (
+        <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
+          {liveErrors.map((line, i) => (
+            <li key={`${i}:${line}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
         <div className="h-full bg-sunrise" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mb-3 text-xs text-muted">
-        AIS is a gateway feed, not a file. That pack may stay missing or labelled gateway — live targets need a
-        radio or NMEA path. Ready for offshore does not wait on it.
-      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mb-4"
+        disabled={!retryLive}
+        onClick={() => {
+          void download({ skipCache: true });
+        }}
+      >
+        Retry live overlays
+      </Button>
+
       <ul className="space-y-2">
         {packs.map((p) => (
-          <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2">
+          <li
+            key={p.id}
+            className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2"
+          >
             <div>
-              <p className="text-sm">{p.label}</p>
-              <p className="text-[11px] text-muted">
-                {p.id === "ais"
-                  ? "gateway · live feed"
-                  : `${p.sizeMb} MB · ${!p.updatedAt || p.updatedAt === "—" ? "not packed" : p.updatedAt.slice(0, 16)}`}
+              <p className="text-sm">
+                {p.id === "enc"
+                  ? encPackRowLabel(p.label)
+                  : p.id === "sst"
+                    ? sstPackRowLabel({
+                        stored: p.label,
+                        source: p.source,
+                        dataset: getPackedOcean()?.sst?.dataset,
+                        note: getPackedOcean()?.sst?.note,
+                      })
+                    : p.id === "wind"
+                      ? windPackRowLabel({
+                          stored: p.label,
+                          source: p.source,
+                          note: getPackedOcean()?.windKt?.note,
+                        })
+                      : p.id === "chlorophyll"
+                        ? chlPackRowLabel({
+                            stored: p.label,
+                            source: p.source,
+                            note: getPackedOcean()?.chl?.note,
+                          })
+                        : p.id === "waves"
+                          ? wavePackRowLabel({
+                              stored: p.label,
+                              source: p.source,
+                              note: getPackedOcean()?.waveFt?.note,
+                            })
+                          : p.id === "bathymetry"
+                            ? bathyPackRowLabel({
+                                stored: p.label,
+                                source: p.source,
+                                note: getPackedOcean()?.depth?.note,
+                              })
+                            : p.id === "canyons"
+                              ? canyonPackRowLabel({
+                                  stored: p.label,
+                                  source: p.source,
+                                })
+                              : p.label}
               </p>
-              {p.id === "ais" ? (
-                <p className="mt-1 text-[11px] text-muted">
-                  May stay gateway. Toggle only if you actually have a snapshot.
-                </p>
-              ) : null}
+              <p className="text-[11px] text-muted">
+                {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}
+                {p.hours ? ` · ${p.hours}h` : ""}
+                {p.id === "sst" && p.updatedAt ? ` · ${p.updatedAt}` : ""}
+                {p.hash ? ` · ${p.hash.slice(0, 12)}` : ""}
+                {p.verified ? " · verified" : ""}
+              </p>
             </div>
-            <button
-              type="button"
-              className="text-[11px] tracking-wide uppercase"
-              onClick={() => mark(p.id, p.status === "ready" ? "stale" : "ready")}
-            >
-              <Badge tone={packTone(p.status)}>{p.status === "missing" && p.id === "ais" ? "gateway" : p.status}</Badge>
-            </button>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {p.source ? (
+                <Badge tone={sourceTone(p.source)} className="text-[10px] uppercase tracking-wider">
+                  {p.source}
+                </Badge>
+              ) : null}
+              <Badge tone={packTone(p.status)}>{p.status}</Badge>
+            </span>
           </li>
         ))}
       </ul>
+      {packs.length === 0 ? (
+        <p className="text-xs text-muted">
+          No objects stored. Download on marina Wi-Fi before you leave Galilee.
+        </p>
+      ) : null}
+      {packedEncCells().length ? (
+        <div className="mt-4">
+          <h3 className="mb-1 text-sm font-medium">
+            {encHelmLabel(packs.find((layer) => layer.id === "enc")?.source)}
+          </h3>
+          <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
+            {(packedEncOfficial() ? packedOfficialEncCells() : packedEncCells()).map((c) => (
+              <li key={c.id}>
+                {c.id} · {c.name}
+                {c.s57?.iso8211 ? " · S-57" : ""}
+                {encCellUpdateLine(c) ? ` · ${encCellUpdateLine(c)}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted">
+            {packedEncOfficial()
+              ? `${ENC_S57_DISCLAIMER}${packedEncExtract() ? ` ${ENC_S57_EXTRACT_NOTE}.` : ""}${
+                  packedEncExtract()
+                    ? (packedEncExtract()!.updatesApplied ?? 0) > 0
+                      ? " includes ENC updates."
+                      : " base .000 only — no update files in this exchange set."
+                    : ""
+                }`
+              : ENC_AID_DISCLAIMER}
+          </p>
+        </div>
+      ) : null}
       <p className="mt-4 text-xs text-muted">
-        Download while you still have Wi-Fi at Galilee. After that the pack is the ocean.
+        AIS is an AISStream snapshot when packed live; a miss stays missing — never the demo fleet. Chlorophyll and altimetry improve the pack; they do not block
+        Ready.
+        {packedEncOfficial()
+          ? " ENC official S-57 is packed NOAA exchange-set bytes — not an ECDIS."
+          : " ENC is a cell list, not a legal chart."}
       </p>
     </Pane>
   );

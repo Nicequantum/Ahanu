@@ -1,0 +1,492 @@
+/**
+ * Public no-key SST ingest via NOAA CoastWatch / ERDDAP.
+ * Probe a few documented endpoints for a small Point Judith bbox.
+ * First parseable grid wins. Fetch or parse failure keeps the fixture.
+ * Do not claim 1 km MUR / GHRSST unless that native grid actually arrives.
+ * Keep free of `@/` aliases so the Worker can import it.
+ */
+
+import { sha256Hex, type PackBBox, type PackedGrid } from "./pack-fixtures";
+import { fetchNoaaTextResult, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
+
+export const SST_MAX_BYTES = 2_000_000;
+
+export type { FetchLike };
+
+export interface SstEndpoint {
+  id: string;
+  name: string;
+  /** ERDDAP griddap base without extension. */
+  base: string;
+  /** Same dataset on another public NOAA ERDDAP. Raced with `base`. */
+  altBases?: readonly string[];
+  variable: string;
+  nativeDeg: number;
+  nativeLabel: string;
+  /** Lat/lon stride. >1 is a subsample — report effective resolution. */
+  stride: number;
+}
+
+/**
+ * Probe order. Prefer a public grid whose analysis time is inside the
+ * 48 h Ready window. Morning of 2026-08-21 ET (probe ~2026-08-21T06:00Z):
+ *   noaacwLEOACSPOSSTL3SnrtKDaily last 2026-08-20T12:00Z (~18 h) —
+ *     PJ CSV 867 KB, 93% fill, native 0.02°. Ready without skipper override.
+ *   noaacwBLENDEDsstDNDaily last 2026-08-19T12:00Z (~42 h)
+ *   noaacrwsstDaily last 2026-08-19T12:00Z (~42 h)
+ *   jplMURSST41 last 2026-08-19T09:00Z (~45 h)
+ *   GOES-16 id still 404 (noaacwGEOHIRRSSTGoes16NRT / Daily)
+ * ACSPO is L3S-LEO NRT 0.02° — not 1 km MUR / GHRSST L4, not GOES-16.
+ * MUR stride 2 (~0.02°) stays the L4 fallback. GeoPolar is native 5 km.
+ * PolarWatch mirrors the same ACSPO id when CoastWatch is slow from the Worker.
+ */
+export const SST_ENDPOINTS: readonly SstEndpoint[] = [
+  {
+    id: "noaacwLEOACSPOSSTL3SnrtKDaily",
+    name: "NOAA ACSPO L3S-LEO NRT daily",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+    altBases: [
+      "https://polarwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+    ],
+    variable: "sea_surface_temperature",
+    nativeDeg: 0.02,
+    nativeLabel: "2 km / 0.02°",
+    stride: 1,
+  },
+  {
+    id: "jplMURSST41",
+    name: "JPL MUR L4 (ERDDAP)",
+    base: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41",
+    variable: "analysed_sst",
+    nativeDeg: 0.01,
+    nativeLabel: "1 km / 0.01°",
+    stride: 2,
+  },
+  {
+    id: "noaacwBLENDEDsstDNDaily",
+    name: "NOAA GeoPolar blended SST day+night",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsstDNDaily",
+    variable: "analysed_sst",
+    nativeDeg: 0.05,
+    nativeLabel: "5 km / 0.05°",
+    stride: 1,
+  },
+  {
+    id: "noaacrwsstDaily",
+    name: "NOAA Coral Reef Watch CoralTemp daily",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacrwsstDaily",
+    variable: "analysed_sst",
+    nativeDeg: 0.05,
+    nativeLabel: "5 km / 0.05°",
+    stride: 1,
+  },
+  {
+    id: "noaacwGEOHIRRSSTGoes16NRT",
+    name: "GOES-16 SST (ERDDAP)",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwGEOHIRRSSTGoes16NRT",
+    variable: "analysed_sst",
+    nativeDeg: 0.02,
+    nativeLabel: "GOES-16 L3",
+    stride: 4,
+  },
+];
+
+export interface SstIngest {
+  live: true;
+  source: "noaa";
+  dataset: string;
+  url: string;
+  bytes: number;
+  sha256: string;
+  analysedAt: string;
+  nativeLabel: string;
+  effectiveDeg: number;
+  note: string;
+  grid: PackedGrid;
+}
+
+export function effectiveSstDeg(ep: SstEndpoint): number {
+  return ep.nativeDeg * Math.max(1, ep.stride);
+}
+
+export function sstResolutionNote(ep: SstEndpoint): string {
+  const eff = effectiveSstDeg(ep);
+  if (ep.stride > 1) {
+    return `${ep.name} subsampled to ~${eff}° (stride ${ep.stride}) — not native ${ep.nativeLabel}.`;
+  }
+  return `${ep.name} ${ep.nativeLabel} — not 1 km MUR / GHRSST L4.`;
+}
+
+export function erddapSstCsvUrl(ep: SstEndpoint, bbox: PackBBox, time = "last"): string {
+  const stride = Math.max(1, Math.round(ep.stride));
+  const lat = `[(${bbox.south}):${stride}:(${bbox.north})]`;
+  const lon = `[(${bbox.west}):${stride}:(${bbox.east})]`;
+  return `${ep.base}.csv?${ep.variable}[(${time})]${lat}${lon}`;
+}
+
+function num(raw: string | undefined): number | undefined {
+  if (raw == null) return undefined;
+  const t = raw.trim();
+  if (!t || t === "NaN" || t === "NA" || t === "--" || t === "MM") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function uniqSorted(values: number[], desc = false): number[] {
+  const u = [...new Set(values.map((v) => r2(v)))];
+  u.sort((a, b) => (desc ? b - a : a - b));
+  return u;
+}
+
+function looksKelvin(units: string | undefined, sample: number[]): boolean {
+  if (units && /kelvin|degree_k\b|degk|deg_k/i.test(units)) return true;
+  if (units && /degree_c|degc|celsius|deg_c/i.test(units)) return false;
+  const finite = sample.filter((v) => Number.isFinite(v));
+  if (finite.length < 3) return false;
+  const mid = [...finite].sort((a, b) => a - b)[Math.floor(finite.length / 2)]!;
+  return mid > 200;
+}
+
+export interface ErddapSstTable {
+  time: string;
+  lats: number[];
+  lons: number[];
+  values: number[];
+  missing: boolean[];
+  units?: string;
+}
+
+/** Parse ERDDAP griddap CSV (header, units row, then time/lat/lon/value). */
+export function parseErddapSstCsv(text: string): ErddapSstTable | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 3) return null;
+  if (/^<!DOCTYPE|^<html|error/i.test(lines[0]!)) return null;
+  const header = lines[0]!.split(",").map((c) => c.trim().replace(/^"|"$/g, "").toLowerCase());
+  const units = lines[1]!.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  const iTime = header.findIndex((c) => c === "time");
+  const iLat = header.findIndex((c) => c === "latitude" || c === "lat");
+  const iLon = header.findIndex((c) => c === "longitude" || c === "lon");
+  const iVal = header.findIndex(
+    (c) =>
+      c === "sea_surface_temperature" ||
+      c === "sea_surface_subskin_temperature" ||
+      c.includes("sea_surface_temp") ||
+      c === "analysed_sst" ||
+      c.includes("sst") ||
+      c === "temperature",
+  );
+  if (iLat < 0 || iLon < 0 || iVal < 0) return null;
+  const lats: number[] = [];
+  const lons: number[] = [];
+  const values: number[] = [];
+  const missing: boolean[] = [];
+  let time = "";
+  for (const line of lines.slice(2)) {
+    const cols = line.split(",");
+    const lat = num(cols[iLat]);
+    const lon = num(cols[iLon]);
+    if (lat == null || lon == null) continue;
+    if (iTime >= 0 && !time && cols[iTime]) time = cols[iTime]!.trim().replace(/^"|"$/g, "");
+    const v = num(cols[iVal]);
+    lats.push(lat);
+    lons.push(lon);
+    if (v == null) {
+      values.push(NaN);
+      missing.push(true);
+    } else {
+      values.push(v);
+      missing.push(false);
+    }
+  }
+  if (!lats.length || missing.every(Boolean)) return null;
+  const finite = values.filter((_, i) => !missing[i]);
+  if (looksKelvin(units[iVal], finite)) {
+    for (let i = 0; i < values.length; i++) {
+      if (!missing[i]) values[i] = values[i]! - 273.15;
+    }
+  }
+  return { time, lats, lons, values, missing, units: units[iVal] };
+}
+
+export function sstTableToPacked(
+  table: ErddapSstTable,
+  ep: SstEndpoint,
+  requested?: PackBBox,
+): PackedGrid | null {
+  const latAxis = uniqSorted(table.lats, true);
+  const lonAxis = uniqSorted(table.lons, false);
+  if (latAxis.length < 2 || lonAxis.length < 2) return null;
+  const ny = latAxis.length;
+  const nx = lonAxis.length;
+  const latIndex = new Map(latAxis.map((v, i) => [v, i]));
+  const lonIndex = new Map(lonAxis.map((v, i) => [v, i]));
+  const plane = new Array<number>(nx * ny).fill(Number.NaN);
+  const seen = new Array<boolean>(nx * ny).fill(false);
+  for (let i = 0; i < table.lats.length; i++) {
+    if (table.missing[i]) continue;
+    const y = latIndex.get(r2(table.lats[i]!));
+    const x = lonIndex.get(r2(table.lons[i]!));
+    if (y == null || x == null) continue;
+    plane[y * nx + x] = r2(table.values[i]!);
+    seen[y * nx + x] = true;
+  }
+  const filled = seen.filter(Boolean).length;
+  if (filled < nx * ny * 0.5) return null;
+  const finite = plane.filter((v) => Number.isFinite(v));
+  if (!finite.length) return null;
+  const lo = Math.min(...finite);
+  const hi = Math.max(...finite);
+  if (hi - lo < 0.05 && finite.length > 8) return null;
+  if (lo < -5 || hi > 40) return null;
+  const analysedAt = normalizeSstTime(table.time);
+  const bbox: PackBBox = {
+    west: lonAxis[0]!,
+    east: lonAxis[lonAxis.length - 1]!,
+    south: latAxis[latAxis.length - 1]!,
+    north: latAxis[0]!,
+  };
+  void requested;
+  const note = sstResolutionNote(ep);
+  return {
+    kind: "grid",
+    layer: "sst",
+    bbox,
+    nx,
+    ny,
+    hours: [0],
+    hoursCovered: 24,
+    unit: "degC",
+    values: [plane.map((v) => (Number.isFinite(v) ? v : 0))],
+    live: true,
+    source: "noaa",
+    fixture: false,
+    updatedAt: analysedAt,
+    note,
+    dataset: ep.id,
+  };
+}
+
+export function normalizeSstTime(raw: string): string {
+  if (!raw) return "";
+  const t = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}T/.test(t)) {
+    const d = new Date(t.endsWith("Z") ? t : `${t}Z`);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+/** Same band as Ready-for-offshore SST_MISSING_H. Do not invent a fresher time. */
+export const SST_SELECT_MAX_AGE_H = 48;
+
+/** Ready-for-offshore fresh band. Prefer a public grid inside this window. */
+export const SST_PREFERRED_MAX_AGE_H = 24;
+
+/**
+ * SST runs before the ENC/GFS overlay storm. Long enough for an 867 KB
+ * CoastWatch CSV; short enough that a hung host can still lose to PolarWatch.
+ */
+export const SST_DEDICATED_TIMEOUT_MS = 22_000;
+
+export function sstEndpointById(id: string): SstEndpoint | undefined {
+  return SST_ENDPOINTS.find((e) => e.id === id);
+}
+
+export function sstEndpointBases(ep: SstEndpoint): string[] {
+  const extra = (ep.altBases ?? []).filter((b) => b && b !== ep.base);
+  return [ep.base, ...extra];
+}
+
+export function sstProbePathCount(endpoints: readonly SstEndpoint[] = SST_ENDPOINTS): number {
+  return endpoints.reduce((n, ep) => n + sstEndpointBases(ep).length, 0);
+}
+
+export function sstAgeHours(updatedAt: string, nowMs: number): number {
+  const t = Date.parse(updatedAt);
+  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
+  return (nowMs - t) / 3_600_000;
+}
+
+export function sstHostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** Honesty line when a later public grid is used after the preferred dataset lost. */
+export function sstPreferredLostLine(preferredId: string, reasons: string[], usedId: string): string {
+  const why = reasons.length ? reasons.join("; ") : "no in-window grid";
+  return `sst: preferred ${preferredId} lost (${why}) — using ${usedId}`;
+}
+
+function attachSstHonesty(ingest: SstIngest, line: string): SstIngest {
+  const note = `${ingest.note} ${line}`;
+  ingest.note = note;
+  ingest.grid.note = note;
+  return ingest;
+}
+
+async function ingestParsedSst(
+  ep: SstEndpoint,
+  text: string,
+  url: string,
+  bbox: PackBBox,
+): Promise<SstIngest | undefined> {
+  const table = parseErddapSstCsv(text);
+  if (!table) return undefined;
+  const grid = sstTableToPacked(table, ep, bbox);
+  if (!grid || !grid.updatedAt) return undefined;
+  const bytes = new TextEncoder().encode(text);
+  const hash = await sha256Hex(bytes);
+  const note = `${sstResolutionNote(ep)} ${grid.nx}×${grid.ny} at ${grid.updatedAt}.`;
+  grid.note = note;
+  grid.dataset = ep.id;
+  return {
+    live: true,
+    source: "noaa",
+    dataset: ep.id,
+    url,
+    bytes: bytes.byteLength,
+    sha256: hash,
+    analysedAt: grid.updatedAt,
+    nativeLabel: ep.nativeLabel,
+    effectiveDeg: effectiveSstDeg(ep),
+    note,
+    grid,
+  };
+}
+
+async function trySstBase(
+  ep: SstEndpoint,
+  base: string,
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<{ ingest?: SstIngest; reason?: string; url: string }> {
+  const url = erddapSstCsvUrl({ ...ep, base }, bbox);
+  const got = await fetchNoaaTextResult({
+    url,
+    fetchImpl,
+    timeoutMs,
+    maxBytes: SST_MAX_BYTES,
+    sleep,
+  });
+  if (!got.ok) {
+    return { reason: `${sstHostOf(url)} ${got.reason}`, url };
+  }
+  const ingest = await ingestParsedSst(ep, got.text, url, bbox);
+  if (!ingest) {
+    return { reason: `${sstHostOf(url)} parse failed`, url };
+  }
+  return { ingest, url };
+}
+
+/**
+ * Probe public SST endpoints. Never throws. Returns undefined when every
+ * path fails so the caller keeps the hashed fixture.
+ * First grid whose analysis age is ≤ 48 h wins (endpoint order). A
+ * parseable grid older than 48 h is kept only if no later public grid
+ * is inside the window; timestamps stay honest.
+ * Preferred-dataset hosts (ACSPO CoastWatch + PolarWatch) are raced so a
+ * hung CoastWatch cannot hand the pack to stale MUR in silence.
+ */
+export async function fetchLiveSst(options: {
+  bbox: PackBBox;
+  fetchImpl: FetchLike;
+  timeoutMs?: number;
+  endpoints?: readonly SstEndpoint[];
+  errors?: string[];
+  sleep?: (ms: number) => Promise<void>;
+  now?: Date | number;
+}): Promise<SstIngest | undefined> {
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
+  const errors = options.errors;
+  const endpoints = options.endpoints ?? SST_ENDPOINTS;
+  const nowMs =
+    options.now instanceof Date
+      ? options.now.getTime()
+      : typeof options.now === "number"
+        ? options.now
+        : Date.now();
+  const preferred = endpoints[0];
+  const preferredLost: string[] = [];
+  let staleBest: SstIngest | undefined;
+
+  for (const ep of endpoints) {
+    const bases = sstEndpointBases(ep);
+    const tries =
+      bases.length > 1
+        ? await Promise.all(
+            bases.map((base) =>
+              trySstBase(ep, base, options.bbox, options.fetchImpl, timeoutMs, options.sleep),
+            ),
+          )
+        : [await trySstBase(ep, bases[0]!, options.bbox, options.fetchImpl, timeoutMs, options.sleep)];
+
+    let ingest: SstIngest | undefined;
+    for (let i = 0; i < tries.length; i++) {
+      const tryOne = tries[i]!;
+      if (tryOne.ingest) {
+        if (!ingest) ingest = tryOne.ingest;
+        continue;
+      }
+      const reason = tryOne.reason ?? "fetch failed";
+      errors?.push(`sst ${ep.id}: fetch failed (${reason})`);
+      if (preferred && ep.id === preferred.id) preferredLost.push(reason);
+    }
+    if (!ingest) continue;
+
+    const age = sstAgeHours(ingest.analysedAt, nowMs);
+    if (age <= SST_SELECT_MAX_AGE_H) {
+      if (preferred && ingest.dataset !== preferred.id && preferredLost.length) {
+        const line = sstPreferredLostLine(preferred.id, preferredLost, ingest.dataset);
+        errors?.push(line);
+        attachSstHonesty(ingest, line);
+      }
+      return ingest;
+    }
+    errors?.push(
+      `sst ${ep.id}: analysis ${ingest.analysedAt} older than 48 h — trying next public grid`,
+    );
+    if (preferred && ep.id === preferred.id) {
+      preferredLost.push(`${ingest.analysedAt} older than 48 h`);
+    }
+    if (!staleBest || Date.parse(ingest.analysedAt) > Date.parse(staleBest.analysedAt)) {
+      staleBest = ingest;
+    }
+  }
+  if (staleBest) {
+    if (preferred && staleBest.dataset !== preferred.id && preferredLost.length) {
+      const line = sstPreferredLostLine(preferred.id, preferredLost, staleBest.dataset);
+      errors?.push(line);
+      attachSstHonesty(staleBest, line);
+    }
+    return staleBest;
+  }
+  errors?.push("sst: all public paths failed — fixture kept");
+  return undefined;
+}
+
+export function sampleCsvForTests(): string {
+  const rows = ["time,latitude,longitude,analysed_sst", "UTC,degrees_north,degrees_east,degree_C"];
+  const lats = [39.4, 40.0, 40.6, 41.2];
+  const lons = [-72.8, -71.6, -70.4, -69.2];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      const t = 22.4 - (lat - 39.6) * 0.8 + (lon + 70.6) * 0.1;
+      rows.push(`2026-08-18T12:00:00Z,${lat},${lon},${t.toFixed(2)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}

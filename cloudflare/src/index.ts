@@ -8,27 +8,51 @@
  * whole point of the offline-first design.
  *
  * Production bindings: R2 `ahanu-trip-packs`, D1 `ahanu-core`, DO CommunityHub.
- * Manifests are generated coherently even when R2 objects have not been
- * ingested yet — hashes are identity hashes of (bbox, layer, cycle), not
- * body hashes. Ingest replaces them with SHA-256 of the object bytes.
+ * When R2 is empty, fixture bodies are generated and hashed (SHA-256 of
+ * the object bytes). Production ingest replaces fixtures with NOAA/CMEMS
+ * clips. The Worker never scores habitat or go/no-go.
  */
 
 import { listIngestSources } from "./ingest/sources";
 import {
-  buildTripPack,
   clampBbox,
-  NORTHEAST,
-  REQUIRED_OFFSHORE_LAYERS,
   specForLayer,
   type BBox,
 } from "./ingest/pack";
+import { buildTripPack, landedPackNotes, landedPackSources, landedProductSources, rememberBuiltPack } from "../../src/lib/ahanu/pack";
+import { layerBody } from "./layer-body";
+import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../src/lib/ahanu/noaa-http";
+import {
+  resolveNdbcBuoys,
+  resolveNdbcHealth,
+  type CachedNdbcProbe,
+} from "./ndbc-probe-cache";
+import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, headPackManifest, resolvePackManifest } from "./ingest/run";
+import {
+  bearerToken,
+  catchBindDecision,
+  hashDeviceToken,
+  requireDeviceAuth,
+  requireIngestAuth,
+} from "./ingest-auth";
+import {
+  LIVE_REBUILD_LIMIT,
+  LIVE_REBUILD_WINDOW_MS,
+  LiveRebuildLimitError,
+  connectingIp,
+} from "./live-rebuild-limit";
+import { applyPacksSecurityHeaders } from "../../src/lib/ahanu/security-headers";
 
 export type { BBox } from "./ingest/pack";
 
 /** Binding shapes — structural stand-ins for Cloudflare runtime types. */
+interface D1RunResult {
+  meta?: { changes?: number };
+}
 interface D1Prepared {
   bind: (...values: unknown[]) => D1Prepared;
-  run: () => Promise<unknown>;
+  run: () => Promise<D1RunResult | unknown>;
+  first: <T = Record<string, unknown>>() => Promise<T | null>;
 }
 interface D1Binding {
   prepare: (query: string) => D1Prepared;
@@ -51,8 +75,15 @@ interface DoState {
   storage: DoStorage;
 }
 
+interface R2Like {
+  get?: (
+    key: string,
+  ) => Promise<{ text: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> } | null>;
+  put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
+}
+
 export interface Env {
-  PACKS?: unknown;
+  PACKS?: R2Like;
   DB?: D1Binding;
   COMMUNITY?: DoNamespace;
   SERVICE?: string;
@@ -60,6 +91,19 @@ export interface Env {
   REGION_SOUTH?: string;
   REGION_EAST?: string;
   REGION_NORTH?: string;
+  AHANU_GFS_WAVE_SERIES?: string;
+  GFS_WAVE_SERIES?: string;
+  INGEST_TOKEN?: string;
+  AHANU_INGEST_TOKEN?: string;
+  /** Secret. Never a [vars] value. Never log. */
+  AISSTREAM_API_KEY?: string;
+  /** Node tests inject a stub. Production isolate has none. */
+  fetchImpl?: FetchLike;
+  LIVE_REBUILD?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+}
+
+interface ExecCtx {
+  waitUntil: (p: Promise<unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +190,7 @@ export interface TripPackLayer {
   r2Key: string;
   contentType: string;
   format: string;
+  source?: "fixture" | "r2" | "noaa";
 }
 
 export interface TripPackManifest {
@@ -161,15 +206,16 @@ export interface TripPackManifest {
   totalMb: number;
   r2Prefix: string;
   sources: { id: string; name: string }[];
+  landedSources?: { id: string; name: string }[];
   notes: string;
+  liveErrors?: string[];
 }
 
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id",
+  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source, X-Ahanu-Ndbc, Retry-After",
 };
 
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -184,20 +230,47 @@ function json(data: unknown, status = 200, extra: Record<string, string> = {}): 
   });
 }
 
+/** HEAD keeps GET status + headers; body may be empty (LB / uptime probes). */
+function maybeHead(request: Request, response: Response): Response {
+  if (request.method !== "HEAD") return response;
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function isRead(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+/** HEAD miss: never start skipCache NOAA. Same headers on the empty-body HEAD. */
+function headNoRebuild(message: string, extra: Record<string, string> = {}): Response {
+  return json(
+    { error: message, hint: "HEAD does not live-rebuild NOAA" },
+    503,
+    { "Cache-Control": "no-store", "X-Ahanu-Source": "no-rebuild", ...extra },
+  );
+}
+
 function error(status: number, message: string, extra?: Record<string, unknown>): Response {
   return json({ error: message, ...extra }, status, { "Cache-Control": "no-store" });
 }
 
-function envBbox(env: Env): BBox {
-  const west = Number(env.REGION_WEST);
-  const south = Number(env.REGION_SOUTH);
-  const east = Number(env.REGION_EAST);
-  const north = Number(env.REGION_NORTH);
-  if ([west, south, east, north].every((n) => Number.isFinite(n))) {
-    return clampBbox({ west, south, east, north });
-  }
-  return NORTHEAST;
+function tooManyLiveRebuilds(retryAfter: number): Response {
+  return json(
+    {
+      error: "too many live rebuilds",
+      hint: "skipCache / miss NOAA rebuilds are limited per client IP; R2 hits are not",
+      retryAfter,
+      limit: LIVE_REBUILD_LIMIT,
+      windowSec: LIVE_REBUILD_WINDOW_MS / 1000,
+    },
+    429,
+    { "Cache-Control": "no-store", "Retry-After": String(retryAfter) },
+  );
 }
+
 
 function parseBboxCsv(raw: string | null, fallback: BBox): BBox | Response {
   if (!raw || raw.trim() === "") return fallback;
@@ -220,7 +293,7 @@ function parseCoord(raw: string | null): number | undefined {
 
 /**
  * Accepts `west`/`south`/`east`/`north` (preferred) or legacy `bbox=w,s,e,n`.
- * Empty individual params fall through to `bbox`, then to the Northeast default.
+ * Empty individual params fall through to `bbox`, then to the Point Judith default.
  */
 function parseBboxFromUrl(url: URL, fallback: BBox): BBox | Response {
   const west = parseCoord(url.searchParams.get("west"));
@@ -240,10 +313,6 @@ function parseBboxFromUrl(url: URL, fallback: BBox): BBox | Response {
   return parseBboxCsv(url.searchParams.get("bbox"), fallback);
 }
 
-function inBbox(lat: number, lon: number, b: BBox): boolean {
-  return lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
-}
-
 function parseIso(raw: string | null): string {
   if (!raw) return new Date().toISOString();
   const d = new Date(raw);
@@ -251,45 +320,56 @@ function parseIso(raw: string | null): string {
   return d.toISOString();
 }
 
-async function buildManifest(bbox: BBox, start: string, hours: number): Promise<TripPackManifest> {
-  const built = await buildTripPack({ bbox, start, hours });
-  const layers: TripPackLayer[] = built.layers.map((layer) => {
-    const spec = specForLayer(layer.id);
-    return {
-      id: layer.id,
-      label: spec?.label ?? layer.id,
-      sizeMb: Math.round((layer.bytes / (1024 * 1024)) * 100) / 100,
-      sizeBytes: layer.bytes,
-      status: "ready",
-      updatedAt: built.createdAt,
-      hours: layer.hours,
-      hash: layer.sha256,
-      r2Key: layer.r2Key,
-      contentType: spec?.contentType ?? "application/octet-stream",
-      format: spec?.format ?? "bin",
-    };
-  });
-
-  const required = new Set(REQUIRED_OFFSHORE_LAYERS);
-  const readyForOffshore = layers.filter((l) => required.has(l.id)).every((l) => l.status === "ready");
-
+function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["manifest"]): TripPackManifest {
+  const layers: TripPackLayer[] = manifest.layers.map((layer) => ({
+    id: layer.id,
+    label: layer.label,
+    sizeMb: layer.sizeMb,
+    sizeBytes: layer.sizeBytes,
+    status: layer.status,
+    updatedAt: layer.updatedAt,
+    hours: layer.hours,
+    hash: layer.hash,
+    r2Key: layer.r2Key,
+    contentType: layer.contentType,
+    format: layer.format,
+    source: layer.source,
+  }));
   return {
-    packId: built.packId,
+    packId: manifest.packId,
     version: 1,
-    bbox: built.bbox,
-    start: built.start,
-    hours: built.hours,
-    generatedAt: built.createdAt,
-    readyForOffshore,
+    bbox: manifest.bbox,
+    start: manifest.start,
+    hours: manifest.hours,
+    generatedAt: manifest.generatedAt,
+    readyForOffshore: manifest.readyForOffshore,
     layers,
-    totalBytes: built.totalBytes,
-    totalMb: Math.round((built.totalBytes / (1024 * 1024)) * 10) / 10,
-    r2Prefix: built.r2Prefix,
-    sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
-    notes:
-      "Identity hashes (bbox + cycle + layer). On-device scoring does not run here. " +
-      "Ready for offshore requires ENC, bathy, SST, 72 h wind/wave GRIB, tides, and HMS zones.",
+    totalBytes: manifest.totalBytes,
+    totalMb: manifest.totalMb,
+    r2Prefix: manifest.r2Prefix,
+    sources: landedPackSources(manifest),
+    landedSources: landedProductSources(manifest),
+    notes: landedPackNotes({
+      ...manifest,
+      notes:
+        manifest.notes ||
+        "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
+          "(NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / GFS-Wave). " +
+          "Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; .00n update files in the zip are packed with the cell. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
+          "GFS-Wave fetches NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). " +
+          "Newest cycle that has the requested horizon wins; a publishing 00z that 404s f072 does not beat a complete 18z. " +
+          "A complete series is 72 h noaa. A short prefix paints those hours and keeps a fixture tail — liveErrors name the cycle and which hours are live vs fixture. " +
+          "Client must re-hash. On-device scoring does not run here.",
+    }),
+    liveErrors: manifest.liveErrors ?? [],
   };
+}
+
+export { layerBody } from "./layer-body";
+
+function schedulePersist(ctx: ExecCtx | undefined, work: Promise<unknown>): void {
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
+  else void work;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,20 +476,9 @@ const SEED_REPORTS: CommunityReport[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Auth stub — production will verify a device JWT. Missing header = 401.
+// Auth — ingest fail-closed on INGEST_TOKEN; catches stay device-token (bound per row).
+// Cron is in-process (scheduled → ingestFixturePack) and does not HTTP.
 // ---------------------------------------------------------------------------
-
-function requireAuth(req: Request): Response | null {
-  const header = req.headers.get("Authorization") ?? "";
-  if (!header.startsWith("Bearer ")) {
-    return error(401, "unauthorized", { hint: "Authorization: Bearer <token> (stub — any non-empty token is accepted)" });
-  }
-  const token = header.slice("Bearer ".length).trim();
-  if (!token) {
-    return error(401, "unauthorized", { hint: "empty bearer token" });
-  }
-  return null;
-}
 
 function isSpecies(s: unknown): s is SpeciesId {
   return typeof s === "string" && (SPECIES as readonly string[]).includes(s);
@@ -444,26 +513,52 @@ function parseCatch(body: unknown): CatchRecord | string {
   return rec;
 }
 
+export type UpsertCatchResult =
+  | { ok: true; rec: CatchRecord; created: boolean }
+  | { ok: false; status: 403; error: string };
+
+function runChanges(result: unknown): number | undefined {
+  if (!result || typeof result !== "object" || !("meta" in result)) return undefined;
+  const changes = (result as D1RunResult).meta?.changes;
+  return typeof changes === "number" ? changes : undefined;
+}
+
 /**
- * D1 insert stub. Missing / unbound / unprovisioned DB is a no-op: the
+ * Bind-and-upsert. Missing / unbound / unprovisioned DB is a no-op: the
  * worker still 201s the record so the helm can keep a local log. `synced`
- * is true only when the statement actually ran.
+ * is true only when the statement actually ran. A different device token
+ * on an already-bound id is 403 and does not overwrite.
  */
-async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
+export async function upsertCatch(
+  env: Env,
+  rec: CatchRecord,
+  deviceToken: string,
+): Promise<UpsertCatchResult> {
+  const hash = await hashDeviceToken(deviceToken);
   const db = env.DB;
   if (!db || typeof db.prepare !== "function") {
-    return { ...rec, synced: false };
+    return { ok: true, rec: { ...rec, synced: false }, created: true };
   }
   try {
-    await db
+    const existing = await db
+      .prepare("SELECT device_hash FROM catches WHERE id = ?")
+      .bind(rec.id)
+      .first<{ device_hash?: string | null }>();
+    const decision = catchBindDecision(existing, hash);
+    if (decision === "deny") {
+      return { ok: false, status: 403, error: "catch belongs to another device" };
+    }
+    const written = await db
       .prepare(
-        `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced, device_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(id) DO UPDATE SET
            species=excluded.species, lat=excluded.lat, lon=excluded.lon, at=excluded.at,
            length_in=excluded.length_in, weight_lb=excluded.weight_lb, released=excluded.released,
            notes=excluded.notes, sst_c=excluded.sst_c, depth_m=excluded.depth_m,
-           conditions=excluded.conditions, synced=1`,
+           conditions=excluded.conditions, synced=1,
+           device_hash=COALESCE(catches.device_hash, excluded.device_hash)
+         WHERE catches.device_hash IS NULL OR catches.device_hash = excluded.device_hash`,
       )
       .bind(
         rec.id,
@@ -479,11 +574,16 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
         rec.sstC ?? null,
         rec.depthM ?? null,
         rec.conditions ?? null,
+        hash,
       )
       .run();
-    return { ...rec, synced: true };
+    const changes = runChanges(written);
+    if (changes === 0) {
+      return { ok: false, status: 403, error: "catch belongs to another device" };
+    }
+    return { ok: true, rec: { ...rec, synced: true }, created: decision === "insert" };
   } catch {
-    return { ...rec, synced: false };
+    return { ok: true, rec: { ...rec, synced: false }, created: true };
   }
 }
 
@@ -491,11 +591,12 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
 // Durable Object — bbox-scoped community reports (live, not scored)
 // ---------------------------------------------------------------------------
 
+/** Not HTTP. Binding kept for later pack-build leases. /api/community is 404. */
 export class CommunityHub {
-  constructor(
-    private readonly state: DoState,
-    _env: Env,
-  ) {}
+  private readonly state: DoState;
+  constructor(state: DoState, _env: Env) {
+    this.state = state;
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -514,40 +615,23 @@ export class CommunityHub {
   }
 }
 
-async function communityFor(env: Env, bbox: BBox): Promise<CommunityReport[]> {
-  let extras: CommunityReport[] = [];
-  try {
-    const ns = env.COMMUNITY;
-    if (!ns || typeof ns.idFromName !== "function") {
-      extras = SEED_REPORTS;
-    } else {
-      const id = ns.idFromName("northeast-shelf");
-      const stub = ns.get(id);
-      const res = await stub.fetch("https://community/reports");
-      if (res.ok) {
-        const payload = (await res.json()) as { reports?: CommunityReport[] };
-        extras = payload.reports ?? [];
-      }
-    }
-  } catch {
-    extras = SEED_REPORTS;
-  }
-  const seen = new Set<string>();
-  const all: CommunityReport[] = [];
-  for (const r of extras) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    all.push(r);
-  }
-  return all.filter((r) => inBbox(r.lat, r.lon, bbox));
-}
+export type NoaaHealthProbe = CachedNdbcProbe;
 
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async scheduled(_event: unknown, env: Env, ctx: ExecCtx): Promise<void> {
+    // Privileged: same isolate as INGEST_TOKEN. Does not POST /api/ingest.
+    ctx.waitUntil(ingestFixturePack(env));
+  },
+  async fetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
+    return applyPacksSecurityHeaders(request, await packsFetch(request, env, ctx));
+  },
+};
+
+async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -556,17 +640,200 @@ export default {
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     try {
-      if (request.method === "GET" && (path === "/health" || path === "/")) {
-        return json({
-          ok: true,
-          service: env.SERVICE ?? "ahanu-packs",
-          ts: new Date().toISOString(),
-          scoring: "on-device-only",
+      if ((request.method === "GET" || request.method === "HEAD") && (path === "/health" || path === "/")) {
+        const resolved = await resolveNdbcHealth({ env, fetchImpl: env.fetchImpl });
+        return maybeHead(
+          request,
+          json(
+            {
+              ok: true,
+              service: env.SERVICE ?? "ahanu-packs",
+              ts: new Date().toISOString(),
+              scoring: "on-device-only",
+              noaa: resolved.noaa,
+            },
+            200,
+            { "Cache-Control": "no-store", "X-Ahanu-Ndbc": resolved.source },
+          ),
+        );
+      }
+
+      if (isRead(request.method) && path === "/api/packs") {
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
+        if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
+        const start = parseIso(url.searchParams.get("start"));
+        const hoursRaw = url.searchParams.get("hours");
+        const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
+        if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+          return maybeHead(request, error(400, "hours must be 1–168"));
+        }
+        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        if (request.method === "HEAD") {
+          const headed = await headPackManifest(env, {
+            bbox: bboxOrErr,
+            start,
+            hours: Math.round(hours),
+            packId,
+          });
+          if (headed.source === "no-rebuild") {
+            return maybeHead(request, headNoRebuild("no cached pack"));
+          }
+          if (headed.built) {
+            try {
+              await persistBuiltPack(env, headed.built);
+            } catch {
+              schedulePersist(ctx, persistBuiltPack(env, headed.built));
+            }
+          }
+          const manifest = workerManifest(headed.manifest);
+          return maybeHead(
+            request,
+            json(manifest, 200, {
+              "X-Ahanu-Pack-Id": manifest.packId,
+              "X-Ahanu-Source": headed.source,
+              ETag: `"${manifest.packId}"`,
+            }),
+          );
+        }
+        const skipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+        const skipCache = skipRaw === "1" || skipRaw === "true" || skipRaw === "yes";
+        const resolved = await resolvePackManifest(env, {
+          bbox: bboxOrErr,
+          start,
+          hours: Math.round(hours),
+          skipCache,
+          packId,
+          fetchImpl: env.fetchImpl,
+          limitLiveRebuild: { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
+        });
+        if (resolved.built) {
+          rememberBuiltPack(resolved.built);
+          try {
+            await persistBuiltPack(env, resolved.built);
+          } catch {
+            schedulePersist(ctx, persistBuiltPack(env, resolved.built));
+          }
+        }
+        const manifest = workerManifest(resolved.manifest);
+        return json(manifest, 200, {
+          "X-Ahanu-Pack-Id": manifest.packId,
+          "X-Ahanu-Source": resolved.source,
+          ETag: `"${manifest.packId}"`,
         });
       }
 
-      if (request.method === "GET" && path === "/api/packs") {
-        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
+      if (isRead(request.method) && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
+        if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
+        const start = parseIso(url.searchParams.get("start"));
+        const hoursRaw = url.searchParams.get("hours");
+        const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
+        if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+          return maybeHead(request, error(400, "hours must be 1–168"));
+        }
+        const layer = url.searchParams.get("layer") ?? path.split("/").pop() ?? "";
+        const spec = specForLayer(layer);
+        if (!spec) return maybeHead(request, error(404, "unknown layer", { layer }));
+        const objSkipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
+        const objSkipCache = objSkipRaw === "1" || objSkipRaw === "true" || objSkipRaw === "yes";
+        const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        const hash = (url.searchParams.get("hash") ?? "").trim() || undefined;
+        const head = request.method === "HEAD";
+        const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id, {
+          skipCache: head ? false : objSkipCache,
+          packId,
+          hash,
+          fetchImpl: env.fetchImpl,
+          limitLiveRebuild: head ? undefined : { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
+          head,
+        });
+        if (!obj) {
+          if (head) return maybeHead(request, headNoRebuild("layer body missing"));
+          return error(404, "layer body missing", { layer });
+        }
+        if (!head && obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {
+          schedulePersist(
+            ctx,
+            persistLayerObject(env, {
+              packId: obj.packId,
+              id: spec.id,
+              r2Key: obj.r2Key,
+              hash: obj.hash,
+              body: obj.body,
+            }),
+          );
+        }
+        return maybeHead(
+          request,
+          new Response(obj.body, {
+            status: 200,
+            headers: {
+              "Content-Type": obj.contentType,
+              ETag: `"${obj.hash}"`,
+              "X-Ahanu-Hash": obj.hash,
+              "X-Ahanu-Source": obj.source,
+              "X-Ahanu-Pack-Id": obj.packId,
+              ...CORS_HEADERS,
+            },
+          }),
+        );
+      }
+
+      if (isRead(request.method) && path === "/api/sources") {
+        const sources = listIngestSources();
+        return maybeHead(
+          request,
+          json({
+            count: sources.length,
+            scoring: "on-device-only",
+            notes: "Adapters return metadata and real upstream URLs. The Worker packages bytes; it does not score habitat.",
+            sources,
+          }),
+        );
+      }
+
+      if (isRead(request.method) && path === "/api/buoys") {
+        const resolved = await resolveNdbcBuoys({ env, fetchImpl: env.fetchImpl });
+        if (resolved.buoys?.length) {
+          return maybeHead(
+            request,
+            json(
+              {
+                updatedAt: resolved.updatedAt,
+                count: resolved.count,
+                source: "ndbc-live",
+                cached: resolved.cached,
+                probedAt: resolved.probedAt,
+                ageSec: resolved.ageSec,
+                buoys: resolved.buoys,
+              },
+              200,
+              { "X-Ahanu-Ndbc": resolved.source },
+            ),
+          );
+        }
+        const snap = buoySnapshot(new Date());
+        return maybeHead(
+          request,
+          json(
+            {
+              updatedAt: snap[0]?.updatedAt,
+              count: snap.length,
+              source: "ndbc-snapshot",
+              cached: false,
+              buoys: snap,
+            },
+            200,
+            { "X-Ahanu-Ndbc": "snapshot" },
+          ),
+        );
+      }
+
+      if ((request.method === "POST" || request.method === "GET") && path === "/api/ingest") {
+        if (request.method !== "POST") return error(405, "method not allowed", { hint: "POST /api/ingest with Authorization: Bearer" });
+        const denied = requireIngestAuth(request, env);
+        if (denied) return denied;
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
         if (bboxOrErr instanceof Response) return bboxOrErr;
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");
@@ -574,33 +841,29 @@ export default {
         if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
           return error(400, "hours must be 1–168");
         }
-        const manifest = await buildManifest(bboxOrErr, start, Math.round(hours));
-        return json(manifest, 200, { "X-Ahanu-Pack-Id": manifest.packId, ETag: `"${manifest.packId}"` });
-      }
-
-      if (request.method === "GET" && path === "/api/sources") {
-        const sources = listIngestSources();
-        return json({
-          count: sources.length,
-          scoring: "on-device-only",
-          notes: "Adapters return metadata and real upstream URLs. The Worker packages bytes; it does not score habitat.",
-          sources,
+        const result = await ingestFixturePack(env, {
+          bbox: bboxOrErr,
+          start,
+          hours: Math.round(hours),
+          skipCache: true,
+          timeoutMs: NOAA_GRID_TIMEOUT_MS,
         });
+        return json({ ok: true, ingest: result }, 200, { "Cache-Control": "no-store" });
       }
 
-      if (request.method === "GET" && path === "/api/buoys") {
-        const snap = buoySnapshot(new Date());
-        return json({
-          updatedAt: snap[0]?.updatedAt,
-          count: snap.length,
-          source: "ndbc-snapshot",
-          buoys: snap,
-        });
-      }
-
-      if (request.method === "POST" && path === "/api/catches") {
-        const denied = requireAuth(request);
+      if (path === "/api/catches" || path.startsWith("/api/catches/")) {
+        if (request.method !== "POST" || path !== "/api/catches") {
+          return error(404, "not found", {
+            path,
+            hint: "catch list is device-local; POST /api/catches upserts the skipper's own log",
+          });
+        }
+        const denied = requireDeviceAuth(request);
         if (denied) return denied;
+        const token = bearerToken(request);
+        if (!token) {
+          return error(401, "unauthorized", { hint: "Authorization: Bearer <device-token>" });
+        }
         let body: unknown;
         try {
           body = await request.json();
@@ -609,21 +872,28 @@ export default {
         }
         const parsed = parseCatch(body);
         if (typeof parsed === "string") return error(400, parsed);
-        const saved = await upsertCatch(env, parsed);
-        return json({ ok: true, catch: saved }, 201, { "Cache-Control": "no-store" });
+        const saved = await upsertCatch(env, parsed, token);
+        if (!saved.ok) {
+          return error(saved.status, saved.error, {
+            hint: "POST /api/catches updates only the device that created this id",
+          });
+        }
+        return json({ ok: true, catch: saved.rec }, saved.created ? 201 : 200, {
+          "Cache-Control": "no-store",
+        });
       }
 
-      if (request.method === "GET" && path === "/api/community") {
-        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
-        if (bboxOrErr instanceof Response) return bboxOrErr;
-        const reports = await communityFor(env, bboxOrErr);
-        return json({ bbox: bboxOrErr, count: reports.length, reports });
+      if (path === "/api/community" || path.startsWith("/api/community/")) {
+        return error(404, "not found", {
+          path,
+          hint: "community HTTP is unused; helm paints a packed local snapshot",
+        });
       }
 
       return error(404, "not found", { path });
     } catch (err) {
+      if (err instanceof LiveRebuildLimitError) return tooManyLiveRebuilds(err.retryAfter);
       const message = err instanceof Error ? err.message : "internal error";
       return error(500, message);
     }
-  },
-};
+}

@@ -2,7 +2,7 @@
 
 Ahanu is an **offline-first marine operating system** for captains who run the Northeast canyons — Point Judith, Montauk, and the shelf from Hudson to Hydrographer. This document is the contract between the web PWA shipping in this repo, the Cloudflare data plane, and the Flutter client that does not exist yet.
 
-Production data delivery is Cloudflare: **Workers + Pages + R2 + D1 + Durable Objects**. Chart packs, GRIB, and SST leave R2 at zero egress. Vercel exists only to host this Grok preview web client. It is not the production path for a single marine byte.
+Production data delivery is Cloudflare: **Workers + Pages + R2 + D1 + Durable Objects**. Chart packs, GRIB, and SST leave R2 at zero egress. The Grok preview web client may still build through Nitro/Vercel. That path is not production and must not serve a single marine byte.
 
 On-device scoring never runs on a Worker. Workers package bytes. The helm thinks.
 
@@ -37,7 +37,7 @@ Until Flutter exists, treat `src/lib/ahanu` as frozen API: additive changes only
 │  Pages (app shell) · Worker ahanu-packs · R2 · D1 · DO      │
 └────────────────────────────▲────────────────────────────────┘
                              │ ingest (cron, not request path)
-           NOAA ENC · GFS-Wave · NDFD · GHRSST · CMEMS · CO-OPS · NDBC
+           NOAA ENC · GFS-Wave · NDFD · GHRSST · CMEMS · CO-OPS · NDBC · AISStream
 ```
 
 ---
@@ -46,11 +46,11 @@ Until Flutter exists, treat `src/lib/ahanu` as frozen API: additive changes only
 
 A trip pack is a **bbox + time window + content-addressed layers**. The captain downloads it before leaving the harbor. After that, the plotter does not need the network.
 
-| Store | Web PWA | Flutter (planned) |
-| --- | --- | --- |
+| Store                                     | Web PWA                                 | Flutter (planned)   |
+| ----------------------------------------- | --------------------------------------- | ------------------- |
 | Pack bytes (GRIB, COG, ENC clip, GeoJSON) | IndexedDB (`Cache` + IDB for manifests) | SQLite + filesystem |
-| User marks, routes, catch log | IndexedDB / PGLite | SQLite |
-| Session (vessel, display mode) | memory + localStorage | secure prefs |
+| User marks, routes, catch log             | IndexedDB / PGLite                      | SQLite              |
+| Session (vessel, display mode)            | memory + localStorage                   | secure prefs        |
 
 The Worker endpoint `GET /api/packs?bbox=w,s,e,n&start=ISO&hours=72` returns a manifest (`TripPackLayer` plus `hash` and `r2Key`). The client then GETs each R2 object. Hashes are verified on write. A pack whose required layers are present and fresh is **Ready for offshore** — see [DATA_PACKS.md](./DATA_PACKS.md).
 
@@ -82,23 +82,23 @@ Mixing these — for example baking a habitat GeoTIFF on the Worker — would co
 
 ## Cloudflare data plane
 
-| Piece | Name | Role |
-| --- | --- | --- |
-| Worker | `ahanu-packs` | CORS, health, pack manifests, buoy snapshot, catch upsert, community bbox query |
-| Pages | (app shell) | Hosts the production PWA; not this Vercel preview |
-| R2 | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client. |
-| D1 | `ahanu-core` | Catch log, community metadata, pack index, device keys |
-| Durable Objects | `CommunityHub` | Bbox-scoped live reports; later, pack-build leases so two ingest crons do not write the same prefix |
+| Piece           | Name               | Role                                                                                                |
+| --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
+| Worker          | `ahanu-packs`      | CORS, health, pack manifests, buoy snapshot, catch upsert. Community HTTP is 404 (unused).          |
+| Pages           | (app shell)        | Hosts the production PWA; not the Grok/Nitro preview                                                   |
+| R2              | `ahanu-trip-packs` | Content-addressed layer objects. Zero egress to the client.                                         |
+| D1              | `ahanu-core`       | Catch log, community metadata, pack index, device keys                                              |
+| Durable Objects | `CommunityHub`     | Bbox-scoped live reports; later, pack-build leases so two ingest crons do not write the same prefix |
 
 Ingest adapters live in `cloudflare/src/ingest/sources.ts`. They are stubs that return metadata and **real NOAA / CMEMS URLs**. A scheduled Worker will clip, hash, and put. Until that job exists, `/api/packs` still returns a coherent Northeast manifest so the client can be built against a stable shape.
 
-Auth on mutating routes is a bearer stub. Production will issue short-lived device JWTs; the header shape will not change.
+HTTP `POST /api/ingest` requires Worker secret `INGEST_TOKEN` and fails closed if it is missing. Cron is in-process and does not present a bearer. `POST /api/catches` keeps device-token identity (`Authorization: Bearer <device-token>`); each row is bound to SHA-256 of that bearer. Same token updates; a different token is 403. The header shape will not change when those become short-lived device JWTs.
 
 ### What the Worker is allowed to do
 
 - Clip, transcode, hash, and list bytes.
 - Serve NDBC snapshots and CO-OPS windows that were already ingested.
-- Accept a catch upsert and a community report.
+- Accept a catch upsert (`POST /api/catches`, device bearer). Community HTTP is unused (404).
 
 ### What the Worker is forbidden to do
 
@@ -117,7 +117,7 @@ Ahanu does not talk to the backbone itself. A small gateway on the boat (Wi-Fi a
 - wind (if the vessel has it)
 - later: engine / fuel, AIS targets (`LayerId` `"ais"` is reserved)
 
-The PWA and the Flutter client both consume a local WebSocket / UDP JSON feed. When the gateway is absent, the client simulates or freezes last-known `VesselState`. Gateway code is not in this repository.
+The PWA and the Flutter client both consume a local WebSocket / UDP JSON feed. Gateway code is not in this repository. Helm **GPS** uses this device's Geolocation (`watchPosition`) when the skipper taps GPS. Denied / unavailable / timeout keeps the last position — no invented fix. Trolling / steaming stay simulated. The NMEA gateway remains future hardware.
 
 ---
 
@@ -137,7 +137,7 @@ Go/no-go is computed from the skipper’s own `BoatLimits` (wind, sea, fuel, res
 
 ## Ahanu spirit in the UX
 
-**Ahanu** (ah-HAH-noo) is Algonquin for *He Laughs*. The boat in the domain defaults is *Laughing One*. The product should feel like a competent, slightly dry skipper who is glad to be out — not a gamified fishing app and not a military clone.
+**Ahanu** (ah-HAH-noo) is Algonquin for _He Laughs_. The boat in the domain defaults is _Laughing One_. The product should feel like a competent, slightly dry skipper who is glad to be out — not a gamified fishing app and not a military clone.
 
 - Night bridge first. Chrome stays dim; the water stays bright enough to read.
 - Sparse language. Depth in fathoms when it helps, meters in the contract, no marketing sentences on the helm.
@@ -145,3 +145,7 @@ Go/no-go is computed from the skipper’s own `BoatLimits` (wind, sea, fuel, res
 - Trust the water: show the break, the color edge, the buoy, and then get out of the way.
 
 When those are in tension with a feature request, the helm wins.
+
+## Current status
+
+What is implemented vs fixture lives in [STATUS.md](./STATUS.md). This document is the contract; STATUS is the inventory.

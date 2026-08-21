@@ -1,0 +1,7 @@
+# Static assets (SW, JS chunks, fonts). Document CSP / HSTS come from the Worker.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), payment=(), usb=(), browsing-topics=(), geolocation=(self)
+  Cross-Origin-Resource-Policy: same-origin

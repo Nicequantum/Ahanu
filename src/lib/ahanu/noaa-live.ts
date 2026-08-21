@@ -1,0 +1,1106 @@
+/**
+ * Public NOAA ingest (no secrets): NDBC latest_obs, CO-OPS tides, ENC product
+ * catalog, a small GFS-Wave NOMADS subset, a public CoastWatch/ERDDAP
+ * SST probe, a public CoastWatch/ERDDAP chlorophyll probe, a public
+ * CoastWatch/ERDDAP SSH / SLA probe, a public NMFS/NOAA HMS closed-area
+ * KMZ / shapefile probe, a public CoastWatch/ERDDAP bathymetry
+ * (NCEI ETOPO / GEBCO) probe, and a public NOAA MarineCadastre
+ * undersea-names canyon-head probe. Writes fixture-shaped pack objects.
+ * Fetch failure omits that overlay so the caller keeps the hashed fixture.
+ * Do not invent 1 km MUR / GHRSST, 1 km VIIRS / CMEMS L4, or AVISO DUACS
+ * if a coarser public grid is what arrived. Bathymetry is the public
+ * relief grid that parsed (ETOPO 2022 subsampled here) — not official ENC.
+ * Not CMEMS. Official S-57 packs only when a NOAA zip fetches and the .000
+ * is ISO 8211. .00n update files in that zip are packed with the cell.
+ * Catalog-only otherwise.
+ *
+ * Keep this file free of `@/` aliases so the ahanu-packs Worker can import it.
+ */
+
+import { encodeLayerBody, sha256Hex, type PackBBox, type PackedJson } from "./pack-fixtures";
+import {
+  ENC_DIRECT_TILE_TEMPLATE,
+  ENC_ONLINE_MAPSERVER_URL,
+  ENC_PROD_CAT_URL,
+  ENC_S57_FETCH_MAX_BYTES,
+  encCatalogDateValid,
+  encToPackedJson,
+  parseEncProductCatalog,
+  parseS57ExchangeSet,
+  pickOfficialEncCells,
+  pickSmallEncZip,
+  bytesToBase64,
+  type EncS57File,
+  type EncTileMeta,
+} from "./noaa-enc";
+import {
+  GFS_WAVE_MAX_BYTES,
+  GFS_WAVE_NOTE,
+  GFS_WAVE_PACE_MS,
+  assembleGfsWaveSeries,
+  fetchGfsWaveSeries,
+  formatGfsWaveCycle,
+  gfsWaveCycleCandidates,
+  gfsWaveFilterUrl,
+  gfsWaveSeriesEnabled,
+  gfsWaveSeriesHours,
+  isGrib2,
+  pickGfsWaveSeriesCycleFromNomads,
+  type GfsWaveIngest,
+  type GfsWaveSeriesGrids,
+} from "./noaa-gfs";
+import { ncepToPacked, parseNcep } from "./grid-io";
+import { fetchLiveSst, SST_DEDICATED_TIMEOUT_MS, type SstIngest } from "./noaa-sst";
+import { fetchLiveChl, type ChlIngest } from "./noaa-chl";
+import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
+import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
+import { fetchLiveBathy, type BathyIngest } from "./noaa-bathy";
+import { fetchLiveCanyons, type CanyonIngest } from "./noaa-canyons";
+import { fetchLiveAis, type AisIngest, type OpenAisStream } from "./ais-live";
+import {
+  defaultNoaaFetch,
+  fetchNoaaBytes,
+  fetchNoaaText,
+  NOAA_GRID_TIMEOUT_MS,
+  type FetchLike,
+} from "./noaa-http";
+
+export const NDBC_LATEST_OBS_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
+export const COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
+
+export const NORTHEAST_NDBC_IDS = [
+  "44097",
+  "44017",
+  "44025",
+  "44065",
+  "44008",
+  "44066",
+  "44018",
+  "44020",
+  "44009",
+  "44091",
+  "BUZM3",
+  "NWPR1",
+  "MTKN6",
+] as const;
+
+/** Official NOAA CO-OPS mdapi station 8455083 — not 8458022 (Weekapaug Point). */
+export const POINT_JUDITH_COOPS = {
+  id: "8455083",
+  name: "POINT JUDITH, HARBOR OF REFUGE",
+  lat: 41.3633,
+  lon: -71.49,
+  required: true,
+} as const;
+
+export const COOPS_HARBOR_STATIONS = [
+  POINT_JUDITH_COOPS,
+  { id: "8452660", name: "Newport", lat: 41.49, lon: -71.327, required: true },
+  { id: "8452944", name: "Quonset Point", lat: 41.586, lon: -71.41, required: true },
+  { id: "8510560", name: "Montauk", lat: 41.048, lon: -71.959, required: true },
+  { id: "8447930", name: "Woods Hole", lat: 41.5236, lon: -70.6731, required: false },
+  { id: "8461490", name: "New London", lat: 41.355, lon: -72.09, required: false },
+] as const;
+
+const NDBC_NAMES: Record<string, string> = {
+  "44097": "Block Island",
+  "44017": "Montauk Point",
+  "44025": "Long Island",
+  "44065": "NY Harbor Entrance",
+  "44008": "Nantucket",
+  "44066": "Texas Tower",
+  "44018": "SE Cape Cod",
+  "44020": "Nantucket Sound",
+  "44009": "Delaware Bay",
+  "44091": "Barnegat",
+  BUZM3: "Buzzards Bay C-MAN",
+  NWPR1: "Newport C-MAN",
+  MTKN6: "Montauk C-MAN",
+};
+
+const MS_TO_KT = 1.943844;
+const M_TO_FT = 3.28084;
+
+export type { FetchLike };
+
+export interface PackedBuoyRow {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  windKt?: number;
+  windDir?: number;
+  gustKt?: number;
+  waveFt?: number;
+  periodS?: number;
+  sstC?: number;
+  pressureMb?: number;
+  updatedAt?: string;
+}
+
+export interface PackedTideStation {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  interval: string;
+  datum: string;
+  series: { at: string; heightFt: number }[];
+  hilo: { at: string; heightFt: number }[];
+  observed?: { at: string; heightFt: number };
+}
+
+function num(raw: string | undefined): number | undefined {
+  if (!raw || raw === "MM" || raw === "NaN") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function r1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+function inBbox(lat: number, lon: number, bbox?: PackBBox): boolean {
+  if (!bbox) return true;
+  return lat >= bbox.south && lat <= bbox.north && lon >= bbox.west && lon <= bbox.east;
+}
+
+function keepNdbc(id: string, lat: number, lon: number, bbox?: PackBBox): boolean {
+  if ((NORTHEAST_NDBC_IDS as readonly string[]).includes(id)) return true;
+  return inBbox(lat, lon, bbox);
+}
+
+function yymmddToIso(yy: string, mo: string, dd: string, hh: string, mm: string): string {
+  const n = Number(yy);
+  const year = yy.trim().length >= 4 || n >= 100 ? n : n < 70 ? 2000 + n : 1900 + n;
+  const pad = (s: string) => s.padStart(2, "0");
+  return `${year}-${pad(mo)}-${pad(dd)}T${pad(hh)}:${pad(mm)}:00.000Z`;
+}
+
+/** Parse NDBC latest_obs.txt into fixture-shaped buoy rows. */
+export function parseNdbcLatestObs(text: string, bbox?: PackBBox): PackedBuoyRow[] {
+  const rows: PackedBuoyRow[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const p = line.trim().split(/\s+/);
+    if (p.length < 8) continue;
+    const id = p[0]!;
+    const lat = num(p[1]);
+    const lon = num(p[2]);
+    if (lat == null || lon == null) continue;
+    if (!keepNdbc(id, lat, lon, bbox)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const wspd = num(p[9]);
+    const gst = num(p[10]);
+    const wvht = num(p[11]);
+    const dpd = num(p[12]);
+    const pres = num(p[15]);
+    const wtmp = num(p[18]);
+    const wdir = num(p[8]);
+    rows.push({
+      id,
+      name: NDBC_NAMES[id] ?? id,
+      lat,
+      lon,
+      windKt: wspd != null ? r1(wspd * MS_TO_KT) : undefined,
+      windDir: wdir != null ? Math.round(wdir) : undefined,
+      gustKt: gst != null ? r1(gst * MS_TO_KT) : undefined,
+      waveFt: wvht != null ? r1(wvht * M_TO_FT) : undefined,
+      periodS: dpd != null ? r1(dpd) : undefined,
+      sstC: wtmp != null ? r1(wtmp) : undefined,
+      pressureMb: pres != null ? r1(pres) : undefined,
+      updatedAt: yymmddToIso(p[3]!, p[4]!, p[5]!, p[6]!, p[7]!),
+    });
+  }
+  return rows;
+}
+
+export function buoysToPackedJson(buoys: PackedBuoyRow[], updatedAt: string): PackedJson {
+  return {
+    kind: "json",
+    layer: "buoys",
+    payload: {
+      fixture: false,
+      live: true,
+      source: "ndbc",
+      updatedAt,
+      staleAfterH: 3,
+      buoys,
+    },
+  };
+}
+
+interface CoopsPrediction {
+  t: string;
+  v: string;
+  type?: string;
+}
+
+function coopsIso(t: string): string {
+  const m = t.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  if (!m) return new Date(t).toISOString();
+  return `${m[1]}T${m[2]}:00.000Z`;
+}
+
+export function parseCoopsPredictions(json: unknown): { at: string; heightFt: number }[] {
+  const root = json as { predictions?: CoopsPrediction[]; error?: unknown };
+  if (!root?.predictions || !Array.isArray(root.predictions)) return [];
+  const out: { at: string; heightFt: number }[] = [];
+  for (const row of root.predictions) {
+    const h = Number(row.v);
+    if (!Number.isFinite(h) || !row.t) continue;
+    out.push({ at: coopsIso(row.t), heightFt: r1(h) });
+  }
+  return out;
+}
+
+export function tidesToPackedJson(
+  start: string,
+  hours: number,
+  stations: PackedTideStation[],
+): PackedJson {
+  return {
+    kind: "json",
+    layer: "tides",
+    payload: {
+      fixture: false,
+      live: true,
+      source: "coops",
+      start,
+      hours,
+      harbor: "Point Judith / Newport / Montauk",
+      stations,
+    },
+  };
+}
+
+function yyyymmdd(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+function addHoursIso(iso: string, hours: number): string {
+  return new Date(Date.parse(iso) + hours * 3_600_000).toISOString();
+}
+
+function noaaGet(
+  url: string,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  maxBytes: number,
+  sleep?: (ms: number) => Promise<void>,
+  retries?: number,
+) {
+  return { url, fetchImpl, timeoutMs, maxBytes, sleep, retries };
+}
+
+export function parseCoopsWaterLevel(json: unknown): { at: string; heightFt: number } | undefined {
+  const root = json as { data?: { t?: string; v?: string }[] };
+  const row = root?.data?.[0];
+  if (!row?.t) return undefined;
+  const h = Number(row.v);
+  if (!Number.isFinite(h)) return undefined;
+  return { at: coopsIso(row.t), heightFt: r1(h) };
+}
+
+export function coopsStationsForBox(bbox?: PackBBox): (typeof COOPS_HARBOR_STATIONS)[number][] {
+  return COOPS_HARBOR_STATIONS.filter((st) => st.required || inBbox(st.lat, st.lon, bbox));
+}
+
+/** Station ids on a packed CO-OPS / fixture tides body. */
+export function packedTideStationIds(tides: {
+  stations?: { id?: string }[] | null;
+} | null | undefined): string[] {
+  return (tides?.stations ?? [])
+    .map((s) => (typeof s?.id === "string" ? s.id.trim() : ""))
+    .filter(Boolean);
+}
+
+export function requiredCoopsStationIds(): string[] {
+  return COOPS_HARBOR_STATIONS.filter((s) => s.required).map((s) => s.id);
+}
+
+/**
+ * R2 Download (skipCache off): refresh live CO-OPS tides when required
+ * catalog ids are missing (8455083 Point Judith Harbor of Refuge).
+ * Fixture tides are left as-is — do not invent water levels.
+ */
+export function packedTidesNeedRefresh(
+  tides: {
+    live?: boolean;
+    source?: string;
+    fixture?: boolean;
+    stations?: { id?: string }[] | null;
+  } | null | undefined,
+  opts?: { requiredIds?: string[] },
+): boolean {
+  if (!tides || tides.fixture) return false;
+  const live = Boolean(tides.live) || tides.source === "coops" || tides.source === "noaa";
+  if (!live) return false;
+  const have = new Set(packedTideStationIds(tides));
+  const required = opts?.requiredIds ?? requiredCoopsStationIds();
+  return required.some((id) => !have.has(id));
+}
+
+export type GfsWaveSeriesFlag =
+  | boolean
+  | {
+      enabled?: boolean;
+      hours?: number[];
+      paceMs?: number;
+      budgetMs?: number;
+      sleep?: (ms: number) => Promise<void>;
+      ymd?: string;
+      cc?: string;
+    };
+
+export interface LiveNoaaResult {
+  buoys?: PackedJson;
+  tides?: PackedJson;
+  enc?: PackedJson;
+  gfsWave?: GfsWaveIngest;
+  gfsWaveSeries?: GfsWaveSeriesGrids;
+  sst?: SstIngest;
+  chlorophyll?: ChlIngest;
+  altimetry?: SshIngest;
+  hms?: HmsIngest;
+  bathymetry?: BathyIngest;
+  canyons?: CanyonIngest;
+  ais?: PackedJson;
+  aisNote?: string;
+  errors: string[];
+}
+
+const liveCache = new Map<string, { at: number; value: LiveNoaaResult }>();
+const LIVE_TTL_MS = 10 * 60 * 1000;
+
+export function liveCacheKey(bbox: PackBBox, start: string, hours: number): string {
+  return `${bbox.west.toFixed(3)}_${bbox.south.toFixed(3)}_${bbox.east.toFixed(3)}_${bbox.north.toFixed(3)}|${start}|${hours}`;
+}
+
+export function resetLiveNoaaCache(): void {
+  liveCache.clear();
+}
+
+/** Test helper: plant a liveCache row (stale-shape / same-download fan-out). */
+export function seedLiveNoaaCache(key: string, value: LiveNoaaResult, at = Date.now()): void {
+  liveCache.set(key, { at, value });
+}
+
+const LIVE_PROBE_GATES: {
+  landed: (v: LiveNoaaResult) => boolean;
+  prefix: string;
+  miss: string;
+}[] = [
+  { landed: (v) => Boolean(v.buoys), prefix: "ndbc", miss: "ndbc: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.tides), prefix: "coops", miss: "coops: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.enc), prefix: "enc", miss: "enc: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.gfsWave || v.gfsWaveSeries), prefix: "gfs-wave", miss: "gfs-wave: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.sst), prefix: "sst", miss: "sst: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.chlorophyll), prefix: "chl", miss: "chl: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.altimetry), prefix: "ssh", miss: "ssh: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.hms), prefix: "hms", miss: "hms: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.bathymetry), prefix: "bathy", miss: "bathy: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.canyons), prefix: "canyons", miss: "canyons: live miss — fixture kept" },
+  { landed: (v) => Boolean(v.ais), prefix: "ais", miss: "ais: live miss — fixture kept" },
+];
+
+/** Every live-capable overlay landed. Used to decide if empty errors are honest. */
+export function liveOverlaysComplete(value: LiveNoaaResult): boolean {
+  return LIVE_PROBE_GATES.every((g) => g.landed(value));
+}
+
+/**
+ * Reuse only when the row has an errors array and is either complete or already
+ * lists misses. A buoys+tides hit with errors=[] is the pre-liveErrors shape.
+ */
+export function liveCacheValueUsable(value: LiveNoaaResult | undefined | null): boolean {
+  if (!value || !Array.isArray(value.errors)) return false;
+  if (value.errors.length > 0) return true;
+  return liveOverlaysComplete(value);
+}
+
+/** Push an honest miss line when a probe forgot, or a cache hit omitted one. */
+export function ensureLiveOverlayErrors(value: LiveNoaaResult): LiveNoaaResult {
+  const errors = Array.isArray(value.errors) ? value.errors : [];
+  for (const g of LIVE_PROBE_GATES) {
+    if (g.landed(value)) continue;
+    if (errors.some((e) => e.startsWith(g.prefix))) continue;
+    errors.push(g.miss);
+  }
+  value.errors = errors;
+  return value;
+}
+
+async function liveBuoys(
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  sleep?: (ms: number) => Promise<void>,
+): Promise<PackedJson | undefined> {
+  const ndbcText = await fetchNoaaText(
+    noaaGet(NDBC_LATEST_OBS_URL, fetchImpl, timeoutMs, 16_000_000, sleep),
+  );
+  if (!ndbcText) {
+    errors.push("ndbc: fetch failed");
+    return undefined;
+  }
+  const buoys = parseNdbcLatestObs(ndbcText, bbox);
+  if (!buoys.length) {
+    errors.push("ndbc: no stations in box");
+    return undefined;
+  }
+  const updatedAt = buoys[0]?.updatedAt ?? new Date().toISOString();
+  return buoysToPackedJson(buoys, updatedAt);
+}
+
+async function liveTides(
+  bbox: PackBBox,
+  start: string,
+  hours: number,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  sleep?: (ms: number) => Promise<void>,
+): Promise<PackedJson | undefined> {
+  const begin = yyyymmdd(start);
+  const end = yyyymmdd(addHoursIso(start, hours));
+  const wanted = coopsStationsForBox(bbox);
+  const stations = (
+    await Promise.all(
+      wanted.map(async (st) => {
+        const hourlyUrl =
+          `${COOPS_DATAGETTER_URL}?product=predictions&application=Ahanu` +
+          `&datum=MLLW&time_zone=gmt&interval=h&units=english&format=json` +
+          `&station=${st.id}&begin_date=${begin}&end_date=${end}`;
+        const hiloUrl =
+          `${COOPS_DATAGETTER_URL}?product=predictions&application=Ahanu` +
+          `&datum=MLLW&time_zone=gmt&interval=hilo&units=english&format=json` +
+          `&station=${st.id}&begin_date=${begin}&end_date=${end}`;
+        const obsUrl =
+          `${COOPS_DATAGETTER_URL}?product=water_level&application=Ahanu` +
+          `&datum=MLLW&time_zone=gmt&units=english&format=json` +
+          `&station=${st.id}&date=latest`;
+        const [hourlyText, hiloText, obsText] = await Promise.all([
+          fetchNoaaText(noaaGet(hourlyUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
+          fetchNoaaText(noaaGet(hiloUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
+          fetchNoaaText(noaaGet(obsUrl, fetchImpl, timeoutMs, 16_000_000, sleep)),
+        ]);
+        if (!hourlyText) {
+          errors.push(`coops ${st.id}: hourly fetch failed`);
+          return null;
+        }
+        let hourlyJson: unknown;
+        try {
+          hourlyJson = JSON.parse(hourlyText);
+        } catch {
+          errors.push(`coops ${st.id}: bad json`);
+          return null;
+        }
+        const series = parseCoopsPredictions(hourlyJson);
+        if (!series.length) {
+          errors.push(`coops ${st.id}: empty predictions`);
+          return null;
+        }
+        let hilo: { at: string; heightFt: number }[] = series.filter((_, i) => i % 6 === 0);
+        if (hiloText) {
+          try {
+            const parsed = parseCoopsPredictions(JSON.parse(hiloText));
+            if (parsed.length) hilo = parsed;
+          } catch {
+            /* keep sampled hilo */
+          }
+        }
+        let observed: { at: string; heightFt: number } | undefined;
+        if (obsText) {
+          try {
+            observed = parseCoopsWaterLevel(JSON.parse(obsText));
+          } catch {
+            /* skip obs */
+          }
+        }
+        const row: PackedTideStation = {
+          id: st.id,
+          name: st.name,
+          lat: st.lat,
+          lon: st.lon,
+          interval: "h",
+          datum: "MLLW",
+          series,
+          hilo,
+          observed,
+        };
+        return row;
+      }),
+    )
+  ).filter((s): s is PackedTideStation => s != null);
+  if (!stations.length) return undefined;
+  return tidesToPackedJson(start, hours, stations);
+}
+
+async function probeEncTiles(
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<EncTileMeta> {
+  const tiles: EncTileMeta = {
+    template: ENC_DIRECT_TILE_TEMPLATE,
+    legal: false,
+    probe: "skipped",
+  };
+  const [tileBuf, mapText] = await Promise.all([
+    fetchNoaaBytes(
+      noaaGet(
+        ENC_DIRECT_TILE_TEMPLATE.replace("{z}/{x}/{y}", "0/0/0"),
+        fetchImpl,
+        Math.min(timeoutMs, 2500),
+        64_000,
+        sleep,
+        0,
+      ),
+    ),
+    fetchNoaaText(noaaGet(ENC_ONLINE_MAPSERVER_URL, fetchImpl, timeoutMs, 200_000, sleep)),
+  ]);
+  if (tileBuf && tileBuf.byteLength > 8) tiles.probe = "ok";
+  else tiles.probe = "tls-failed";
+  if (mapText) {
+    try {
+      const js = JSON.parse(mapText) as { mapName?: string };
+      tiles.mapServer = { url: ENC_ONLINE_MAPSERVER_URL, fetched: true, mapName: js.mapName };
+    } catch {
+      tiles.mapServer = { url: ENC_ONLINE_MAPSERVER_URL, fetched: false };
+    }
+  } else {
+    tiles.mapServer = { url: ENC_ONLINE_MAPSERVER_URL, fetched: false };
+  }
+  return tiles;
+}
+
+async function liveEnc(
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  sleep?: (ms: number) => Promise<void>,
+): Promise<PackedJson | undefined> {
+  const catalogTimeout = Math.max(timeoutMs, 8000);
+  const [xml, tiles] = await Promise.all([
+    fetchNoaaText(noaaGet(ENC_PROD_CAT_URL, fetchImpl, catalogTimeout, 16_000_000, sleep)),
+    probeEncTiles(fetchImpl, timeoutMs, sleep),
+  ]);
+  if (!xml) {
+    errors.push("enc: catalog fetch failed");
+    return undefined;
+  }
+  const cells = parseEncProductCatalog(xml, bbox);
+  if (!cells.length) {
+    errors.push("enc: no active cells in box");
+    return undefined;
+  }
+  const officialS57: EncS57File[] = [];
+  const picks = pickOfficialEncCells(cells);
+  if (picks.length) {
+    const fetched = await Promise.all(
+      picks.map(async (cell) => {
+        if (!cell.zipUrl) return { cell, zip: null as Uint8Array | null };
+        const zip = await fetchNoaaBytes(
+          noaaGet(cell.zipUrl, fetchImpl, timeoutMs, ENC_S57_FETCH_MAX_BYTES, sleep),
+        );
+        return { cell, zip };
+      }),
+    );
+    for (const { cell, zip } of fetched) {
+      if (!zip || zip.byteLength < 8) continue;
+      const parsed = await parseS57ExchangeSet(zip);
+      if (!parsed) continue;
+      cell.zipBytes = zip.byteLength;
+      cell.zipSha256 = await sha256Hex(zip);
+      officialS57.push({
+        id: cell.id,
+        official: true,
+        encoding: "s-57",
+        iso8211: true,
+        catalog031: parsed.catalog031,
+        file000: parsed.file000 ?? `${cell.id}.000`,
+        file000Bytes: parsed.file000Bytes,
+        leader: parsed.leader,
+        zipBytes: zip.byteLength,
+        zipSha256: cell.zipSha256,
+        zipBase64: bytesToBase64(zip),
+        zipUrl: cell.zipUrl,
+        edition: parsed.edition,
+        updn: parsed.updn,
+        updates: parsed.updates,
+        updateCount: parsed.updateCount,
+        baseOnly: parsed.baseOnly,
+      });
+    }
+  } else {
+    const probe = pickSmallEncZip(cells);
+    if (probe?.zipUrl && (probe.zipBytes ?? 0) <= 80_000) {
+      const zip = await fetchNoaaBytes(noaaGet(probe.zipUrl, fetchImpl, timeoutMs, 200_000, sleep));
+      if (zip && zip.byteLength > 4) {
+        probe.zipSha256 = await sha256Hex(zip);
+        probe.zipBytes = zip.byteLength;
+      } else {
+        errors.push(`enc: ${probe.id} zip probe failed`);
+      }
+    }
+  }
+  return encToPackedJson(bbox, cells, {
+    catalogUrl: ENC_PROD_CAT_URL,
+    catalogDate: encCatalogDateValid(xml),
+    tiles,
+    officialS57,
+  });
+}
+
+async function liveGfsWave(
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  now = new Date(),
+  sleep?: (ms: number) => Promise<void>,
+): Promise<GfsWaveIngest | undefined> {
+  for (const cycle of gfsWaveCycleCandidates(now)) {
+    const url = gfsWaveFilterUrl(cycle.ymd, cycle.cc, 0, bbox);
+    const bytes = await fetchNoaaBytes(
+      noaaGet(url, fetchImpl, Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS), GFS_WAVE_MAX_BYTES, sleep),
+    );
+    if (!bytes) continue;
+    if (!isGrib2(bytes)) {
+      errors.push(`gfs-wave: ${cycle.ymd}${cycle.cc} not GRIB2`);
+      continue;
+    }
+    const hash = await sha256Hex(bytes);
+    const parsed = parseNcep(bytes);
+    const packed = ncepToPacked(parsed);
+    const hasField = Boolean(packed.windKt || packed.waveFt);
+    return {
+      live: true,
+      source: "nomads-gfswave",
+      grid: "atlocn.0p16",
+      forecastHour: 0,
+      cycle: `${cycle.ymd}${cycle.cc}`,
+      url,
+      bytes: bytes.byteLength,
+      sha256: hash,
+      contentType: "application/wmo-grib",
+      note: hasField
+        ? "NCEP Atlantic 0p16 f000 parsed — hour-0 wind/wave only, not a 72 h grid."
+        : GFS_WAVE_NOTE,
+      parsed: hasField ? packed : undefined,
+      parseError: hasField ? undefined : (parsed.error ?? "no wind/wave fields"),
+    };
+  }
+  errors.push("gfs-wave: fetch failed");
+  return undefined;
+}
+
+function seriesFlag(raw: GfsWaveSeriesFlag | undefined): {
+  enabled: boolean;
+  hours?: number[];
+  paceMs?: number;
+  budgetMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  ymd?: string;
+  cc?: string;
+} {
+  if (raw === true) return { enabled: true };
+  if (raw === false || raw == null) return { enabled: false };
+  return {
+    enabled: gfsWaveSeriesEnabled(raw.enabled),
+    hours: raw.hours,
+    paceMs: raw.paceMs,
+    budgetMs: raw.budgetMs,
+    sleep: raw.sleep,
+    ymd: raw.ymd,
+    cc: raw.cc,
+  };
+}
+
+async function liveGfsWaveSeries(
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  errors: string[],
+  series: ReturnType<typeof seriesFlag>,
+  now = new Date(),
+): Promise<{ ingest?: GfsWaveIngest; series?: GfsWaveSeriesGrids }> {
+  const hours = series.hours ?? gfsWaveSeriesHours();
+  const pinned = Boolean(series.ymd && series.cc);
+  const cycles = pinned
+    ? [{ ymd: series.ymd!, cc: series.cc! }]
+    : gfsWaveCycleCandidates(now);
+  const pacedFetch: FetchLike = async (input, init) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetchImpl(input, { signal: init?.signal ?? ctrl.signal, headers: init?.headers });
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  const prefetched = new Map<string, Uint8Array>();
+  let chosen = cycles[0];
+  if (!chosen) {
+    errors.push("gfs-wave-series: fetch failed");
+    return {};
+  }
+  // First-cycle-wins on any files preferred a publishing 00z with f000–f027
+  // over a complete 18z. Newest cycle that actually has the horizon wins.
+  if (!pinned && cycles.length > 1) {
+    const pick = await pickGfsWaveSeriesCycleFromNomads({
+      bbox,
+      cycles,
+      hours,
+      fetchImpl: pacedFetch,
+      prefetched,
+    });
+    if (!pick) {
+      errors.push("gfs-wave-series: fetch failed");
+      return {};
+    }
+    chosen = pick;
+  }
+  const files = await fetchGfsWaveSeries({
+    bbox,
+    ymd: chosen.ymd,
+    cc: chosen.cc,
+    hours,
+    fetchImpl: pacedFetch,
+    paceMs: series.paceMs ?? GFS_WAVE_PACE_MS,
+    budgetMs: series.budgetMs,
+    enabled: true,
+    sleep: series.sleep,
+    prefetched,
+  });
+  if (!files.length) {
+    errors.push("gfs-wave-series: fetch failed");
+    return {};
+  }
+  const assembled = assembleGfsWaveSeries(files, hours, chosen);
+  const f000 = files.find((f) => f.hour === 0) ?? files[0];
+  let ingest: GfsWaveIngest | undefined;
+  if (f000) {
+    const hash = await sha256Hex(f000.bytes);
+    const painted = Boolean(assembled.windKt || assembled.waveFt);
+    const named = formatGfsWaveCycle(chosen);
+    ingest = {
+      live: true,
+      source: "nomads-gfswave",
+      grid: "atlocn.0p16",
+      forecastHour: f000.hour,
+      cycle: `${chosen.ymd}${chosen.cc}`,
+      url: f000.url,
+      bytes: files.reduce((n, f) => n + f.bytes.byteLength, 0),
+      sha256: hash,
+      contentType: "application/wmo-grib",
+      note:
+        assembled.complete && assembled.hoursCovered >= 72
+          ? `NCEP Atlantic 0p16 ${named} f000–f072 / 3 h parsed.`
+          : `NCEP Atlantic 0p16 ${named} series hours ${assembled.fetchedHours.join(",")} — hoursCovered ${assembled.hoursCovered}, not 72 h ready.`,
+      parsed: painted ? { windKt: assembled.windKt, waveFt: assembled.waveFt } : undefined,
+      parseError: painted ? undefined : "no wind/wave fields",
+    };
+  }
+  return { ingest, series: assembled };
+}
+
+/**
+ * Fetch public NOAA overlays. Any failure is recorded and that layer is
+ * omitted (caller keeps the fixture). Never throws. Does not replace
+ * 72 h wind/wave fixture grids with a single hour. Hour 0 may paint; a Worker series paints every fetched hour and keeps a fixture tail when incomplete.
+ */
+export async function tryLiveNoaa(options: {
+  bbox: PackBBox;
+  start: string;
+  hours: number;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  skipCache?: boolean;
+  now?: Date;
+  gfsWaveSeries?: GfsWaveSeriesFlag;
+  sleep?: (ms: number) => Promise<void>;
+  aisstreamApiKey?: string;
+  openAisStream?: OpenAisStream;
+  aisSnapshotMs?: number;
+}): Promise<LiveNoaaResult> {
+  const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
+  const sleep = options.sleep;
+  const fetchImpl = options.fetchImpl ?? defaultNoaaFetch;
+  const key = liveCacheKey(options.bbox, options.start, options.hours);
+  if (!options.skipCache) {
+    const hit = liveCache.get(key);
+    if (hit && Date.now() - hit.at < LIVE_TTL_MS && liveCacheValueUsable(hit.value)) {
+      return ensureLiveOverlayErrors({ ...hit.value, errors: [...hit.value.errors] });
+    }
+  }
+  const errors: string[] = [];
+  const out: LiveNoaaResult = { errors };
+  if (typeof fetchImpl !== "function") {
+    errors.push("fetch unavailable");
+    ensureLiveOverlayErrors(out);
+    liveCache.set(key, { at: Date.now(), value: out });
+    return out;
+  }
+
+  const series = seriesFlag(options.gfsWaveSeries);
+  const gridTimeout = Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS);
+  // AIS snapshot alone — parallel NOAA (S-57 / GRIB) starves WS message
+  // dispatch and AISStream may close an unread queue. Looks like 0 positions.
+  const ais = await fetchLiveAis({
+    bbox: options.bbox,
+    apiKey: options.aisstreamApiKey,
+    errors,
+    openSocket: options.openAisStream,
+    snapshotMs: options.aisSnapshotMs,
+  });
+  // SST before ENC/GFS/other ERDDAP so ACSPO is not starved under the shared budget.
+  const sst = await fetchLiveSst({
+    bbox: options.bbox,
+    fetchImpl,
+    timeoutMs: Math.max(gridTimeout, SST_DEDICATED_TIMEOUT_MS),
+    errors,
+    sleep,
+    now: options.now,
+  });
+  const gfsJob = series.enabled
+    ? liveGfsWaveSeries(
+        options.bbox,
+        fetchImpl,
+        Math.max(timeoutMs, 8000),
+        errors,
+        series,
+        options.now,
+      )
+    : liveGfsWave(options.bbox, fetchImpl, gridTimeout, errors, options.now, sleep).then(
+        (ingest) => ({
+          ingest,
+        }),
+      );
+  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons] = await Promise.all([
+    liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
+    liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
+    liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
+    gfsJob,
+    fetchLiveChl({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
+    fetchLiveSsh({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
+    fetchLiveHms({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
+    fetchLiveBathy({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
+    fetchLiveCanyons({
+      bbox: options.bbox,
+      fetchImpl,
+      timeoutMs: gridTimeout,
+      errors,
+      sleep,
+    }),
+  ]);
+  if (buoys) out.buoys = buoys;
+  if (tides) out.tides = tides;
+  if (enc) out.enc = enc;
+  if (sst) out.sst = sst;
+  if (chl) out.chlorophyll = chl;
+  if (ssh) out.altimetry = ssh;
+  if (hms) out.hms = hms;
+  if (bathy) out.bathymetry = bathy;
+  if (canyons) out.canyons = canyons;
+  if (ais) {
+    out.ais = ais.body;
+    out.aisNote = ais.note;
+  }
+  if ("series" in gfs && gfs.series && gfs.series.fetchedHours.length) {
+    out.gfsWaveSeries = gfs.series;
+    if (gfs.ingest) out.gfsWave = gfs.ingest;
+  } else if (gfs.ingest) {
+    out.gfsWave = gfs.ingest;
+  } else if (series.enabled) {
+    const hour0 = await liveGfsWave(
+      options.bbox,
+      fetchImpl,
+      gridTimeout,
+      errors,
+      options.now,
+      sleep,
+    );
+    if (hour0) out.gfsWave = hour0;
+  }
+
+  ensureLiveOverlayErrors(out);
+  liveCache.set(key, { at: Date.now(), value: out });
+  return out;
+}
+
+export function encodeLiveLayer(body: PackedJson): string {
+  return encodeLayerBody(body);
+}
+
+/** Same path as tryLiveNoaa ENC. Official S-57 when zips parse; catalog-only otherwise. */
+export async function fetchLiveEnc(options: {
+  bbox: PackBBox;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  errors: string[];
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<PackedJson | undefined> {
+  return liveEnc(options.bbox, options.fetchImpl, options.timeoutMs, options.errors, options.sleep);
+}
+
+/** Same path as tryLiveNoaa tides. Does not invent water levels. */
+export async function fetchLiveTides(options: {
+  bbox: PackBBox;
+  start: string;
+  hours: number;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  errors: string[];
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<PackedJson | undefined> {
+  return liveTides(
+    options.bbox,
+    options.start,
+    options.hours,
+    options.fetchImpl,
+    options.timeoutMs,
+    options.errors,
+    options.sleep,
+  );
+}
+
+
+export {
+  defaultNoaaFetch,
+  fetchNoaaBytes,
+  fetchNoaaText,
+  NOAA_GRID_TIMEOUT_MS,
+  NOAA_QUICK_TIMEOUT_MS,
+  NOAA_RETRY_BACKOFF_MS,
+  NOAA_USER_AGENT,
+  noaaStatusRetryable,
+  isNoaaAbortError,
+} from "./noaa-http";
+export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds, pickOfficialEncCells, packedEncCellIds, packedEncNeedsRefresh, parseS57ExchangeSet, sampleS57Zip, isIso8211 } from "./noaa-enc";
+export {
+  gfsWaveFilterUrl,
+  gfsWaveCycleCandidates,
+  isGrib2,
+  fetchGfsWaveSeries,
+  assembleGfsWaveSeries,
+  gfsWaveSeriesEnabled,
+  gfsWaveSeriesHours,
+  GFS_HOUR0_FIXTURE_NOTE,
+  mergeHour0IntoFixture,
+  mergeLiveHoursIntoFixture,
+  workerGfsWaveSeriesFlag,
+  pickGfsWaveSeriesCycle,
+  pickGfsWaveSeriesCycleFromNomads,
+  formatGfsWaveCycle,
+} from "./noaa-gfs";
+export {
+  SST_ENDPOINTS,
+  SST_SELECT_MAX_AGE_H,
+  SST_PREFERRED_MAX_AGE_H,
+  SST_DEDICATED_TIMEOUT_MS,
+  sstEndpointById,
+  sstEndpointBases,
+  sstProbePathCount,
+  sstPreferredLostLine,
+  effectiveSstDeg,
+  sstResolutionNote,
+  sstAgeHours,
+  erddapSstCsvUrl,
+  parseErddapSstCsv,
+  sstTableToPacked,
+  fetchLiveSst,
+  sampleCsvForTests,
+} from "./noaa-sst";
+export {
+  CHL_ENDPOINTS,
+  erddapChlCsvUrl,
+  parseErddapChlCsv,
+  chlTableToPacked,
+  fetchLiveChl,
+  sampleChlCsvForTests,
+} from "./noaa-chl";
+export {
+  SSH_ENDPOINTS,
+  erddapSshCsvUrl,
+  parseErddapSshCsv,
+  sshTableToPacked,
+  fetchLiveSsh,
+  sampleSshCsvForTests,
+} from "./noaa-ssh";
+export {
+  HMS_ENDPOINTS,
+  HMS_REMINDER_NOTE,
+  parseKmlPolygons,
+  clipHmsFeatures,
+  featureIntersectsBbox,
+  featuresFromZip,
+  hmsToPackedJson,
+  fetchLiveHms,
+  sampleHmsKmlForTests,
+  sampleHmsKmzForTests,
+} from "./noaa-hms";
+export {
+  BATHY_ENDPOINTS,
+  BATHY_AID_NOTE,
+  erddapBathyCsvUrl,
+  parseErddapBathyCsv,
+  bathyTableToPacked,
+  contoursFromDepthGrid,
+  fetchLiveBathy,
+  sampleBathyCsvForTests,
+} from "./noaa-bathy";
+export {
+  AISSTREAM_URL,
+  AIS_SNAPSHOT_MS,
+  AIS_POSITION_MESSAGE_TYPES,
+  fetchLiveAis,
+  parseAisStreamMessage,
+  aisSubscribeMessage,
+  aisStreamBbox,
+  aisTargetsToPackedJson,
+} from "./ais-live";
+export {
+  CANYON_ENDPOINTS,
+  CANYON_AID_NOTE,
+  canyonQueryUrl,
+  parseCanyonGazetteer,
+  clipCanyonFeatures,
+  canyonsToPackedJson,
+  fetchLiveCanyons,
+  sampleCanyonsGeojsonForTests,
+  shortCanyonName,
+} from "./noaa-canyons";

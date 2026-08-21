@@ -1,6 +1,7 @@
 import { coastLon, isLand, shelfBreakLon } from "./bathymetry";
 import { MONTAUK, NEWPORT, POINT_JUDITH } from "./constants";
 import { haversineNm, toRad } from "./geo";
+import { getPackedOcean } from "./packed-fields";
 
 export interface TideConstituent {
   H: number;
@@ -170,10 +171,55 @@ function nextSlackHours(dH: (h: number) => number, hours: number): number {
   return hours + 6.21;
 }
 
+function packedTideAt(lat: number, lon: number, date: Date): TideState | null {
+  const tides = getPackedOcean()?.tides;
+  if (!tides?.stations?.length) return null;
+  const t = date.getTime();
+  let best = tides.stations[0]!;
+  let bestD = Infinity;
+  for (const st of tides.stations) {
+    const d = haversineNm({ lat, lon }, { lat: st.lat, lon: st.lon });
+    if (d < bestD) {
+      bestD = d;
+      best = st;
+    }
+  }
+  const series = best.series ?? [];
+  if (series.length < 2) return null;
+  let i = 0;
+  while (i < series.length - 2 && Date.parse(series[i + 1]!.at) <= t) i += 1;
+  const a = series[i]!;
+  const b = series[Math.min(i + 1, series.length - 1)]!;
+  const ta = Date.parse(a.at);
+  const tb = Date.parse(b.at);
+  const u = tb === ta ? 0 : clamp((t - ta) / (tb - ta), 0, 1);
+  const heightFt = a.heightFt + (b.heightFt - a.heightFt) * u;
+  const rising = b.heightFt >= a.heightFt;
+  let nextSlack = new Date(tb);
+  const hilo = best.hilo ?? [];
+  for (const h of hilo) {
+    const ht = Date.parse(h.at);
+    if (ht >= t - 60_000) {
+      nextSlack = new Date(ht);
+      break;
+    }
+  }
+  const local = nearestStation(lat, lon);
+  return {
+    heightFt,
+    rising,
+    nextSlack,
+    floodDir: local.floodDir,
+  };
+}
+
 /**
- * Harmonic tide (M2+S2+N2) interpolated from Newport, Point Judith, Montauk, Woods Hole.
+ * Prefer packed CO-OPS / fixture series when a pack is loaded.
+ * Otherwise harmonic tide (M2+S2+N2) from Newport, Point Judith, Montauk, Woods Hole.
  */
 export function tideAt(lat: number, lon: number, date: Date): TideState {
+  const packed = packedTideAt(lat, lon, date);
+  if (packed) return packed;
   const blend = blended(lat, lon);
   const hours = hoursSinceEpoch(date);
   const heightFt = blend.H(hours);

@@ -1,3 +1,7 @@
+/**
+ * DEMO leftover community freeze. Not a pack layer. Not live radio.
+ * Helm must not paint these — same class as the AIS demo fleet.
+ */
 import type { CommunityReport } from "@/lib/ahanu/types";
 
 export const COMMUNITY_REPORTS: CommunityReport[] = [

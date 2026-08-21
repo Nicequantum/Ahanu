@@ -32,7 +32,6 @@ import { betterAuth } from "better-auth";
 import { bearer, genericOAuth } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
@@ -44,29 +43,26 @@ import {
   PREVIEW_CLIENT_ID,
   PREVIEW_CLIENT_SECRET,
 } from "./preview";
+import {
+  envTrim,
+  isolateBootSecret,
+  resolveBetterAuthSecret,
+  runningOnCloudflareWorker,
+} from "./secret";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
-void ensureDbReady();
-
-/**
- * Preview secret must outlive module reloads: PGLite (and its session rows) is
- * stored on `globalThis`, so an HMR re-eval of this file must NOT mint a new
- * signing secret or every existing session becomes invalid mid-dev. Process
- * restart clears both the secret and PGLite together.
- */
-const globalAuthRef = globalThis as typeof globalThis & {
-  __grokAuthPreviewSecret__?: string;
-};
-function previewAuthSecret(): string {
-  globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
-  return globalAuthRef.__grokAuthPreviewSecret__;
+// Cloudflare Workers forbid async I/O at isolate global scope — db.ts already
+// skips eager PGLite boot on CF; first request inside a handler opens it.
+if (!runningOnCloudflareWorker()) {
+  void ensureDbReady();
 }
 
 /** Read an env var, treating empty/whitespace as unset. */
-const env = (key: string): string | undefined => {
-  const value = process.env[key]?.trim();
-  return value ? value : undefined;
-};
+const env = (key: string): string | undefined => envTrim(key);
+
+const resolvedAuthSecret = resolveBetterAuthSecret();
+export const authSecretSource = resolvedAuthSecret.source;
+const authSigningSecret = resolvedAuthSecret.secret || isolateBootSecret();
 
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
@@ -171,9 +167,10 @@ const grokOAuthPlugin = authConfigured
 
 export const auth = betterAuth({
   baseURL,
-  // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
-  // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // Deployed apps inject BETTER_AUTH_SECRET. CF without it fails closed
+  // (authSecretSource === "missing"; /api/auth refuses). Preview: process-local
+  // random on globalThis so HMR doesn't invalidate PGLite sessions.
+  secret: authSigningSecret,
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).

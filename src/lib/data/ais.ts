@@ -57,6 +57,9 @@ const FLEET: readonly Spec[] = [
   { mmsi: "367890441", name: "Night Moves", type: "fishing", lengthM: 20, dest: "DRIFT", role: "sword", sog: 0.9, phase: 0.3, offsetNm: 0 },
 ];
 
+/** Invented demo MMSIs — never pack these as live AIS. */
+export const DEMO_AIS_MMSIS: readonly string[] = FLEET.map((s) => s.mmsi);
+
 const TSS: LatLon[] = [
   { lat: 39.6, lon: -73.5 },
   { lat: HUDSON_HEAD.lat + 0.28, lon: HUDSON_HEAD.lon + 0.35 },

@@ -6,8 +6,8 @@
  * - `?install=1&platform=ios` on a document path → the Home Screen tutorial,
  *   bundled into the server build via `?raw` (the public/ directory is CDN
  *   static output on Vercel and not readable from the function).
- * - `/__grok/manifest.webmanifest` → per-app-named manifest (kept out of
- *   public/ so this dynamic response is the only one).
+ * - `/manifest.webmanifest` (and `/__grok/manifest.webmanifest`) →
+ *   per-app-named manifest. The static public/ copy is the CF asset ship path.
  * - Other HTML documents → stream-inject PWA + OG head tags at `</head>`.
  *   OG identity is baked via `virtual:grok-og-identity` at `vite build`
  *   (this function cannot read `src/lib/og/site.json` or `public/og.jpg`).
@@ -21,9 +21,11 @@ import {
   createHeadInjector,
   isDocumentPath,
   isInstallQuery,
+  isWebManifestPath,
   renderInstallPageHtml,
   renderWebManifest,
 } from "../../scripts/grok-pwa-shared.mjs";
+import { applyPwaSecurityHeaders } from "../../src/lib/ahanu/security-headers";
 
 interface GrokPwaEvent {
   url: URL;
@@ -34,6 +36,14 @@ function requestHost(event: GrokPwaEvent): string {
   return (
     event.req.headers.get("x-forwarded-host") ?? event.req.headers.get("host") ?? event.url.host
   );
+}
+
+function asRequest(event: GrokPwaEvent): Request {
+  return new Request(event.url, { method: event.req.method, headers: event.req.headers });
+}
+
+function withPwaHeaders(event: GrokPwaEvent, response: Response): Response {
+  return applyPwaSecurityHeaders(asRequest(event), response);
 }
 
 function injectHeadStreaming(response: Response, host: string): Response {
@@ -70,13 +80,16 @@ export default async function grokPwaMiddleware(
   const path = event.url.pathname;
   const urlWithQuery = path + event.url.search;
 
-  if (path === "/__grok/manifest.webmanifest" || path === "/__grok/manifest.json") {
-    return new Response(renderWebManifest(requestHost(event)), {
-      headers: {
-        "content-type": "application/manifest+json; charset=utf-8",
-        "cache-control": "no-cache",
-      },
-    });
+  if (isWebManifestPath(path)) {
+    return withPwaHeaders(
+      event,
+      new Response(renderWebManifest(requestHost(event)), {
+        headers: {
+          "content-type": "application/manifest+json; charset=utf-8",
+          "cache-control": "no-cache",
+        },
+      }),
+    );
   }
 
   if (
@@ -88,12 +101,15 @@ export default async function grokPwaMiddleware(
       host: requestHost(event),
       url: urlWithQuery,
     });
-    return new Response(html, {
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-cache",
-      },
-    });
+    return withPwaHeaders(
+      event,
+      new Response(html, {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+        },
+      }),
+    );
   }
 
   if (!isDocumentPath(path)) return next();
@@ -105,7 +121,7 @@ export default async function grokPwaMiddleware(
     String(result.headers.get("content-type") ?? "").includes("text/html") &&
     !result.headers.get("content-encoding")
   ) {
-    return injectHeadStreaming(result, requestHost(event));
+    return withPwaHeaders(event, injectHeadStreaming(result, requestHost(event)));
   }
-  return result;
+  return result instanceof Response ? withPwaHeaders(event, result) : result;
 }

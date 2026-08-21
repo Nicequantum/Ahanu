@@ -1,6 +1,7 @@
 import { depthM, isLand, shelfBreakLon } from "./bathymetry";
 import { HUDSON_HEAD, REGION, VEATCH_HEAD } from "./constants";
 import { toRad } from "./geo";
+import { samplePackedKind } from "./packed-fields";
 
 export type RasterKind = "sst" | "chl" | "ssh" | "depth";
 
@@ -113,6 +114,8 @@ function texture(lat: number, lon: number, hour: number): number {
  * two or three rings, slow westward drift with hour.
  */
 export function sstC(lat: number, lon: number, hour = 0): number {
+  const packed = samplePackedKind("sst", lat, lon, hour);
+  if (packed != null) return packed;
   if (isLand(lat, lon)) return 21.5;
   const brk = shelfBreakLon(lat);
   const beyond = lon - brk;
@@ -141,6 +144,8 @@ export function sstC(lat: number, lon: number, hour = 0): number {
 
 /** Chlorophyll-a (mg m⁻³). High on the shelf and color edges, low in Stream blue. */
 export function chlorophyll(lat: number, lon: number, hour = 0): number {
+  const packed = samplePackedKind("chl", lat, lon, hour);
+  if (packed != null) return packed;
   if (isLand(lat, lon)) return 0;
   const brk = shelfBreakLon(lat);
   const beyond = lon - brk;
@@ -168,6 +173,8 @@ export function chlorophyll(lat: number, lon: number, hour = 0): number {
 
 /** Sea-surface height anomaly (cm). Rings ±20 cm; Stream high on the Sargasso side. */
 export function sshCm(lat: number, lon: number, hour = 0): number {
+  const packed = samplePackedKind("ssh", lat, lon, hour);
+  if (packed != null) return packed;
   if (isLand(lat, lon)) return 0;
   const brk = shelfBreakLon(lat);
   const beyond = lon - brk;

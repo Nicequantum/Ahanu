@@ -9,6 +9,32 @@ export const REGION = {
 } as const;
 
 export const POINT_JUDITH = { lat: 41.3615, lon: -71.4814 };
+
+/** Point Judith canyon overnight box — docs/DATA_PACKS.md.
+ * MarineCadastre heads already inside (2026-08-20): Veatch -69.60/39.87,
+ * Atlantis -70.20/39.87, Hydrographer -69.05/40.20, Alvin -70.50/39.87.
+ * Do not shrink east of -68.8 — a -70.8 east clip drops those four.
+ */
+export const POINT_JUDITH_CANYON_BBOX = {
+  west: -72.8,
+  south: 39.4,
+  east: -68.8,
+  north: 41.5,
+} as const;
+
+/**
+ * Official NOAA ENCProdCat 2026-08-21 / S-57 extract footprint for
+ * US5PVDBB (Block Island Sound — Matunuck Point to Point Judith).
+ * Same vertices as the packed catalog and US5PVDBB.000 extract:
+ * west -71.55, south 41.325, east -71.475, north 41.4.
+ * Harbor-scale fallback when packed cells are missing. Not invented.
+ */
+export const POINT_JUDITH_HARBOR_BBOX = {
+  west: -71.55,
+  south: 41.325,
+  east: -71.475,
+  north: 41.4,
+} as const;
 export const MONTAUK = { lat: 41.048, lon: -71.959 };
 export const NEWPORT = { lat: 41.49, lon: -71.327 };
 export const VEATCH_HEAD = { lat: 39.9, lon: -69.62 };
@@ -18,6 +44,10 @@ export const HUDSON_HEAD = { lat: 39.55, lon: -72.4 };
 
 export const DEFAULT_CENTER = { lat: 39.92, lon: -69.85 };
 export const DEFAULT_ZOOM = 7.35;
+
+/** Harbor S-57 aids/soundings need ~z15. Not a tile-schema cap — GeoJSON has none.
+ *  Bathy/SST/chl/ssh/habitat are image overlays (no native maxzoom); they stretch. */
+export const PLOTTER_MAX_ZOOM = 16;
 
 export const NM_PER_DEG_LAT = 60;
 export const METERS_PER_NM = 1852;
@@ -53,7 +83,8 @@ export const LAYER_META: Record<
   tracks: { label: "Track", group: "ops" },
   routes: { label: "Routes", group: "ops" },
   hms_zones: { label: "HMS closed areas", group: "ops" },
-  ais: { label: "AIS (gateway)", group: "ops" },
+  enc: { label: "ENC catalog (aid)", group: "ops" },
+  ais: { label: "AIS", group: "ops" },
 };
 
 export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number }> = {
@@ -73,6 +104,7 @@ export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number
   tracks: { visible: true, opacity: 0.9 },
   routes: { visible: true, opacity: 1 },
   hms_zones: { visible: false, opacity: 0.35 },
+  enc: { visible: true, opacity: 0.32 },
   ais: { visible: false, opacity: 0.8 },
 };
 

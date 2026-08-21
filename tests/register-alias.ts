@@ -10,6 +10,7 @@ import path from "node:path";
 const SRC_ROOT = path.resolve(fileURLToPath(new URL("../src/", import.meta.url)));
 const SRC_HREF = pathToFileURL(SRC_ROOT).href;
 const TEST_HREF = pathToFileURL(path.resolve(fileURLToPath(new URL("./", import.meta.url)))).href;
+const CF_HREF = pathToFileURL(path.resolve(fileURLToPath(new URL("../cloudflare/", import.meta.url)))).href;
 
 const g = globalThis as typeof globalThis & { __ahanuAliasHooks?: boolean };
 if (!g.__ahanuAliasHooks) {
@@ -23,7 +24,8 @@ if (!g.__ahanuAliasHooks) {
       }
 
       const parent = context.parentURL ?? "";
-      const fromWorkspace = parent.startsWith(SRC_HREF) || parent.startsWith(TEST_HREF);
+      const fromWorkspace =
+        parent.startsWith(SRC_HREF) || parent.startsWith(TEST_HREF) || parent.startsWith(CF_HREF);
       if (
         fromWorkspace &&
         (specifier.startsWith("./") || specifier.startsWith("../")) &&

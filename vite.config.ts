@@ -1,4 +1,4 @@
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -7,13 +7,20 @@ import { nitro } from "nitro/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
+import {
+  invalidatePackSsrGraph,
+  isAhanuPackSsrFile,
+  packSsrSurfaces,
+  PACK_SSR_ENTRY,
+  watchAhanuPackDir,
+} from "./scripts/pack-ssr-invalidate";
 
 /**
  * Cloudflare Workers Builds sets WORKERS_CI. Pages sets CF_PAGES.
  * `AHANU_CF=1` is the explicit switch for `npm run deploy:cf`.
  * Cloudflare CI also injects CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID,
  * which is how a dashboard command of `npx wrangler deploy` still takes
- * this path. Grok/Vercel `npm run build` has none of these — Nitro stays.
+ * this path. The Grok preview `npm run build` has none of these — Nitro stays so the preview host can serve the PWA. That path is not production.
  */
 function isCloudflareBuild(): boolean {
   return (
@@ -25,14 +32,98 @@ function isCloudflareBuild(): boolean {
   );
 }
 
+/** Live ahanu-packs Worker on zone ahanu.dev. workers.dev remains the fallback. */
+const DEFAULT_PACKS_WORKER_URL = "https://api.ahanu.dev";
+
 /**
  * Finish PGLite bootstrap during dev-server setup (before traffic). Vite awaits
  * async `configureServer` hooks. Production: `src/lib/db` kicks `ensureDbReady`
  * on import.
  */
+
+function bustPackSsr(server: ViteDevServer) {
+  const { graph, runner } = packSsrSurfaces(server);
+  if (graph) invalidatePackSsrGraph(graph, runner);
+}
+
+function ahanuPacksPlugin(): Plugin {
+  return {
+    name: "ahanu-packs-api",
+    apply: "serve",
+    configureServer(server) {
+      watchAhanuPackDir(server.watcher, server.config.root);
+      server.watcher.on("change", (file) => {
+        if (isAhanuPackSsrFile(file)) bustPackSsr(server);
+      });
+      server.middlewares.use(async (req, res, next) => {
+        const rawUrl = req.url ?? "";
+        const pathOnly = rawUrl.split("?", 1)[0] ?? "";
+        const method = (req.method ?? "GET").toUpperCase();
+        const hit =
+          pathOnly === "/api/packs" ||
+          pathOnly === "/api/objects" ||
+          pathOnly.startsWith("/api/objects/") ||
+          pathOnly === "/api/catches";
+        if (!hit) {
+          next();
+          return;
+        }
+        try {
+          const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost:8080");
+          const proto = String(
+            req.headers["x-forwarded-proto"] ??
+              ((req.socket as { encrypted?: boolean } | undefined)?.encrypted ? "https" : "http"),
+          );
+          const requestHeaders = new Headers();
+          for (const [key, value] of Object.entries(req.headers)) {
+            if (value === undefined) continue;
+            if (Array.isArray(value)) {
+              for (const v of value) requestHeaders.append(key, v);
+            } else {
+              requestHeaders.set(key, value);
+            }
+          }
+          const chunks: Buffer[] = [];
+          if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+            await new Promise<void>((resolve, reject) => {
+              req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+              req.on("end", () => resolve());
+              req.on("error", reject);
+            });
+          }
+          const body = chunks.length ? Buffer.concat(chunks) : undefined;
+          const request = new Request(`${proto}://${host}${rawUrl}`, {
+            method,
+            headers: requestHeaders,
+            body: body && body.length ? new Uint8Array(body) : undefined,
+          });
+          bustPackSsr(server);
+          const mod = (await server.ssrLoadModule(PACK_SSR_ENTRY)) as {
+            handlePacksRequest: (req: Request) => Promise<Response>;
+          };
+          const response = await mod.handlePacksRequest(request);
+          res.statusCode = response.status;
+          response.headers.forEach((value, key) => {
+            res.setHeader(key, value);
+          });
+          const out = Buffer.from(await response.arrayBuffer());
+          res.end(out);
+        } catch (err) {
+          console.error("[ahanu] pack API failed:", err);
+          if (!res.headersSent) {
+            res.statusCode = 500;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: "pack api failed" }));
+          }
+        }
+      });
+    },
+  };
+}
+
 function pgliteBootstrapPlugin(): Plugin {
   return {
-    name: "app-builder:pglite-bootstrap",
+    name: "ahanu:pglite-bootstrap",
     apply: "serve",
     async configureServer(server) {
       try {
@@ -43,7 +134,7 @@ function pgliteBootstrapPlugin(): Plugin {
           await mod.ensureDbReady();
         }
       } catch (err) {
-        console.error("[app-builder] DB bootstrap failed:", err);
+        console.error("[ahanu] DB bootstrap failed:", err);
         throw err;
       }
     },
@@ -62,7 +153,7 @@ function pgliteBootstrapPlugin(): Plugin {
  */
 function authPopupPlugin(): Plugin {
   return {
-    name: "app-builder:auth-popup",
+    name: "ahanu:auth-popup",
     apply: "serve",
     configureServer(server) {
       // Register immediately (not in a returned post-hook) so we run BEFORE
@@ -129,7 +220,7 @@ function authPopupPlugin(): Plugin {
           const body = Buffer.from(await response.arrayBuffer());
           res.end(body);
         } catch (err) {
-          console.error("[app-builder] /auth/popup handler failed:", err);
+          console.error("[ahanu] /auth/popup handler failed:", err);
           if (!res.headersSent) {
             res.statusCode = 500;
             res.setHeader("content-type", "text/plain; charset=utf-8");
@@ -141,11 +232,15 @@ function authPopupPlugin(): Plugin {
   };
 }
 
-// `0.0.0.0:8080` is the live-preview contract — don't change host/port.
-// The dev server starts once `src/router.tsx` and `src/routes/` exist — see
-// AGENTS.md § "First scaffold".
+// `0.0.0.0:8080` is the Vite/TanStack preview-host contract — don't change host/port.
 export default defineConfig(({ command, isPreview }) => {
   const cf = isCloudflareBuild();
+  // Helm reads import.meta.env.VITE_AHANU_PACKS_URL (pack-client packsApiBase).
+  // Local Vite leaves it unset so Packs hits same-origin /api/packs.
+  // CF / production PWA builds default to the live Worker unless already set.
+  if (cf && !process.env.VITE_AHANU_PACKS_URL) {
+    process.env.VITE_AHANU_PACKS_URL = DEFAULT_PACKS_WORKER_URL;
+  }
 
   return {
     server: {
@@ -159,12 +254,13 @@ export default defineConfig(({ command, isPreview }) => {
       strictPort: true,
     },
     resolve: { tsconfigPaths: true },
-    // MapLibre is a browser WebGL client. Exclude it from Vite's dep optimizer
-    // in *dev* so the map worker loads. Never set `ssr.external` — Cloudflare's
+    // MapLibre v6 worker is bound in ChartMap via setWorkerUrl + ?worker&url. Exclude
+    // from the dep optimizer so the worker module is not prebundled. Never set `ssr.external` — Cloudflare's
     // Vite plugin rejects `resolve.external` on the SSR worker environment.
-    optimizeDeps: command === "serve" ? { exclude: ["maplibre-gl"] } : undefined,
+    optimizeDeps: { exclude: ["maplibre-gl"] },
     plugins: [
       pgliteBootstrapPlugin(),
+      ahanuPacksPlugin(),
       // Before tanstackStart so /auth/popup never falls through to the SPA.
       authPopupPlugin(),
       // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
@@ -175,10 +271,12 @@ export default defineConfig(({ command, isPreview }) => {
       ...(!cf && (command === "build" || isPreview)
         ? [
             nitro({
+              // Nitro + Vercel preset: Grok preview host only. Production is
+              // `AHANU_CF=1` / Cloudflare. Do not treat this as the ship path.
               preset: "vercel",
               // Auto-registers server/middleware/* (the PWA install page +
               // manifest + head-tag middleware). Nitro v3 defaults serverDir to
-              // false, so removing this silently unwires /?install=1 on deploys.
+              // false, so removing this silently unwires /?install=1 on the preview host.
               serverDir: "./server",
             }),
           ]

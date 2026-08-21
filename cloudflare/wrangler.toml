@@ -1,6 +1,7 @@
 # Ahanu trip-pack data plane.
 # Production delivery is Cloudflare only (Workers + Pages + R2 + D1 + Durable Objects).
-# Vercel is never used to serve chart packs, GRIB, SST, or any other marine bytes.
+# The Grok preview web client may still build through Nitro; it must not serve
+# chart packs, GRIB, SST, or any other marine bytes.
 
 name = "ahanu-packs"
 main = "src/index.ts"
@@ -8,22 +9,26 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+[observability]
+enabled = true
+
 [vars]
 SERVICE = "ahanu-packs"
-# Default operating box: Northeast U.S. shelf + canyons (see src/lib/ahanu/constants.ts).
-REGION_WEST = "-75.4"
-REGION_SOUTH = "36.4"
-REGION_EAST = "-66.4"
-REGION_NORTH = "42.6"
+# Default operating box: Point Judith canyon overnight (see src/lib/ahanu/constants.ts).
+# Helm always sends this box. Cron ingestFixturePack uses the same default.
+REGION_WEST = "-72.8"
+REGION_SOUTH = "39.4"
+REGION_EAST = "-68.8"
+REGION_NORTH = "41.5"
+# GFS-Wave 72 h / 3 h series on for GET /api/packs and cron.
+# Pace 0, 25 s budget. Set to "0" to force hour-0 only.
+GFS_WAVE_SERIES = "1"
 
-# ---------------------------------------------------------------------------
-# Routes placeholder
-# Replace pattern + zone_name after the custom domain is attached in the
-# Cloudflare dashboard. Until then, traffic lands on *.workers.dev.
-# ---------------------------------------------------------------------------
+# Custom domain on zone ahanu.dev (active). ahanu.app is not on this account.
+# workers.dev stays enabled as fallback.
 [[routes]]
-pattern = "api.ahanu.app/*"
-zone_name = "ahanu.app"
+pattern = "api.ahanu.dev"
+custom_domain = true
 
 [[r2_buckets]]
 binding = "PACKS"
@@ -32,9 +37,10 @@ bucket_name = "ahanu-trip-packs"
 [[d1_databases]]
 binding = "DB"
 database_name = "ahanu-core"
-# Placeholder — wrangler d1 create ahanu-core will emit the real id.
-database_id = "00000000-0000-0000-0000-000000000000"
-preview_database_id = "00000000-0000-0000-0000-000000000000"
+# Live D1 `ahanu-core` (ENAM, uuid below). Same id for preview until a
+# separate preview database exists. R2 `ahanu-trip-packs` is also live (ENAM).
+database_id = "ed2706b8-7537-400f-88f6-933ac03120dc"
+preview_database_id = "ed2706b8-7537-400f-88f6-933ac03120dc"
 
 # Live community presence + pack-build leases. SQLite-backed DO (2024+).
 [[durable_objects.bindings]]
@@ -44,3 +50,30 @@ class_name = "CommunityHub"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CommunityHub"]
+
+# Ingest cron is on: builds a live PJ pack (tryLive, skipCache) and puts
+# layer bodies at manifest r2Key. NOAA bytes when they landed; hashed
+# fixtures otherwise. Custom domain is api.ahanu.dev; workers.dev stays up.
+# GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1).
+# POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
+# Secret AISSTREAM_API_KEY is bound on this Worker (not a [vars] value).
+# Fail-closed if missing — no invented AIS tracks.
+# Cron is in-process and does not HTTP POST /api/ingest.
+# HTTP skipCache / objects total-miss live NOAA rebuilds are fail-closed
+# 3/60s per CF-Connecting-IP via LIVE_REBUILD binding (per colo).
+# Isolate memory is the test fallback. R2 hits are not counted. Cron is not HTTP.
+# POST /api/catches stays device-token Bearer (helm localStorage), bound per row to SHA-256(token).
+# GET /health and GET /api/buoys reuse last-successful NDBC latest_obs (isolate + R2, 10 min TTL).
+# HEAD of GET routes matches GET status/headers with an empty body; HEAD /api/packs is R2-only.
+[triggers]
+crons = ["15 2,8,14,20 * * *"]
+
+# Shared skipCache / objects-miss NOAA rebuild cap. Tests use isolate memory
+# when this binding is absent. namespace_id is account-unique (string int).
+[[ratelimits]]
+name = "LIVE_REBUILD"
+namespace_id = "210821"
+
+  [ratelimits.simple]
+  limit = 3
+  period = 60

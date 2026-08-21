@@ -5,7 +5,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-/** Flat ESLint config for the TanStack Start app-builder template. */
+/** Flat ESLint config. Prettier owns formatting; this file owns correctness. */
 export default tseslint.config(
   {
     ignores: [
@@ -13,8 +13,12 @@ export default tseslint.config(
       ".output/**",
       ".vercel/**",
       ".nitro/**",
+      ".wrangler/**",
+      "coverage/**",
       "node_modules/**",
       "src/routeTree.gen.ts",
+      "flutter/**",
+      "public/__grok/**",
     ],
   },
   js.configs.recommended,
@@ -31,10 +35,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

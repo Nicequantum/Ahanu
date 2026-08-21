@@ -10,8 +10,7 @@ import { SolunarPanel } from "@/components/panels/SolunarPanel";
 import { SpeciesPanel } from "@/components/panels/SpeciesPanel";
 import { WeatherPanel } from "@/components/panels/WeatherPanel";
 import { pathLengthNm } from "@/lib/ahanu/geo";
-import { COMMUNITY_REPORTS } from "@/lib/data/community";
-import { SPECIES_LABELS } from "@/lib/data/species";
+import { COMMUNITY_HELM_LINE } from "@/lib/ahanu/packed-chart";
 import type { PanelId } from "@/lib/ahanu/types";
 
 export function PanelBody({ id }: { id: Exclude<PanelId, null> }) {
@@ -44,15 +43,7 @@ export function PanelBody({ id }: { id: Exclude<PanelId, null> }) {
 }
 
 export function CommunityStrip() {
-  return (
-    <div className="mt-2 space-y-2">
-      {COMMUNITY_REPORTS.slice(0, 4).map((r) => (
-        <p key={r.id} className="text-xs text-muted">
-          <span className="text-lagoon">{r.who}</span> · {SPECIES_LABELS[r.species]} · {r.note}
-        </p>
-      ))}
-    </div>
-  );
+  return <p className="mt-2 text-xs text-muted">{COMMUNITY_HELM_LINE}</p>;
 }
 
 export { pathLengthNm };

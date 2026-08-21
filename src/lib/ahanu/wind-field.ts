@@ -2,6 +2,11 @@ import { gribAt, scoreGoNoGo } from "./grib";
 import { DEFAULT_BOAT, POINT_JUDITH, REGION, VEATCH_HEAD } from "./constants";
 import { isLand } from "./bathymetry";
 import { destination } from "./geo";
+import { getPackedOcean, packedGridFeatures } from "./packed-fields";
+
+function emptyFc(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
 
 function grid(
   step: number,
@@ -23,8 +28,17 @@ function grid(
   return { type: "FeatureCollection", features };
 }
 
-/** GRIB-sampled wind barbs ~0.55°; land skipped. */
+/** Packed grid cells when present; empty if the pack is missing wind; else synthetic. */
 export function windBarbGeo(hour: number): GeoJSON.FeatureCollection {
+  const ocean = getPackedOcean();
+  if (ocean?.windKt) {
+    return packedGridFeatures(ocean.windKt, hour, (windKt, lat, lon) => {
+      if (isLand(lat, lon)) return null;
+      const g = gribAt(lat, lon, hour);
+      return { windKt, windDir: g.windDir, gustKt: g.gustKt };
+    });
+  }
+  if (ocean) return emptyFc();
   return grid(0.55, hour, (g) => ({
     windKt: g.windKt,
     windDir: g.windDir,
@@ -32,8 +46,23 @@ export function windBarbGeo(hour: number): GeoJSON.FeatureCollection {
   }));
 }
 
-/** Coarser ~0.7° wave field with go/no-go against DEFAULT_BOAT. */
+/** Packed wave cells when present; empty if the pack is missing waves; else synthetic. */
 export function waveFieldGeo(hour: number): GeoJSON.FeatureCollection {
+  const ocean = getPackedOcean();
+  if (ocean?.waveFt) {
+    return packedGridFeatures(ocean.waveFt, hour, (waveFt, lat, lon) => {
+      if (isLand(lat, lon)) return null;
+      const g = gribAt(lat, lon, hour);
+      return {
+        waveFt,
+        periodS: g.periodS,
+        swellFt: g.swellFt,
+        swellDir: g.swellDir,
+        go: scoreGoNoGo(g.windKt, waveFt, DEFAULT_BOAT),
+      };
+    });
+  }
+  if (ocean) return emptyFc();
   return grid(0.7, hour, (g) => ({
     waveFt: g.waveFt,
     periodS: g.periodS,
