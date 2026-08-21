@@ -27,9 +27,11 @@ if (typeof globalThis.localStorage === "undefined") {
 
 const {
   FRAME_HARBOR_FIT,
+  FRAME_HARBOR_FIT_BOUNDS,
   FRAME_HARBOR_LABEL,
   FRAME_HARBOR_MAX_ZOOM,
   GALILEE_DOCK,
+  HARBOR_VIEW_EAST_MAX,
   HARBOR_FRAME_BANNED,
   HARBOR_FRAME_BAY_CELL,
   HARBOR_FRAME_BBOX,
@@ -43,6 +45,9 @@ const {
   applyFrameHarbor,
   bboxContainsLonLat,
   bboxToFrameHarbor,
+  harborFitOffsetPx,
+  shiftViewportWest,
+  viewportAfterHarborFit,
   harborFrameOf,
   harborFootprints,
   isAcceptedHarborPrint,
@@ -55,6 +60,7 @@ const { CAMERA_KEY, writePersistedCamera, readPersistedCamera } =
 const { FOLLOW_KEY } = await import("../src/lib/ahanu/follow-camera.ts");
 const { useAhanu } = await import("../src/lib/ahanu/store.ts");
 const { extractS57FromDot000 } = await import("../src/lib/ahanu/s57-extract.ts");
+const { getPackedOcean } = await import("../src/lib/ahanu/packed-fields.ts");
 
 const CHART_MAP = fileURLToPath(
   new URL("../src/components/chartplotter/ChartMap.tsx", import.meta.url),
@@ -331,13 +337,15 @@ describe("Frame harbor bbox", () => {
     assertContainsGalilee(framed.bbox);
     assertExcludesNewport(framed.bbox);
     assert.equal(calls.length, 1);
+    assert.deepEqual(FRAME_HARBOR_FIT_BOUNDS, [
+      [-71.55, 41.325],
+      [-71.475, 41.475],
+    ]);
     assert.deepEqual(calls[0], {
-      bounds: [
-        [HARBOR_FRAME_BBOX.west, HARBOR_FRAME_BBOX.south],
-        [HARBOR_FRAME_BBOX.east, HARBOR_FRAME_BBOX.north],
-      ],
+      bounds: FRAME_HARBOR_FIT_BOUNDS,
       opts: { ...FRAME_HARBOR_FIT },
     });
+    assert.equal(FRAME_HARBOR_FIT.linear, true);
     assert.equal(FRAME_HARBOR_FIT.maxZoom, FRAME_HARBOR_MAX_ZOOM);
     assert.equal(FRAME_HARBOR_MAX_ZOOM, 14);
     assert.ok(FRAME_HARBOR_MAX_ZOOM >= 12 && FRAME_HARBOR_MAX_ZOOM <= 14);
@@ -394,6 +402,72 @@ describe("Frame harbor store", () => {
     useAhanu.getState().frameHarbor();
     assert.equal(useAhanu.getState().tideHarbor, "Newport");
     assert.equal(useAhanu.getState().frameHarborSeq, 1);
+  });
+});
+
+describe("Frame harbor click box", () => {
+  it("ChartMap click handler frames the official PJ union and cannot include Newport 41.49", async () => {
+    const src = await readFile(CHART_MAP, "utf8");
+    assert.match(src, /applyFrameHarbor\(map, getPackedOcean\(\)\?\.enc\)/);
+    assert.match(src, /\[\[-71\.55, 41\.325\], \[-71\.475, 41\.475\]\]/);
+    const calls: Array<{ bounds: unknown; opts: unknown }> = [];
+    const map = {
+      fitBounds: (bounds: unknown, opts: unknown) => {
+        calls.push({ bounds, opts });
+      },
+    };
+    // Same call ChartMap makes on Frame harbor — packed ENC only, never tide/pack.
+    const framed = applyFrameHarbor(map, getPackedOcean()?.enc);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assert.deepEqual(framed.bbox, {
+      west: -71.55,
+      south: 41.325,
+      east: -71.475,
+      north: 41.475,
+    });
+    assert.deepEqual(calls[0]?.bounds, FRAME_HARBOR_FIT_BOUNDS);
+    assert.deepEqual(calls[0]?.bounds, [
+      [-71.55, 41.325],
+      [-71.475, 41.475],
+    ]);
+    assertExcludesNewport(framed.bbox);
+    assert.equal(NEWPORT.lat, 41.49);
+    assert.ok(framed.bbox.north < 41.49);
+    assert.equal(bboxContainsLonLat(framed.bbox, NEWPORT.lon, NEWPORT.lat), false);
+    assert.equal(bboxContainsLonLat(framed.bbox, -71.3625, 41.4375), false, "US5PVDCD centroid");
+    assert.equal(bboxContainsLonLat(framed.bbox, -71.4, 41.4), false, "US3RI1AA centroid");
+    assert.ok(framed.bbox.north < 41.5);
+    assertContainsGalilee(framed.bbox);
+  });
+
+  it("landscape leftover width is shifted west of US5PVDCD so Newport stays out of view", () => {
+    const laptop = { width: 1280, height: 720 };
+    const raw = viewportAfterHarborFit(HARBOR_FRAME_BBOX, laptop, FRAME_HARBOR_FIT);
+    assert.ok(raw.east > HARBOR_VIEW_EAST_MAX, "unshifted landscape spills into East Passage");
+    assert.equal(bboxContainsLonLat(raw, -71.3625, 41.4375), true);
+    assert.ok(raw.north < NEWPORT.lat);
+    const [ox, oy] = harborFitOffsetPx(laptop);
+    assert.ok(ox > 0);
+    assert.equal(oy, 0);
+    const shifted = shiftViewportWest(raw, raw.east - HARBOR_VIEW_EAST_MAX);
+    assert.ok(shifted.east <= HARBOR_VIEW_EAST_MAX + 1e-9);
+    assert.equal(bboxContainsLonLat(shifted, NEWPORT.lon, NEWPORT.lat), false);
+    assert.equal(bboxContainsLonLat(shifted, -71.3625, 41.4375), false);
+    assertContainsGalilee(HARBOR_FRAME_BBOX);
+    const mapCalls: unknown[] = [];
+    applyFrameHarbor(
+      {
+        fitBounds: (bounds, opts) => {
+          mapCalls.push({ bounds, opts });
+        },
+        getContainer: () => ({ clientWidth: 1280, clientHeight: 720 }),
+      },
+      getPackedOcean()?.enc,
+    );
+    const hit = mapCalls[0] as { bounds: unknown; opts: { offset?: [number, number]; linear?: boolean } };
+    assert.deepEqual(hit.bounds, FRAME_HARBOR_FIT_BOUNDS);
+    assert.equal(hit.opts.linear, true);
+    assert.ok(hit.opts.offset && hit.opts.offset[0] > 0);
   });
 });
 

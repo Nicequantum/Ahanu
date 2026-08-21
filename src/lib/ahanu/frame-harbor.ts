@@ -5,12 +5,14 @@
  * US5PVDCD / US3RI1AA / US5PVDDD / whole bay. Huge or wrong extract
  * footprints are rejected — ENCProdCat 2026-08-21 / official .000
  * vertices, not invented. Drops Follow the same way a skipper pan
- * does. Camera persist is moveend → ahanu-camera. maxZoom 14 so
- * shoreline is readable (z12–14), not the canyon. Not ECDIS.
+ * does. Camera persist is moveend → ahanu-camera. fitBounds is
+ * linear easeTo (flyTo from Veatch zooms out through the bay).
+ * Landscape leftover width is offset west of US5PVDCD. maxZoom 14
+ * so shoreline is readable (z12–14), not the canyon. Not ECDIS.
  */
 
 import { NEWPORT, POINT_JUDITH_HARBOR_BBOX } from "./constants";
-import { fitBoundsFromBbox, parsePackBbox } from "./frame-pack";
+import { parsePackBbox } from "./frame-pack";
 import type { PackBBox } from "./pack-fixtures";
 
 export const FRAME_HARBOR_LABEL = "Frame harbor";
@@ -71,8 +73,19 @@ export const FRAME_HARBOR_FIT = {
   padding: 32,
   duration: 500,
   maxZoom: FRAME_HARBOR_MAX_ZOOM,
+  /** easeTo — flyTo from Veatch zooms out through Narragansett / US3RI1AA. */
+  linear: true,
   essential: true,
 } as const;
+
+/** Exact MapLibre fitBounds corners (SW, NE). Official US5PVDCB ∪ US5PVDBB. */
+export const FRAME_HARBOR_FIT_BOUNDS: [[number, number], [number, number]] = [
+  [HARBOR_FRAME_BBOX.west, HARBOR_FRAME_BBOX.south],
+  [HARBOR_FRAME_BBOX.east, HARBOR_FRAME_BBOX.north],
+];
+
+/** East of this is US5PVDCD / Newport approach. Landscape leftover width must stay west. */
+export const HARBOR_VIEW_EAST_MAX = -71.45;
 
 export type HarborFrameSource = "US5PVDCB" | "harbor-union" | "pj-harbor-box";
 
@@ -211,6 +224,86 @@ export function bboxToFrameHarbor(input?: HarborFrameInput | null): PackBBox {
   return harborFrameOf(input).bbox;
 }
 
+function mercatorX(lon: number): number {
+  return (lon + 180) / 360;
+}
+
+function mercatorY(lat: number): number {
+  const rad = (lat * Math.PI) / 180;
+  return (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2;
+}
+
+function lonFromMercatorX(x: number): number {
+  return x * 360 - 180;
+}
+
+function latFromMercatorY(y: number): number {
+  const n = Math.PI * (1 - 2 * y);
+  return (Math.atan(Math.sinh(n)) * 180) / Math.PI;
+}
+
+/** Visible plotter after fitBounds of `box`. Landscape width can spill past the pin. */
+export function viewportAfterHarborFit(
+  box: PackBBox,
+  mapSize: { width: number; height: number },
+  opts: { padding: number; maxZoom: number } = FRAME_HARBOR_FIT,
+): PackBBox {
+  const pad = opts.padding;
+  const availW = Math.max(1, mapSize.width - 2 * pad);
+  const availH = Math.max(1, mapSize.height - 2 * pad);
+  const tile = 512;
+  const xSpan = Math.abs(mercatorX(box.east) - mercatorX(box.west));
+  const ySpan = Math.abs(mercatorY(box.south) - mercatorY(box.north));
+  const zoomW = Math.log2(availW / (xSpan * tile));
+  const zoomH = Math.log2(availH / (ySpan * tile));
+  const zoom = Math.min(zoomW, zoomH, opts.maxZoom);
+  const world = tile * 2 ** zoom;
+  const cx = (mercatorX(box.west) + mercatorX(box.east)) / 2;
+  const cy = (mercatorY(box.south) + mercatorY(box.north)) / 2;
+  const halfW = mapSize.width / 2 / world;
+  const halfH = mapSize.height / 2 / world;
+  return {
+    west: lonFromMercatorX(cx - halfW),
+    east: lonFromMercatorX(cx + halfW),
+    north: latFromMercatorY(cy - halfH),
+    south: latFromMercatorY(cy + halfH),
+  };
+}
+
+export function shiftViewportWest(view: PackBBox, shiftDeg: number): PackBBox {
+  return {
+    west: view.west - shiftDeg,
+    east: view.east - shiftDeg,
+    south: view.south,
+    north: view.north,
+  };
+}
+
+/**
+ * Positive x puts the pin right of center so leftover landscape width is
+ * Block Island Sound, not US5PVDCD / Newport.
+ */
+export function harborFitOffsetPx(mapSize: { width: number; height: number }): [number, number] {
+  const view = viewportAfterHarborFit(HARBOR_FRAME_BBOX, mapSize, FRAME_HARBOR_FIT);
+  if (view.east <= HARBOR_VIEW_EAST_MAX) return [0, 0];
+  const shiftDeg = view.east - HARBOR_VIEW_EAST_MAX;
+  const degPerPx = (view.east - view.west) / mapSize.width;
+  if (!Number.isFinite(degPerPx) || degPerPx <= 0) return [0, 0];
+  return [shiftDeg / degPerPx, 0];
+}
+
+function harborFitOpts(map: {
+  getContainer?: () => { clientWidth: number; clientHeight: number };
+}): typeof FRAME_HARBOR_FIT | (typeof FRAME_HARBOR_FIT & { offset: [number, number] }) {
+  const el = map.getContainer?.();
+  const width = el?.clientWidth ?? 0;
+  const height = el?.clientHeight ?? 0;
+  if (width < 8 || height < 8) return { ...FRAME_HARBOR_FIT };
+  const offset = harborFitOffsetPx({ width, height });
+  if (offset[0] === 0 && offset[1] === 0) return { ...FRAME_HARBOR_FIT };
+  return { ...FRAME_HARBOR_FIT, offset };
+}
+
 export function applyFrameHarbor(
   map: {
     fitBounds: (
@@ -219,13 +312,16 @@ export function applyFrameHarbor(
         padding?: number;
         duration?: number;
         maxZoom?: number;
+        linear?: boolean;
         essential?: boolean;
+        offset?: [number, number];
       },
     ) => void;
+    getContainer?: () => { clientWidth: number; clientHeight: number };
   },
   input?: HarborFrameInput | null,
 ): HarborFrame {
   const framed = harborFrameOf(input);
-  map.fitBounds(fitBoundsFromBbox(framed.bbox), { ...FRAME_HARBOR_FIT });
+  map.fitBounds(FRAME_HARBOR_FIT_BOUNDS, harborFitOpts(map));
   return framed;
 }
