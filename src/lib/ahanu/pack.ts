@@ -918,7 +918,7 @@ export async function buildTripPack(options: {
     }
     if (live.ais) {
       overlays.ais = encodeLiveLayer(live.ais);
-      extraSources.push({ id: "aisstream", name: live.aisNote ?? "AISStream PositionReport snapshot" });
+      extraSources.push({ id: "aisstream", name: live.aisNote ?? "AISStream PositionReport + Class B snapshot" });
     }
     if (live.gfsWave || series) {
       const painted = Boolean(gfsMerge.wind || gfsMerge.waves);

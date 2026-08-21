@@ -622,13 +622,14 @@ export function marineCadastreCanyons(): IngestMeta {
  * AISSTREAM_API_KEY Worker secret — never a [vars] value, never VITE_.
  * Subscribe JSON uses AISStream [[lat,lon],[lat,lon]] corners for the
  * trip bbox (PJ default: west -72.8, south 39.4, east -68.8, north 41.5).
- * PositionReport (+ Class B). Missing key / WS error / zero positions
- * is a miss. Never invent tracks. AIS does not block Ready.
+ * PositionReport + Standard/Extended Class B, 22 s window. Missing key /
+ * WS error / zero positions is a miss. Never invent tracks. AIS does
+ * not block Ready.
  */
 export function aisStream(): IngestMeta {
   return meta({
     id: "aisstream",
-    name: "AISStream PositionReport snapshot",
+    name: "AISStream PositionReport + Class B snapshot",
     provider: "AISStream",
     kind: "vector",
     cadence: "hourly",
@@ -639,7 +640,7 @@ export function aisStream(): IngestMeta {
       { label: "AISStream documentation", url: "https://aisstream.io/documentation" },
     ],
     notes:
-      "Worker secret AISSTREAM_API_KEY. Fail-closed if missing or the snapshot has no useful positions. Unique MMSI last-known lat/lon/sog/cog/heading/name. Does not block Ready. Never the invented demo fleet.",
+      "Worker secret AISSTREAM_API_KEY. Subscribe FilterMessageTypes is PositionReport + Standard/Extended Class B. 22 s snapshot. Fail-closed if missing or the snapshot has no useful positions. Unique MMSI last-known lat/lon/sog/cog/heading/name. Does not block Ready. Never the invented demo fleet.",
   });
 }
 

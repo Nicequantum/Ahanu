@@ -1084,6 +1084,7 @@ export {
 export {
   AISSTREAM_URL,
   AIS_SNAPSHOT_MS,
+  AIS_POSITION_MESSAGE_TYPES,
   fetchLiveAis,
   parseAisStreamMessage,
   aisSubscribeMessage,

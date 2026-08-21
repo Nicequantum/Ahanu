@@ -2,9 +2,13 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (AIS Class B + 22 s snapshot, 2026-08-21)
+
+Bbox was already AISStream `[[[lat, lon], [lat, lon]]]` = `[[[39.4, -72.8], [41.5, -68.8]]]` — not the miss. Parser already kept PositionReport + Class B, but subscribe `FilterMessageTypes` dropped `ExtendedClassBPositionReport`, and the window was 10 s. Class B around PJ (pleasure / fishing) often reports every 10–30 s. Subscribe now asks for PositionReport + Standard/Extended Class B. Snapshot is 22 s. Zero positions still an honest miss — never the demo fleet. Does not block Ready. No Flutter.
+
 ## This pass (production AIS from AISStream, 2026-08-21)
 
-Optional pack layer `ais`. Worker ingest opens `wss://stream.aisstream.io/v0/stream` with secret `AISSTREAM_API_KEY` (not a `[vars]` value, not `VITE_`). Subscribe JSON uses AISStream `[[lat,lon],[lat,lon]]` corners for the trip bbox (PJ: west -72.8, south 39.4, east -68.8, north 41.5). Short PositionReport snapshot, unique MMSI last-known. Missing key / WS error / zero positions: miss + liveError. Never the 14 invented demo tracks. Helm paints packed live GeoJSON only; pack miss stays missing. Label `AIS · AISStream` only when live bytes exist. Does not block Ready. No MarineTraffic. No Flutter.
+Optional pack layer `ais`. Worker ingest opens `wss://stream.aisstream.io/v0/stream` with secret `AISSTREAM_API_KEY` (not a `[vars]` value, not `VITE_`). Subscribe JSON uses AISStream `[[lat,lon],[lat,lon]]` corners for the trip bbox (PJ: west -72.8, south 39.4, east -68.8, north 41.5). 22 s PositionReport + Class B snapshot, unique MMSI last-known. Missing key / WS error / zero positions: miss + liveError. Never the 14 invented demo tracks. Helm paints packed live GeoJSON only; pack miss stays missing. Label `AIS · AISStream` only when live bytes exist. Does not block Ready. No MarineTraffic. No Flutter.
 
 ## This pass (dock-to-canyon steam ENC, 2026-08-21)
 

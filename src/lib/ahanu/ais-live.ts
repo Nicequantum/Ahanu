@@ -2,8 +2,10 @@
  * AISStream snapshot ingest for the Point Judith canyon pack.
  *
  * Worker-only. The API key stays on the isolate (AISSTREAM_API_KEY secret).
- * Fail closed: missing key, websocket error, or zero useful positions
- * omit the overlay. Never invent tracks. Never log the key.
+ * Subscribe bbox is AISStream [[[lat, lon], [lat, lon]]]. Snapshot keeps
+ * PositionReport plus Class B (Standard + Extended). Fail closed: missing
+ * key, websocket error, or zero useful positions omit the overlay. Never
+ * invent tracks. Never log the key.
  *
  * Keep free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -11,16 +13,20 @@
 import { encodeLayerBody, type PackBBox, type PackedJson } from "./pack-fixtures";
 
 export const AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream";
-export const AIS_SNAPSHOT_MS = 10_000;
+/** Class B around PJ often reports every 10–30 s; 10 s was an honest miss. */
+export const AIS_SNAPSHOT_MS = 22_000;
 export const AIS_SUBSCRIBE_DEADLINE_MS = 3_000;
 export const AIS_MAX_MESSAGES = 400;
-export const AIS_PACK_NOTE = "AISStream PositionReport snapshot";
+export const AIS_PACK_NOTE = "AISStream PositionReport + Class B snapshot";
 
-const POSITION_TYPES = new Set([
+/** AISStream FilterMessageTypes + parse set. Class B must stay subscribed. */
+export const AIS_POSITION_MESSAGE_TYPES = [
   "PositionReport",
   "StandardClassBPositionReport",
   "ExtendedClassBPositionReport",
-]);
+] as const;
+
+const POSITION_TYPES = new Set<string>(AIS_POSITION_MESSAGE_TYPES);
 
 export interface AisPackedTarget {
   mmsi: string;
@@ -67,7 +73,7 @@ export function aisSubscribeMessage(apiKey: string, bbox: PackBBox): {
   return {
     APIKey: apiKey,
     BoundingBoxes: [aisStreamBbox(bbox)],
-    FilterMessageTypes: ["PositionReport", "StandardClassBPositionReport"],
+    FilterMessageTypes: [...AIS_POSITION_MESSAGE_TYPES],
   };
 }
 

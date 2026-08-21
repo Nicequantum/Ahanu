@@ -9,6 +9,8 @@ const {
   aisTargetsToPackedJson,
   fetchLiveAis,
   AISSTREAM_URL,
+  AIS_SNAPSHOT_MS,
+  AIS_POSITION_MESSAGE_TYPES,
 } = await import("../src/lib/ahanu/ais-live.ts");
 const { buildFixturePack, buildTripPack, evaluateReadyForOffshore, LIVE_OVERLAY_LAYER_IDS, POINT_JUDITH_CANYON_BBOX } =
   await import("../src/lib/ahanu/pack.ts");
@@ -123,6 +125,21 @@ describe("AISStream parse", () => {
     );
     assert.ok(b);
     assert.equal(b.mmsi, "338000222");
+    const ext = parseAisStreamMessage(
+      positionEnvelope({
+        mmsi: "338000333",
+        lat: 41.2,
+        lon: -71.5,
+        sog: 4.5,
+        cog: 250,
+        heading: 248,
+        type: "ExtendedClassBPositionReport",
+        name: "CLASS B",
+      }),
+    );
+    assert.ok(ext);
+    assert.equal(ext.mmsi, "338000333");
+    assert.equal(ext.name, "CLASS B");
     assert.equal(parseAisStreamMessage({ MessageType: "ShipStaticData", MetaData: {}, Message: {} }), null);
     assert.equal(parseAisStreamMessage({ MessageType: "PositionReport", MetaData: {}, Message: {} }), null);
   });
@@ -136,7 +153,12 @@ describe("AISStream parse", () => {
     const sub = aisSubscribeMessage("test-key", BOX);
     assert.equal(sub.APIKey, "test-key");
     assert.deepEqual(sub.BoundingBoxes, [corners]);
+    assert.deepEqual(sub.BoundingBoxes, [[[39.4, -72.8], [41.5, -68.8]]]);
+    assert.deepEqual([...sub.FilterMessageTypes], [...AIS_POSITION_MESSAGE_TYPES]);
     assert.ok(sub.FilterMessageTypes.includes("PositionReport"));
+    assert.ok(sub.FilterMessageTypes.includes("StandardClassBPositionReport"));
+    assert.ok(sub.FilterMessageTypes.includes("ExtendedClassBPositionReport"));
+    assert.ok(AIS_SNAPSHOT_MS >= 20_000 && AIS_SNAPSHOT_MS <= 25_000);
     assert.equal(AISSTREAM_URL, "wss://stream.aisstream.io/v0/stream");
   });
 });
@@ -199,10 +221,18 @@ describe("fetchLiveAis fail-closed", () => {
         positionEnvelope({ mmsi: 366111000, lat: 40.1, lon: -71.2, sog: 7, cog: 180, heading: 181, name: "LIVE ONE" }),
         positionEnvelope({ mmsi: 366111000, lat: 40.11, lon: -71.21, sog: 7.2, cog: 182, heading: 183, name: "LIVE ONE" }),
         positionEnvelope({ mmsi: 366222000, lat: 39.8, lon: -70.0, sog: 12, cog: 90 }),
+        positionEnvelope({
+          mmsi: 338111000,
+          lat: 41.15,
+          lon: -71.48,
+          sog: 5,
+          cog: 200,
+          type: "ExtendedClassBPositionReport",
+        }),
       ]),
     });
     assert.ok(hit);
-    assert.equal(hit.targetCount, 2);
+    assert.equal(hit.targetCount, 3);
     assert.equal(hit.source, "aisstream");
     const body = JSON.stringify(hit.body);
     assert.ok(body.includes("366111000"));
