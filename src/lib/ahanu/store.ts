@@ -52,6 +52,11 @@ import {
   readPersistedSstStaleOverride,
   writePersistedSstStaleOverride,
 } from "./sst-override";
+import {
+  followAfterReplayExit,
+  readPersistedFollow,
+  writePersistedFollow,
+} from "./follow-camera";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -207,7 +212,7 @@ export const useAhanu = create<AhanuState>()(
       packLiveErrors: [],
       sstStaleOverride: readPersistedSstStaleOverride(),
       simT: 0.12,
-      followShip: true,
+      followShip: readPersistedFollow(),
       markRipple: null,
       articleId: null,
       breakSensitivity: 1,
@@ -254,7 +259,10 @@ export const useAhanu = create<AhanuState>()(
           },
           simT: mode === "steaming" ? 0 : s.simT,
         })),
-      setFollow: (followShip) => set({ followShip }),
+      setFollow: (followShip) => {
+        writePersistedFollow(followShip);
+        set({ followShip });
+      },
       setBreakSensitivity: (breakSensitivity) => set({ breakSensitivity }),
       addWaypoint: (w) =>
         set((s) => ({
@@ -453,7 +461,13 @@ export const useAhanu = create<AhanuState>()(
         set({ forecastPlaying });
       },
       setNmeaGateway: (nmeaGateway) => set({ nmeaGateway }),
-      setReplayT: (replayT) => set({ replayT, followShip: replayT == null }),
+      setReplayT: (replayT) => {
+        if (replayT == null) {
+          set({ replayT: null, followShip: followAfterReplayExit(readPersistedFollow()) });
+          return;
+        }
+        set({ replayT });
+      },
       setSafetyDepth: (safetyDepthM) => set({ safetyDepthM }),
     }),
     {
@@ -474,6 +488,9 @@ export const useAhanu = create<AhanuState>()(
         const sstOn = readPersistedSstStaleOverride();
         writePersistedSstStaleOverride(sstOn);
         if (sstOn !== state.sstStaleOverride) state.sstStaleOverride = sstOn;
+        const followOn = readPersistedFollow();
+        writePersistedFollow(followOn);
+        if (followOn !== state.followShip) state.followShip = followOn;
       },
       partialize: (s) => ({
         waypoints: s.waypoints,
@@ -494,6 +511,7 @@ export const useAhanu = create<AhanuState>()(
         packLive: s.packLive,
         packLiveErrors: s.packLiveErrors,
         sstStaleOverride: s.sstStaleOverride,
+        followShip: s.followShip,
         nmeaGateway: s.nmeaGateway,
         safetyDepthM: s.safetyDepthM,
       }),
@@ -539,6 +557,10 @@ export async function hydrateAhanuStore() {
       const sstOverride = readPersistedSstStaleOverride();
       if (useAhanu.getState().sstStaleOverride !== sstOverride) {
         useAhanu.setState({ sstStaleOverride: sstOverride });
+      }
+      const followOn = readPersistedFollow();
+      if (useAhanu.getState().followShip !== followOn) {
+        useAhanu.setState({ followShip: followOn });
       }
       // IDB is source of truth for a dock pack. Persist can be empty or
       // raced to [] if a parallel setState wrote before rehydrate.

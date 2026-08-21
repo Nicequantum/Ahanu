@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (persist Follow, 2026-08-21)
+
+Follow on/off is kept on this device (`ahanu-follow`) the same way night-bridge and Accept stale SST are — written on the Follow tap or a skipper pan/zoom drop, read at store init and again after persist rehydrate. First visit stays ON. A dropped Follow stays off after reload so harbor ENC is not yanked back to Veatch. Exiting replay restores the persisted value and does not force ON. Replay still owns the camera while it is on. First paint is still Veatch until a gesture (camera center is not persisted). No invented GPS. No Worker scoring. No Flutter.
+
 ## This pass (Follow drops on skipper pan, 2026-08-21)
 
 Follow was a latch: every ownship tick and Download-driven re-render called `easeTo` on Veatch while `followShip` stayed true, so a skipper could not pan to Point Judith Harbor / ENC cells without turning Follow off first. Follow now tracks until a user pan, drag, pinch, or zoom, then drops. Tap Follow to re-arm and center. Ownship marker still updates. No invented GPS. Replay still owns the camera while it is on. No Worker scoring. No Flutter.
