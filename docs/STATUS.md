@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (pack sources[] name what landed, 2026-08-21)
+
+Worker GET `/api/packs` `sources[]` was `listIngestSources()` — a static ingest catalog. SST could be ACSPO while sources still said GHRSST / CoastWatch (MUR-first leftover). GFS cycle lived only on the layer note. `sources[]` and additive `landedSources` now come from the pack: SST dataset id (ACSPO/MUR/GeoPolar/CoralTemp when that grid landed), GFS cycle+hours, ENC official + cell count/updates. Catalog adapters stay on GET `/api/sources`. Helm still ignores `sources[]`; `sstHelmLine` / pack row already remap leftover MUR catalog copy. Does not invent products. No Worker scoring. No Flutter.
+
 ## This pass (refresh short R2 ENC on Download, 2026-08-21)
 
 Helm Download without skipCache served last R2 after the SST-only refresh, including the old 8-cell official ENC (~3.4 MB, original cellIds). skipCache=1 already packed 16. GET `/api/packs` (skipCache off) now refetches official ENC on the same liveEnc path when packed `s57.cellIds.length` is below the current picker cap (16) or the body is missing harbor/approach ids the current picker would include for this bbox, persists ENC + manifest, and keeps other R2 layer hashes. Fixture / catalog-only is not rebuilt here. Does not invent cells. Does not take a skipCache slot. PWA / helm unchanged — cell list is still pack `s57.cellIds`. No Worker scoring. No Flutter.

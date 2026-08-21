@@ -35,6 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
+import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLandedName } from "./pack-sources";
 
 export {
   bboxKey,
@@ -52,12 +53,21 @@ export {
   type PackLayerSpec,
 };
 
+export {
+  encSourceName,
+  landedPackNotes,
+  landedPackSources,
+  landedProductSources,
+  sstLandedName,
+  type PackSourceRef,
+} from "./pack-sources";
+
 export const SST_STALE_H = 24;
 export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "sst-landed-name-2026-08-21";
+export const PACK_BUILDER_REV = "landed-pack-sources-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -88,6 +98,8 @@ export interface TripPackManifestV1 {
   totalMb: number;
   r2Prefix: string;
   sources: { id: string; name: string }[];
+  /** What this pack actually fetched. Catalog adapters stay on GET /api/sources. */
+  landedSources?: { id: string; name: string }[];
   notes: string;
   /** Live NOAA ingest misses. Empty when live is off or every overlay landed. Capped. */
   liveErrors: string[];
@@ -156,30 +168,6 @@ function sstAgeBand(ageH: number): "fresh" | "stale" | "missing-band" {
   if (ageH > SST_MISSING_H) return "missing-band";
   if (ageH > SST_STALE_H) return "stale";
   return "fresh";
-}
-
-/**
- * Product that actually landed. Catalog / leftover MUR labels do not win.
- * ACSPO notes say "not 1 km MUR" — check ACSPO before MUR.
- */
-const SST_LANDED_BY_ID: Record<string, string> = {
-  noaacwLEOACSPOSSTL3SnrtKDaily: "ACSPO",
-  jplMURSST41: "MUR",
-  noaacwBLENDEDsstDNDaily: "GeoPolar",
-  noaacrwsstDaily: "CoralTemp",
-  noaacwGEOHIRRSSTGoes16NRT: "GOES-16",
-};
-
-export function sstLandedName(dataset?: string | null, note?: string | null): string | undefined {
-  const id = (dataset ?? "").trim();
-  if (id && SST_LANDED_BY_ID[id]) return SST_LANDED_BY_ID[id];
-  const blob = `${id} ${note ?? ""}`;
-  if (/ACSPO/i.test(blob)) return "ACSPO";
-  if (/GeoPolar/i.test(blob)) return "GeoPolar";
-  if (/CoralTemp|Coral Reef Watch/i.test(blob)) return "CoralTemp";
-  if (/GOES-16|GEOHIRR/i.test(blob)) return "GOES-16";
-  if (/\bMUR\b/i.test(blob)) return "MUR";
-  return undefined;
 }
 
 /** Pack row: name the grid that landed. Do not claim MUR on ACSPO or fixture. */
@@ -725,6 +713,14 @@ export async function buildFixturePack(options: {
     liveErrors: options.liveErrors,
   });
 
+  const sources = mergePackSources(liveIds, options.extraSources, overlays);
+  const liveErrors = capLiveErrors(options.liveErrors);
+  const baseNotes = liveIds.length
+    ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; catalog-only otherwise. Packed zips keep .00n update files when NOAA shipped them; helm extract applies those records. Cells with no .001 stay base .000 only. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."
+    : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.";
+  const landedSources = landedProductSources({ sources, layers, liveErrors });
+  const notes = landedPackNotes({ sources, layers, liveErrors, notes: baseNotes });
+
   const manifest: TripPackManifestV1 = {
     packId,
     version: 1,
@@ -737,20 +733,11 @@ export async function buildFixturePack(options: {
     totalBytes,
     totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
     r2Prefix,
-    sources: [
-      ...(liveIds.length
-        ? [
-            { id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" },
-            { id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` },
-          ]
-        : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }]),
-      ...(options.extraSources ?? []),
-    ],
+    sources,
+    landedSources,
     builder: { rev: PACK_BUILDER_REV },
-    notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; catalog-only otherwise. Packed zips keep .00n update files when NOAA shipped them; helm extract applies those records. Cells with no .001 stay base .000 only. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."
-      : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
-    liveErrors: capLiveErrors(options.liveErrors),
+    notes,
+    liveErrors,
   };
 
   return { manifest, bodies };
@@ -870,7 +857,11 @@ export async function buildTripPack(options: {
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);
-    if (live.enc) overlays.enc = encodeLiveLayer(live.enc);
+    if (live.enc) {
+      overlays.enc = encodeLiveLayer(live.enc);
+      const encName = encSourceName(overlays.enc);
+      if (encName) extraSources.push({ id: "noaa-enc", name: encName });
+    }
     const series = live.gfsWaveSeries;
     const gfsMerge = overlayGfsWindWaves({
       bbox,

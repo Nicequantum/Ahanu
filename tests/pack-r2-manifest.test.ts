@@ -232,6 +232,83 @@ describe("GET /api/packs R2 manifest", () => {
     assert.equal(await sha256Hex(obj.body), buoys.hash);
   });
 
+  it("worker GET /api/packs sources and notes name ACSPO when that grid landed", async () => {
+    const { env } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const sst = built.manifest.layers.find((l) => l.id === "sst");
+    assert.ok(sst);
+    assert.match(sst.label, /ACSPO/);
+    await persistBuiltPack(env, built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as {
+      sources?: { id: string; name: string }[];
+      landedSources?: { id: string; name: string }[];
+      notes?: string;
+      layers: { id: string; label: string }[];
+    };
+    const catalogSst = (man.sources ?? []).find((s) => s.id === "ghrsst-coastwatch-sst");
+    assert.equal(catalogSst, undefined);
+    const sstSrc = (man.sources ?? []).find((s) => s.id === "noaa-sst");
+    assert.ok(sstSrc, "sources must include landed SST");
+    assert.match(sstSrc.name, /ACSPO/);
+    assert.doesNotMatch(sstSrc.name, /GHRSST \/ CoastWatch SST/);
+    const landed = (man.landedSources ?? []).find((s) => s.id === "noaa-sst");
+    assert.match(landed?.name ?? "", /ACSPO/);
+    assert.match(man.notes ?? "", /ACSPO/);
+    assert.match(man.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+  });
+
+  it("worker GET /api/packs reconstructs ACSPO from the layer when sources are the catalog", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const catalogOnly = {
+      ...built.manifest,
+      sources: [
+        { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+        { id: "ncep-gfswave", name: "NCEP GFS-Wave / WAVEWATCH III" },
+      ],
+      notes: "SHA-256 of pack object bytes. CoastWatch SST.",
+    };
+    built.manifest = catalogOnly;
+    await persistBuiltPack(env, built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as {
+      sources?: { id: string; name: string }[];
+      notes?: string;
+    };
+    assert.ok(!(man.sources ?? []).some((s) => s.id === "ghrsst-coastwatch-sst"));
+    assert.match((man.sources ?? []).find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.match(man.notes ?? "", /ACSPO/);
+  });
+
   it("loadPersistedManifest rejects a corrupt or foreign packId body", async () => {
     const { env, store } = mockEnv();
     store.set(packManifestR2Key("deadbeefdeadbeef"), "{\"packId\":\"other\",\"version\":1,\"layers\":[]}");

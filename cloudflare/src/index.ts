@@ -20,7 +20,7 @@ import {
   specForLayer,
   type BBox,
 } from "./ingest/pack";
-import { buildTripPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
+import { buildTripPack, landedPackNotes, landedPackSources, landedProductSources, rememberBuiltPack } from "../../src/lib/ahanu/pack";
 import { layerBody } from "./layer-body";
 import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../src/lib/ahanu/noaa-http";
 import {
@@ -205,6 +205,7 @@ export interface TripPackManifest {
   totalMb: number;
   r2Prefix: string;
   sources: { id: string; name: string }[];
+  landedSources?: { id: string; name: string }[];
   notes: string;
   liveErrors?: string[];
 }
@@ -355,15 +356,20 @@ function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["man
     totalBytes: manifest.totalBytes,
     totalMb: manifest.totalMb,
     r2Prefix: manifest.r2Prefix,
-    sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
-    notes:
-      "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
-      "(NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / GFS-Wave). " +
-      "Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; .00n update files in the zip are packed with the cell. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
-      "GFS-Wave fetches NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). " +
-      "Newest cycle that has the requested horizon wins; a publishing 00z that 404s f072 does not beat a complete 18z. " +
-      "A complete series is 72 h noaa. A short prefix paints those hours and keeps a fixture tail — liveErrors name the cycle and which hours are live vs fixture. " +
-      "Client must re-hash. On-device scoring does not run here.",
+    sources: landedPackSources(manifest),
+    landedSources: landedProductSources(manifest),
+    notes: landedPackNotes({
+      ...manifest,
+      notes:
+        manifest.notes ||
+        "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
+          "(NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / GFS-Wave). " +
+          "Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; .00n update files in the zip are packed with the cell. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
+          "GFS-Wave fetches NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). " +
+          "Newest cycle that has the requested horizon wins; a publishing 00z that 404s f072 does not beat a complete 18z. " +
+          "A complete series is 72 h noaa. A short prefix paints those hours and keeps a fixture tail — liveErrors name the cycle and which hours are live vs fixture. " +
+          "Client must re-hash. On-device scoring does not run here.",
+    }),
     liveErrors: manifest.liveErrors ?? [],
   };
 }

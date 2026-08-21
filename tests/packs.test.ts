@@ -15,6 +15,10 @@ const {
   sstLandedName,
   sstPackRowLabel,
   SST_STALE_FLIP_COPY,
+  landedPackSources,
+  landedPackNotes,
+  landedProductSources,
+  encSourceName,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
@@ -42,7 +46,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "sst-landed-name-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "landed-pack-sources-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -982,6 +986,102 @@ describe("sstPackRowLabel", () => {
     assert.equal(sst.source, "noaa");
     assert.equal(sst.label, "SST ACSPO");
     assert.doesNotMatch(sst.label, /MUR/);
+    const sstSrc = live.manifest.sources.find((s) => s.id === "noaa-sst");
+    assert.ok(sstSrc);
+    assert.match(sstSrc.name, /ACSPO/);
+    assert.doesNotMatch(sstSrc.name, /GHRSST \/ CoastWatch SST/);
+    assert.match(live.manifest.notes, /ACSPO/);
+    const products = live.manifest.landedSources ?? [];
+    assert.ok(products.some((s) => s.id === "noaa-sst" && /ACSPO/.test(s.name)));
+    assert.ok(!products.some((s) => s.id === "ghrsst-coastwatch-sst"));
+  });
+});
+
+describe("landedPackSources", () => {
+  it("drops the static ingest catalog and names the landed SST", () => {
+    const sources = landedPackSources({
+      sources: [
+        { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+        { id: "ncep-gfswave", name: "NCEP GFS-Wave / WAVEWATCH III" },
+        { id: "noaa-sst", name: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4." },
+        { id: "nomads-gfswave", name: "GFS-Wave 20260820 18z f000–f072 / 3 h parsed series (72 h)" },
+      ],
+      layers: [{ id: "sst", label: "SST ACSPO", source: "noaa" }],
+    });
+    assert.ok(!sources.some((s) => s.id === "ghrsst-coastwatch-sst"));
+    assert.ok(!sources.some((s) => s.id === "ncep-gfswave"));
+    const sst = sources.find((s) => s.id === "noaa-sst");
+    assert.match(sst?.name ?? "", /ACSPO/);
+    assert.doesNotMatch(sst?.name ?? "", /^GHRSST/);
+    const gfs = sources.find((s) => s.id === "nomads-gfswave");
+    assert.match(gfs?.name ?? "", /20260820 18z/);
+    assert.match(gfs?.name ?? "", /f000–f072/);
+  });
+
+  it("reconstructs ACSPO from the pack row when sources are catalog-only", () => {
+    const sources = landedPackSources({
+      sources: [{ id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" }],
+      layers: [{ id: "sst", label: "SST ACSPO", source: "noaa" }],
+    });
+    assert.equal(sources.find((s) => s.id === "noaa-sst")?.name, "SST ACSPO");
+    assert.ok(!sources.some((s) => s.id === "ghrsst-coastwatch-sst"));
+  });
+
+  it("names official ENC cells and updates from the extra source, not the catalog string", () => {
+    const note =
+      "Official NOAA S-57 (16 cells, 9 update files). Exchange set update files (ISO 8211): US5RI1BD edition 3 update 1 (1 file).";
+    const sources = landedPackSources({
+      sources: [
+        { id: "noaa-enc", name: "NOAA Electronic Navigational Charts (S-57 / S-101)" },
+        { id: "noaa-enc", name: note },
+      ],
+      layers: [{ id: "enc", label: "NOAA ENC (official S-57)", source: "noaa" }],
+    });
+    const enc = sources.find((s) => s.id === "noaa-enc");
+    assert.match(enc?.name ?? "", /official/i);
+    assert.match(enc?.name ?? "", /16 cells/);
+    assert.match(enc?.name ?? "", /update/);
+    assert.doesNotMatch(enc?.name ?? "", /S-57 \/ S-101/);
+  });
+
+  it("does not invent an SST product on fixture layers", () => {
+    const sources = landedProductSources({
+      sources: [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }],
+      layers: [{ id: "sst", label: "SST composite (fixture)", source: "fixture" }],
+    });
+    assert.ok(!sources.some((s) => s.id === "noaa-sst"));
+    const notes = landedPackNotes({
+      sources: [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }],
+      layers: [{ id: "sst", label: "SST composite (fixture)", source: "fixture" }],
+      notes: "Fixture bodies.",
+    });
+    assert.doesNotMatch(notes, /ACSPO|MUR|Landed this pack/);
+  });
+
+  it("names official ENC cell count and updates from the packed body", async () => {
+    const overlay = encodeLayerBody({
+      kind: "enc-clip",
+      layer: "enc",
+      payload: {
+        official: true,
+        note: "Official NOAA S-57 (2 cells, 1 update file). US5PVDCB edition 3 update 1.",
+        s57: { cellIds: ["US5PVDCB", "US5PVDBB"], updateCount: 1 },
+      },
+    });
+    assert.match(encSourceName(overlay) ?? "", /Official NOAA S-57/);
+    assert.match(encSourceName(overlay) ?? "", /2 cells|US5PVDCB/);
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { enc: overlay },
+    });
+    const encSrc = live.manifest.sources.find((s) => s.id === "noaa-enc");
+    assert.ok(encSrc);
+    assert.match(encSrc.name, /official/i);
+    assert.match(encSrc.name, /US5PVDCB|2 cells/);
+    assert.match(live.manifest.notes, /official/i);
   });
 });
 
