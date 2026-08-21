@@ -6,8 +6,8 @@
  * - `?install=1&platform=ios` on a document path → the Home Screen tutorial,
  *   bundled into the server build via `?raw` (the public/ directory is CDN
  *   static output on Vercel and not readable from the function).
- * - `/__grok/manifest.webmanifest` → per-app-named manifest (kept out of
- *   public/ so this dynamic response is the only one).
+ * - `/manifest.webmanifest` (and `/__grok/manifest.webmanifest`) →
+ *   per-app-named manifest. The static public/ copy is the CF asset ship path.
  * - Other HTML documents → stream-inject PWA + OG head tags at `</head>`.
  *   OG identity is baked via `virtual:grok-og-identity` at `vite build`
  *   (this function cannot read `src/lib/og/site.json` or `public/og.jpg`).
@@ -21,6 +21,7 @@ import {
   createHeadInjector,
   isDocumentPath,
   isInstallQuery,
+  isWebManifestPath,
   renderInstallPageHtml,
   renderWebManifest,
 } from "../../scripts/grok-pwa-shared.mjs";
@@ -79,7 +80,7 @@ export default async function grokPwaMiddleware(
   const path = event.url.pathname;
   const urlWithQuery = path + event.url.search;
 
-  if (path === "/__grok/manifest.webmanifest" || path === "/__grok/manifest.json") {
+  if (isWebManifestPath(path)) {
     return withPwaHeaders(
       event,
       new Response(renderWebManifest(requestHost(event)), {

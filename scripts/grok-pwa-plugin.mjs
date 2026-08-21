@@ -13,6 +13,7 @@ import {
   injectGrokPwaHead,
   isDocumentPath,
   isInstallQuery,
+  isWebManifestPath,
   renderInstallPageHtml,
   renderWebManifest,
   snapshotOgIdentity,
@@ -52,7 +53,7 @@ function serveGrokPwa(middlewares) {
       return;
     }
 
-    if (pathOnly === "/__grok/manifest.webmanifest" || pathOnly === "/__grok/manifest.json") {
+    if (isWebManifestPath(pathOnly)) {
       const body = Buffer.from(renderWebManifest(requestHost(req)), "utf8");
       res.statusCode = 200;
       res.setHeader("content-type", "application/manifest+json; charset=utf-8");

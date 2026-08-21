@@ -11,6 +11,7 @@ import {
   injectGrokPwaHead,
   isDocumentPath,
   isInstallQuery,
+  isWebManifestPath,
   renderWebManifest,
   snapshotOgIdentity,
   stripInstallParams,
@@ -383,7 +384,18 @@ test("renders the manifest with the per-app name", () => {
   const manifest = JSON.parse(renderWebManifest("wild-race.grok.me"));
   assert.equal(manifest.name, "Wild Race");
   assert.equal(manifest.short_name, "Wild Race");
+  assert.equal(manifest.start_url, "/");
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.theme_color, "#071016");
   assert.equal(manifest.icons[0].src, "/__grok/icon-180.png");
+});
+
+test("links the canonical /manifest.webmanifest", () => {
+  const out = injectGrokPwaHead("<html><head></head></html>");
+  assert.match(out, /href="\/manifest\.webmanifest"/);
+  assert.equal(isWebManifestPath("/manifest.webmanifest"), true);
+  assert.equal(isWebManifestPath("/__grok/manifest.webmanifest"), true);
+  assert.equal(isWebManifestPath("/login"), false);
 });
 
 // Tripwires: the deployed-app path only works if Nitro scans server/ — an
