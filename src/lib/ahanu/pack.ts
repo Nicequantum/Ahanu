@@ -57,7 +57,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "sst-acspo-nrt-enc-updates-2026-08-21";
+export const PACK_BUILDER_REV = "sst-acspo-first-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -126,9 +126,14 @@ export function capLiveErrors(errors: readonly string[] | undefined | null): str
   return out;
 }
 
-/** GFS hour-0 / partial-series honesty lines. Visible on Packs; not overlay misses. */
+/** Preferred-SST lost to a later public grid. Visible; does not fail Ready. */
+export function isSstHonestyLiveError(line: string): boolean {
+  return /^sst: preferred /i.test(line.trim());
+}
+
+/** GFS hour-0 / partial-series / preferred-SST honesty. Visible on Packs; not overlay misses. */
 export function isHonestyLiveError(line: string): boolean {
-  return isGfsHonestyNote(line);
+  return isGfsHonestyNote(line) || isSstHonestyLiveError(line);
 }
 
 /** Helm copy: real live vs fixture hours. Does not claim 72 h live unless it is. */
@@ -223,8 +228,10 @@ export function liveErrorsForSession(input: {
   overlayLanded?: boolean;
   missingOverlayIds?: readonly string[];
 }): string[] {
-  if (!input.live || input.overlayLanded) return [];
+  if (!input.live) return [];
   const capped = capLiveErrors(input.errors);
+  const honesty = capped.filter(isHonestyLiveError);
+  if (input.overlayLanded) return honesty;
   if (capped.length) return capped;
   return capLiveErrors(liveMissErrorLines(input.missingOverlayIds ?? []));
 }

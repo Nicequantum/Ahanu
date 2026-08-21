@@ -12,7 +12,7 @@ const {
   sampleBathyCsvForTests,
   sampleHmsKmzForTests,
   sampleCanyonsGeojsonForTests,
-  SST_ENDPOINTS,
+  sstProbePathCount,
 } = await import("../src/lib/ahanu/noaa-live.ts");
 const { encodeHour0Sample } = await import("../src/lib/ahanu/grid-io.ts");
 
@@ -242,7 +242,7 @@ describe("preview pack HTTP NOAA retry", () => {
       },
     });
     assert.equal(res.status, 200);
-    assert.equal(sst, 2);
+    assert.ok(sst >= 2, `sst attempts ${sst}`);
     const man = (await res.json()) as { layers: LayerRow[] };
     assert.equal(man.layers.find((l) => l.id === "sst")!.source, "noaa");
   });
@@ -263,7 +263,7 @@ describe("preview pack HTTP NOAA retry", () => {
       },
     });
     assert.equal(res.status, 200);
-    assert.equal(sst, SST_ENDPOINTS.length);
+    assert.equal(sst, sstProbePathCount());
     const man = (await res.json()) as { layers: LayerRow[] };
     assert.equal(man.layers.find((l) => l.id === "sst")!.source, "fixture");
   });
@@ -288,7 +288,7 @@ describe("preview pack HTTP NOAA retry", () => {
       },
     });
     assert.equal(res.status, 200);
-    assert.equal(sst, SST_ENDPOINTS.length * 2);
+    assert.equal(sst, sstProbePathCount() * 2);
     const man = (await res.json()) as { layers: LayerRow[] };
     const live = man.layers.find((l) => l.id === "sst")!;
     const fix = fixture.manifest.layers.find((l) => l.id === "sst")!;

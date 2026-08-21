@@ -40,7 +40,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "sst-acspo-nrt-enc-updates-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "sst-acspo-first-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -686,6 +686,12 @@ describe("live ingest errors on pack session", () => {
     assert.equal(LIVE_ERROR_CAP, 8);
     assert.deepEqual(liveErrorsForSession({ live: false, errors: ["sst: fetch failed"] }), []);
     assert.deepEqual(liveErrorsForSession({ live: true, overlayLanded: true, errors: ["sst mur: fetch failed"] }), []);
+    const prefer = "sst: preferred noaacwLEOACSPOSSTL3SnrtKDaily lost (timeout) — using jplMURSST41";
+    assert.deepEqual(
+      liveErrorsForSession({ live: true, overlayLanded: true, errors: ["sst mur: fetch failed", prefer] }),
+      [prefer],
+    );
+    assert.equal(isHonestyLiveError(prefer), true);
     const hiddenSst = liveErrorsForSession({
       live: true,
       overlayLanded: false,

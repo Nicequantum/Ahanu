@@ -50,7 +50,7 @@ import {
   type GfsWaveSeriesGrids,
 } from "./noaa-gfs";
 import { ncepToPacked, parseNcep } from "./grid-io";
-import { fetchLiveSst, type SstIngest } from "./noaa-sst";
+import { fetchLiveSst, SST_DEDICATED_TIMEOUT_MS, type SstIngest } from "./noaa-sst";
 import { fetchLiveChl, type ChlIngest } from "./noaa-chl";
 import { fetchLiveSsh, type SshIngest } from "./noaa-ssh";
 import { fetchLiveHms, type HmsIngest } from "./noaa-hms";
@@ -802,6 +802,15 @@ export async function tryLiveNoaa(options: {
 
   const series = seriesFlag(options.gfsWaveSeries);
   const gridTimeout = Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS);
+  // SST before ENC/GFS/other ERDDAP so ACSPO is not starved under the shared budget.
+  const sst = await fetchLiveSst({
+    bbox: options.bbox,
+    fetchImpl,
+    timeoutMs: Math.max(gridTimeout, SST_DEDICATED_TIMEOUT_MS),
+    errors,
+    sleep,
+    now: options.now,
+  });
   const gfsJob = series.enabled
     ? liveGfsWaveSeries(
         options.bbox,
@@ -816,19 +825,11 @@ export async function tryLiveNoaa(options: {
           ingest,
         }),
       );
-  const [buoys, tides, enc, gfs, sst, chl, ssh, hms, bathy, canyons] = await Promise.all([
+  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     gfsJob,
-    fetchLiveSst({
-      bbox: options.bbox,
-      fetchImpl,
-      timeoutMs: gridTimeout,
-      errors,
-      sleep,
-      now: options.now,
-    }),
     fetchLiveChl({
       bbox: options.bbox,
       fetchImpl,
@@ -931,7 +932,12 @@ export {
 export {
   SST_ENDPOINTS,
   SST_SELECT_MAX_AGE_H,
+  SST_PREFERRED_MAX_AGE_H,
+  SST_DEDICATED_TIMEOUT_MS,
   sstEndpointById,
+  sstEndpointBases,
+  sstProbePathCount,
+  sstPreferredLostLine,
   effectiveSstDeg,
   sstResolutionNote,
   sstAgeHours,

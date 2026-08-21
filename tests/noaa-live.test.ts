@@ -21,6 +21,8 @@ const {
   sampleCsvForTests,
   SST_ENDPOINTS,
   sstEndpointById,
+  sstEndpointBases,
+  sstPreferredLostLine,
   effectiveSstDeg,
   sstResolutionNote,
   erddapChlCsvUrl,
@@ -646,6 +648,10 @@ describe("ERDDAP SST parse", () => {
     assert.equal(SST_ENDPOINTS[2]!.id, "noaacwBLENDEDsstDNDaily");
     assert.equal(SST_ENDPOINTS[3]!.id, "noaacrwsstDaily");
     assert.equal(SST_ENDPOINTS[4]!.id, "noaacwGEOHIRRSSTGoes16NRT");
+    const bases = sstEndpointBases(acspo);
+    assert.equal(bases[0], acspo.base);
+    assert.ok(bases.some((b) => b.includes("polarwatch.noaa.gov")));
+    assert.match(sstPreferredLostLine("noaacwLEOACSPOSSTL3SnrtKDaily", ["timeout"], "jplMURSST41"), /preferred/);
   });
 
   it("parses ACSPO sea_surface_temperature Kelvin into degC", () => {
@@ -708,6 +714,31 @@ describe("tryLiveNoaa SST overlay", () => {
     });
     assert.equal(live.sst, undefined);
     assert.ok(live.errors.some((e) => e.includes("sst")));
+  });
+
+  it("fetches ACSPO SST before ENC or GFS overlays", async () => {
+    const acspo = sstCsvAt("2026-08-20T12:00:00Z").replaceAll("analysed_sst", "sea_surface_temperature");
+    const urls: string[] = [];
+    await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      timeoutMs: 50,
+      fetchImpl: async (url: string) => {
+        urls.push(url);
+        if (url.includes("ACSPOSST") || url.includes("sea_surface_temperature")) {
+          return new Response(acspo, { status: 200, headers: { "Content-Type": "text/csv" } });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.ok(urls.length > 0, "expected NOAA fetches");
+    assert.match(urls[0]!, /ACSPOSST|sea_surface_temperature/);
+    const firstEncOrGfs = urls.findIndex((u) => /ENC|gfswave|prodcat/i.test(u));
+    const firstSst = urls.findIndex((u) => /ACSPOSST|sea_surface_temperature/.test(u));
+    assert.ok(firstSst >= 0);
+    if (firstEncOrGfs >= 0) assert.ok(firstSst < firstEncOrGfs, urls.slice(0, 8).join(" | "));
   });
 });
 
@@ -819,8 +850,56 @@ describe("fetchLiveSst 48 h picker", () => {
     assert.equal(sst.analysedAt, "2026-08-20T12:00:00.000Z");
     assert.ok(sstAgeHours(sst.analysedAt, Date.parse("2026-08-21T06:00:00.000Z")) <= 24);
     assert.match(sst.note, /2 km|0\.02/);
+    assert.equal(sst.grid.dataset, "noaacwLEOACSPOSSTL3SnrtKDaily");
   });
 
+  it("uses PolarWatch ACSPO when CoastWatch times out, not stale MUR", async () => {
+    const acspo = sstCsvAt("2026-08-20T12:00:00Z").replaceAll("analysed_sst", "sea_surface_temperature");
+    const mur = sstCsvAt("2026-08-19T09:00:00Z");
+    const errors: string[] = [];
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now: new Date("2026-08-21T06:00:00.000Z"),
+      errors,
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (url.includes("coastwatch.noaa.gov") && url.includes("ACSPOSST")) {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
+        if (url.includes("polarwatch.noaa.gov") && url.includes("ACSPOSST")) {
+          return new Response(acspo, { status: 200 });
+        }
+        if (url.includes("jplMURSST41")) return new Response(mur, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "noaacwLEOACSPOSSTL3SnrtKDaily");
+    assert.equal(sst.analysedAt, "2026-08-20T12:00:00.000Z");
+    assert.match(sst.url, /polarwatch\.noaa\.gov/);
+    assert.doesNotMatch(sst.note, /preferred/);
+  });
+
+  it("names ACSPO on the MUR note when the preferred in-window grid is lost", async () => {
+    const mur = sstCsvAt("2026-08-19T09:00:00Z");
+    const errors: string[] = [];
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now: new Date("2026-08-21T06:00:00.000Z"),
+      errors,
+      sleep: async () => {},
+      fetchImpl: async (url: string) => {
+        if (url.includes("ACSPOSST")) return new Response("no", { status: 503 });
+        if (url.includes("jplMURSST41")) return new Response(mur, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "jplMURSST41");
+    assert.match(sst.note, /preferred noaacwLEOACSPOSSTL3SnrtKDaily/);
+    assert.match(sst.note, /using jplMURSST41/);
+    assert.ok(errors.some((e) => e.startsWith("sst: preferred ") && e.includes("jplMURSST41")), errors.join(" | "));
+  });
 
   it("selects a later public SST when the first parseable grid is older than 48 h", async () => {
     const stale = sstCsvAt("2026-08-18T12:00:00Z");
@@ -1797,7 +1876,7 @@ describe("NOAA fetch timeout + retry", () => {
     let n = 0;
     const sst = await fetchLiveSst({
       bbox: POINT_JUDITH_CANYON_BBOX,
-      endpoints: [SST_ENDPOINTS[0]!],
+      endpoints: [{ ...SST_ENDPOINTS[0]!, altBases: [] }],
       sleep: async () => {},
       fetchImpl: async () => {
         n += 1;
@@ -1814,7 +1893,7 @@ describe("NOAA fetch timeout + retry", () => {
     let n = 0;
     const sst = await fetchLiveSst({
       bbox: POINT_JUDITH_CANYON_BBOX,
-      endpoints: [SST_ENDPOINTS[0]!],
+      endpoints: [{ ...SST_ENDPOINTS[0]!, altBases: [] }],
       sleep: async () => {
         throw new Error("404 must not sleep");
       },

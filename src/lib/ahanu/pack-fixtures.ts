@@ -160,6 +160,8 @@ export interface PackedGrid {
   note?: string;
   /** Analysis / composite time (ISO). Used for SST age. */
   updatedAt?: string;
+  /** Public dataset id when a live grid names one (ACSPO / MUR / …). */
+  dataset?: string;
   dirValues?: number[][];
   dirUnit?: string;
   periodValues?: number[][];

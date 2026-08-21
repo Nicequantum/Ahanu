@@ -57,16 +57,23 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export type NoaaFetchOk<T> = { ok: true } & T;
+export type NoaaFetchMiss = { ok: false; reason: string };
+export type NoaaBytesResult = NoaaFetchOk<{ bytes: Uint8Array }> | NoaaFetchMiss;
+export type NoaaTextResult = NoaaFetchOk<{ text: string }> | NoaaFetchMiss;
+
 /**
  * Fetch bytes with a timeout. One retry on abort/timeout, 429, or 5xx.
  * Does not retry 404 or other 4xx. Empty / oversized bodies are a miss.
+ * Reason is for honesty notes (timeout vs HTTP vs network) — never invented SST.
  */
-export async function fetchNoaaBytes(options: FetchNoaaOptions): Promise<Uint8Array | null> {
+export async function fetchNoaaBytesResult(options: FetchNoaaOptions): Promise<NoaaBytesResult> {
   const timeoutMs = options.timeoutMs ?? NOAA_GRID_TIMEOUT_MS;
   const retries = options.retries ?? NOAA_FETCH_RETRIES;
   const backoffMs = options.backoffMs ?? NOAA_RETRY_BACKOFF_MS;
   const sleep = options.sleep ?? defaultSleep;
   const attempts = Math.max(1, retries + 1);
+  let last: NoaaFetchMiss = { ok: false, reason: "network" };
 
   for (let i = 0; i < attempts; i++) {
     const ctrl = new AbortController();
@@ -77,30 +84,43 @@ export async function fetchNoaaBytes(options: FetchNoaaOptions): Promise<Uint8Ar
         headers: { "User-Agent": NOAA_USER_AGENT },
       });
       if (!res.ok) {
+        last = { ok: false, reason: `HTTP ${res.status}` };
         if (i < attempts - 1 && noaaStatusRetryable(res.status)) {
           await sleep(backoffMs);
           continue;
         }
-        return null;
+        return last;
       }
       const buf = new Uint8Array(await res.arrayBuffer());
-      if (buf.byteLength === 0 || buf.byteLength > options.maxBytes) return null;
-      return buf;
+      if (buf.byteLength === 0) return { ok: false, reason: "empty" };
+      if (buf.byteLength > options.maxBytes) return { ok: false, reason: "oversized" };
+      return { ok: true, bytes: buf };
     } catch (err) {
+      last = { ok: false, reason: isNoaaAbortError(err) ? "timeout" : "network" };
       if (i < attempts - 1 && isNoaaAbortError(err)) {
         await sleep(backoffMs);
         continue;
       }
-      return null;
+      return last;
     } finally {
       clearTimeout(t);
     }
   }
-  return null;
+  return last;
+}
+
+export async function fetchNoaaBytes(options: FetchNoaaOptions): Promise<Uint8Array | null> {
+  const got = await fetchNoaaBytesResult(options);
+  return got.ok ? got.bytes : null;
+}
+
+export async function fetchNoaaTextResult(options: FetchNoaaOptions): Promise<NoaaTextResult> {
+  const got = await fetchNoaaBytesResult(options);
+  if (!got.ok) return got;
+  return { ok: true, text: new TextDecoder("utf-8", { fatal: false }).decode(got.bytes) };
 }
 
 export async function fetchNoaaText(options: FetchNoaaOptions): Promise<string | null> {
-  const bytes = await fetchNoaaBytes(options);
-  if (!bytes) return null;
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  const got = await fetchNoaaTextResult(options);
+  return got.ok ? got.text : null;
 }

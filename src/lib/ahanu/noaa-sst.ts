@@ -7,7 +7,7 @@
  */
 
 import { sha256Hex, type PackBBox, type PackedGrid } from "./pack-fixtures";
-import { fetchNoaaText, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
+import { fetchNoaaTextResult, NOAA_GRID_TIMEOUT_MS, type FetchLike } from "./noaa-http";
 
 export const SST_MAX_BYTES = 2_000_000;
 
@@ -18,6 +18,8 @@ export interface SstEndpoint {
   name: string;
   /** ERDDAP griddap base without extension. */
   base: string;
+  /** Same dataset on another public NOAA ERDDAP. Raced with `base`. */
+  altBases?: readonly string[];
   variable: string;
   nativeDeg: number;
   nativeLabel: string;
@@ -36,12 +38,16 @@ export interface SstEndpoint {
  *   GOES-16 id still 404 (noaacwGEOHIRRSSTGoes16NRT / Daily)
  * ACSPO is L3S-LEO NRT 0.02° — not 1 km MUR / GHRSST L4, not GOES-16.
  * MUR stride 2 (~0.02°) stays the L4 fallback. GeoPolar is native 5 km.
+ * PolarWatch mirrors the same ACSPO id when CoastWatch is slow from the Worker.
  */
 export const SST_ENDPOINTS: readonly SstEndpoint[] = [
   {
     id: "noaacwLEOACSPOSSTL3SnrtKDaily",
     name: "NOAA ACSPO L3S-LEO NRT daily",
     base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+    altBases: [
+      "https://polarwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+    ],
     variable: "sea_surface_temperature",
     nativeDeg: 0.02,
     nativeLabel: "2 km / 0.02°",
@@ -169,10 +175,12 @@ export function parseErddapSstCsv(text: string): ErddapSstTable | null {
   const iLon = header.findIndex((c) => c === "longitude" || c === "lon");
   const iVal = header.findIndex(
     (c) =>
-      c.includes("sst") ||
+      c === "sea_surface_temperature" ||
+      c === "sea_surface_subskin_temperature" ||
       c.includes("sea_surface_temp") ||
-      c === "temperature" ||
-      c === "analysed_sst",
+      c === "analysed_sst" ||
+      c.includes("sst") ||
+      c === "temperature",
   );
   if (iLat < 0 || iLon < 0 || iVal < 0) return null;
   const lats: number[] = [];
@@ -261,6 +269,7 @@ export function sstTableToPacked(
     fixture: false,
     updatedAt: analysedAt,
     note,
+    dataset: ep.id,
   };
 }
 
@@ -278,14 +287,53 @@ export function normalizeSstTime(raw: string): string {
 /** Same band as Ready-for-offshore SST_MISSING_H. Do not invent a fresher time. */
 export const SST_SELECT_MAX_AGE_H = 48;
 
+/** Ready-for-offshore fresh band. Prefer a public grid inside this window. */
+export const SST_PREFERRED_MAX_AGE_H = 24;
+
+/**
+ * SST runs before the ENC/GFS overlay storm. Long enough for an 867 KB
+ * CoastWatch CSV; short enough that a hung host can still lose to PolarWatch.
+ */
+export const SST_DEDICATED_TIMEOUT_MS = 22_000;
+
 export function sstEndpointById(id: string): SstEndpoint | undefined {
   return SST_ENDPOINTS.find((e) => e.id === id);
+}
+
+export function sstEndpointBases(ep: SstEndpoint): string[] {
+  const extra = (ep.altBases ?? []).filter((b) => b && b !== ep.base);
+  return [ep.base, ...extra];
+}
+
+export function sstProbePathCount(endpoints: readonly SstEndpoint[] = SST_ENDPOINTS): number {
+  return endpoints.reduce((n, ep) => n + sstEndpointBases(ep).length, 0);
 }
 
 export function sstAgeHours(updatedAt: string, nowMs: number): number {
   const t = Date.parse(updatedAt);
   if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
   return (nowMs - t) / 3_600_000;
+}
+
+export function sstHostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** Honesty line when a later public grid is used after the preferred dataset lost. */
+export function sstPreferredLostLine(preferredId: string, reasons: string[], usedId: string): string {
+  const why = reasons.length ? reasons.join("; ") : "no in-window grid";
+  return `sst: preferred ${preferredId} lost (${why}) — using ${usedId}`;
+}
+
+function attachSstHonesty(ingest: SstIngest, line: string): SstIngest {
+  const note = `${ingest.note} ${line}`;
+  ingest.note = note;
+  ingest.grid.note = note;
+  return ingest;
 }
 
 async function ingestParsedSst(
@@ -302,6 +350,7 @@ async function ingestParsedSst(
   const hash = await sha256Hex(bytes);
   const note = `${sstResolutionNote(ep)} ${grid.nx}×${grid.ny} at ${grid.updatedAt}.`;
   grid.note = note;
+  grid.dataset = ep.id;
   return {
     live: true,
     source: "noaa",
@@ -317,12 +366,40 @@ async function ingestParsedSst(
   };
 }
 
+async function trySstBase(
+  ep: SstEndpoint,
+  base: string,
+  bbox: PackBBox,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<{ ingest?: SstIngest; reason?: string; url: string }> {
+  const url = erddapSstCsvUrl({ ...ep, base }, bbox);
+  const got = await fetchNoaaTextResult({
+    url,
+    fetchImpl,
+    timeoutMs,
+    maxBytes: SST_MAX_BYTES,
+    sleep,
+  });
+  if (!got.ok) {
+    return { reason: `${sstHostOf(url)} ${got.reason}`, url };
+  }
+  const ingest = await ingestParsedSst(ep, got.text, url, bbox);
+  if (!ingest) {
+    return { reason: `${sstHostOf(url)} parse failed`, url };
+  }
+  return { ingest, url };
+}
+
 /**
  * Probe public SST endpoints. Never throws. Returns undefined when every
  * path fails so the caller keeps the hashed fixture.
  * First grid whose analysis age is ≤ 48 h wins (endpoint order). A
  * parseable grid older than 48 h is kept only if no later public grid
  * is inside the window; timestamps stay honest.
+ * Preferred-dataset hosts (ACSPO CoastWatch + PolarWatch) are raced so a
+ * hung CoastWatch cannot hand the pack to stale MUR in silence.
  */
 export async function fetchLiveSst(options: {
   bbox: PackBBox;
@@ -342,38 +419,61 @@ export async function fetchLiveSst(options: {
       : typeof options.now === "number"
         ? options.now
         : Date.now();
+  const preferred = endpoints[0];
+  const preferredLost: string[] = [];
   let staleBest: SstIngest | undefined;
+
   for (const ep of endpoints) {
-    const url = erddapSstCsvUrl(ep, options.bbox);
-    const text = await fetchNoaaText({
-      url,
-      fetchImpl: options.fetchImpl,
-      timeoutMs,
-      maxBytes: SST_MAX_BYTES,
-      sleep: options.sleep,
-    });
-    if (!text) {
-      errors?.push(`sst ${ep.id}: fetch failed`);
-      continue;
+    const bases = sstEndpointBases(ep);
+    const tries =
+      bases.length > 1
+        ? await Promise.all(
+            bases.map((base) =>
+              trySstBase(ep, base, options.bbox, options.fetchImpl, timeoutMs, options.sleep),
+            ),
+          )
+        : [await trySstBase(ep, bases[0]!, options.bbox, options.fetchImpl, timeoutMs, options.sleep)];
+
+    let ingest: SstIngest | undefined;
+    for (let i = 0; i < tries.length; i++) {
+      const tryOne = tries[i]!;
+      if (tryOne.ingest) {
+        if (!ingest) ingest = tryOne.ingest;
+        continue;
+      }
+      const reason = tryOne.reason ?? "fetch failed";
+      errors?.push(`sst ${ep.id}: fetch failed (${reason})`);
+      if (preferred && ep.id === preferred.id) preferredLost.push(reason);
     }
-    const ingest = await ingestParsedSst(ep, text, url, options.bbox);
-    if (!ingest) {
-      errors?.push(`sst ${ep.id}: parse failed or empty grid`);
-      continue;
-    }
+    if (!ingest) continue;
+
     const age = sstAgeHours(ingest.analysedAt, nowMs);
     if (age <= SST_SELECT_MAX_AGE_H) {
+      if (preferred && ingest.dataset !== preferred.id && preferredLost.length) {
+        const line = sstPreferredLostLine(preferred.id, preferredLost, ingest.dataset);
+        errors?.push(line);
+        attachSstHonesty(ingest, line);
+      }
       return ingest;
     }
-    errors?.push(`sst ${ep.id}: analysis ${ingest.analysedAt} older than 48 h — trying next public grid`);
-    if (
-      !staleBest ||
-      Date.parse(ingest.analysedAt) > Date.parse(staleBest.analysedAt)
-    ) {
+    errors?.push(
+      `sst ${ep.id}: analysis ${ingest.analysedAt} older than 48 h — trying next public grid`,
+    );
+    if (preferred && ep.id === preferred.id) {
+      preferredLost.push(`${ingest.analysedAt} older than 48 h`);
+    }
+    if (!staleBest || Date.parse(ingest.analysedAt) > Date.parse(staleBest.analysedAt)) {
       staleBest = ingest;
     }
   }
-  if (staleBest) return staleBest;
+  if (staleBest) {
+    if (preferred && staleBest.dataset !== preferred.id && preferredLost.length) {
+      const line = sstPreferredLostLine(preferred.id, preferredLost, staleBest.dataset);
+      errors?.push(line);
+      attachSstHonesty(staleBest, line);
+    }
+    return staleBest;
+  }
   errors?.push("sst: all public paths failed — fixture kept");
   return undefined;
 }
