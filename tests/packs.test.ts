@@ -1,6 +1,8 @@
 import "./register-alias.ts";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const {
   buildFixturePack,
@@ -1378,5 +1380,29 @@ describe("hashedPackCount", () => {
     assert.equal(count.hashed, 13);
     assert.equal(count.stale, 3);
     assert.deepEqual(count.misses, []);
+  });
+});
+
+describe("helm Packs production copy", () => {
+  it("does not call the default dock pack fixtures", async () => {
+    const packsSrc = await readFile(
+      fileURLToPath(new URL("../src/components/panels/PacksPanel.tsx", import.meta.url)),
+      "utf8",
+    );
+    const onboard = await readFile(
+      fileURLToPath(new URL("../src/components/ahanu/Onboarding.tsx", import.meta.url)),
+      "utf8",
+    );
+    assert.doesNotMatch(packsSrc, /Default download is hashed fixtures/);
+    assert.doesNotMatch(packsSrc, /Live NOAA can land/);
+    assert.doesNotMatch(packsSrc, /Failed fetches stay fixture/);
+    assert.match(packsSrc, /Download 72h on marina Wi-Fi hits api\.ahanu\.dev live NOAA, ENC, and/);
+    assert.match(packsSrc, /Live NOAA is preview-only \(\?live=1\), not the live path/);
+    assert.match(packsSrc, /A missed layer \(AIS\) is a miss — do not call the whole pack fixtures/);
+    assert.match(packsSrc, /Preview only \(\?live=1\)/);
+    assert.match(packsSrc, /api\.ahanu\.dev live NOAA/);
+    assert.doesNotMatch(onboard, /hashed fixtures/);
+    assert.doesNotMatch(onboard, /Default download is hashed/);
+    assert.match(onboard, /marina Wi-Fi/);
   });
 });

@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (honest Packs download copy, 2026-08-21)
+
+Helm Packs still said **Default download is hashed fixtures** and treated Live NOAA as the live path. Production Download 72h already hits api.ahanu.dev with tryLive (Live NOAA off; `?live=1` is preview-only). Relabeled: marina-Wi-Fi Download is live NOAA/ENC/tides; a missed layer (AIS) is a miss, not a fixture pack. Onboarding already honest. STATUS is inventory, not helm. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (idempotent SST live-refresh liveErrors, 2026-08-21)
 
 Live GET /api/packs on api.ahanu.dev listed **sst: live refresh still 27 h … kept ACSPO** twice. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. Root cause: stale-SST GET prepended `sstRefreshKeptLine` on every R2 hit, and leftover notes persist wrote that prepend back. Same-kind sst/enc/tides keep-lines now replace; exact dups drop. Serving R2 GET/HEAD persist writes the collapsed list — no NOAA. 8455083 packed. AIS leftover honest. No AIS edit. No Flutter. PR #1 not merged.

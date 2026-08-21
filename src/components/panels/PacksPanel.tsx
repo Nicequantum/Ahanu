@@ -30,7 +30,7 @@ import {
   packedOfficialEncCells,
 } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
+/** Helm-only: production Download 72h is live Worker (tryLive); Live NOAA is preview-only (?live=1). Per-layer NOAA / fixture / miss + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -99,10 +99,8 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (public ERDDAP — ACSPO / MUR / GeoPolar / CoralTemp when that grid parses; not
-            claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides,
-            and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay
-            fixture.
+            Preview only (?live=1). Production Download 72h already hits api.ahanu.dev live NOAA,
+            ENC, and tides with this off. A missed layer (AIS) is a miss — not a fixture pack.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -130,11 +128,11 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST,
-        chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC.
-        Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; helm extract applies
-        .00n updates when those files are in the zip. Client re-checks hashes after download. Worker
-        ready flag is a hint only
+        Point Judith canyon box. Download 72h on marina Wi-Fi hits api.ahanu.dev live NOAA, ENC, and
+        tides. Live NOAA is preview-only (?live=1), not the live path. Official S-57 packs only when
+        NOAA zips fetch and the .000 is ISO 8211; helm extract applies .00n updates when those files
+        are in the zip. A missed layer (AIS) is a miss — do not call the whole pack fixtures. Client
+        re-checks hashes after download. Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>
       <p className="mb-3 text-[11px] text-muted">
