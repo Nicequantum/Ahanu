@@ -27,14 +27,31 @@ export type PackFieldId = "sst" | "chl" | "ssh" | "depth" | "windKt" | "waveFt";
 /** fixture = hashed demo bodies. r2 = production ingest bytes. */
 export type PackFieldSource = "fixture" | "r2" | "noaa";
 
+export interface EncS57Packed {
+  id: string;
+  official?: boolean;
+  encoding?: string;
+  iso8211?: boolean;
+  catalog031?: boolean;
+  file000?: string;
+  file000Bytes?: number;
+  leader?: string;
+  zipBytes?: number;
+  zipSha256?: string;
+  zipBase64?: string;
+  zipUrl?: string;
+}
+
 export interface EncClip {
   fixture: boolean;
   live?: boolean;
   official?: boolean;
+  encoding?: string;
   source?: string;
   note: string;
   bbox?: PackBBox;
   coverage?: { harborApproach: string[]; coastalTo100fm: boolean };
+  s57?: { source?: string; encoding?: string; official?: boolean; cellIds?: string[]; zipBytes?: number; files?: EncS57Packed[] };
   cells: {
     id: string;
     usage: number;
@@ -46,6 +63,7 @@ export interface EncClip {
     zipUrl?: string;
     zipBytes?: number;
     zipSha256?: string;
+    s57?: EncS57Packed;
   }[];
   tiles?: { template: string; legal?: boolean; probe?: string };
 }
@@ -163,6 +181,7 @@ function payloadSource(payload: unknown, fallback: PackFieldSource): PackFieldSo
       p.source === "ndbc" ||
       p.source === "coops" ||
       p.source === "noaa-enc-catalog" ||
+      p.source === "noaa-enc-s57" ||
       p.source === "noaa" ||
       p.source === "nmfs" ||
       p.live

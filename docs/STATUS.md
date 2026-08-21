@@ -2,6 +2,12 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (official S-57 clip, 2026-08-21)
+
+NOAA OCS serves public no-key S-57 exchange-set zips at `https://charts.noaa.gov/ENCs/{CELL}.zip` (HTTP 200, `application/zip`, PK magic, `ENC_ROOT/{CELL}/{CELL}.000` leader `015823LE1`). ENCProdCat.xml 200 / 10.5 MB, `dt_valid` 2026-08-20T04:59:10Z. Point Judith canyon box: 237 active usage 3–5 cells, catalog zip sum 20.7 MB (155 under 80 KB). District/state guesses `01.zip` / `RI.zip` 404. AWS `noaa-enc-pds` 404. ENC Online MapServer HEAD 200 (JSON metadata, not S-57). ENC Direct tiles TLS fail from this host. Full 237-cell set is too many Worker subrequests for one pack GET.
+
+Live ENC now fetches a dock-to-offshore subset (containing harbor cell + nearby Harbor-named neighbor at PJ/Montauk/Newport, then usage-3 coastal that cover those harbors or Veatch/Atlantis/Hydrographer; ≤8 cells, ≤400 KB catalog size each, ≤1.8 MB). Catalog ranking on 2026-08-20: US5PVDBB, US5PVDCB, US5NY2GL, US5PVDDD, US3NY01M, US3RI1AA, US3MA1AD, US3MA1AC (~1.25 MB zip). A zip packs only when it unzips and the `.000` is ISO 8211. Those bytes go in the `enc` JSON (`s57.files[].zipBase64`, leader, `.000` size, cell ids, `source: "noaa"`, `official: true`) and write through R2. Catalog-only stays `official: false` / `noaa-enc-catalog` when a zip misses or is not S-57. Helm says **ENC official S-57 · NOAA** with those cell ids when packed; otherwise the catalog aid line. Ahanu is not an ECDIS. Did not invent cells. GFS 72 h, SST stride-2, AIS demo unchanged. No Worker scoring. No Flutter.
+
 ## This pass (AIS still demo, 2026-08-21)
 
 No public no-key live AIS feed served the Point Judith canyon box. MarineCadastre / PMEL ERDDAP are historical (2025 nationwide daily CSVs; AIS2024 last on PMEL; no AIS2025/2026 live table). AISHub needs a contributor receiver. aisstream.io needs a signup key. USCG NAIS is request-only. Did not invent tracks or scrape a ToS-hostile site. Helm now says **AIS demo — not live traffic** (layer label + Packs + Layers footnote). Layer paint is synthetic with no pack and missing once a pack is loaded — AIS is not a pack layer and does not fake Ready. Worker unchanged. No Worker scoring. No Flutter.

@@ -67,7 +67,7 @@ export interface PackLayerSpec {
 }
 
 export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
-  { id: "enc", label: "NOAA ENC cells (clipped)", hours: 0, format: "enc-clip", contentType: "application/json", ext: "json", required: true },
+  { id: "enc", label: "NOAA ENC (catalog or S-57)", hours: 0, format: "enc-clip", contentType: "application/json", ext: "json", required: true },
   { id: "bathymetry", label: "Bathymetry (COG)", hours: 0, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "contours", label: "Depth contours", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "canyons", label: "Canyon axes & heads", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
@@ -271,7 +271,7 @@ function encClip(bbox: PackBBox): PackedJson {
     layer: "enc",
     payload: {
       fixture: true,
-      note: "Fixture cell list — not official S-57. Production ingest writes clipped NOAA ENC zips to R2.",
+      note: "Fixture cell list — not official S-57. Live NOAA packs official S-57 zips only when those bytes fetch and the .000 is ISO 8211.",
       bbox,
       coverage: {
         harborApproach: ["Point Judith", "Montauk", "Newport"],

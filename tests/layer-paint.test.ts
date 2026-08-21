@@ -53,6 +53,7 @@ describe("layerPaintSource — no pack", () => {
     assert.equal(layerPaintSource("buoys"), "local");
     assert.equal(layerPaintSource("ais"), "synthetic");
     assert.equal(LAYER_META.ais.label, "AIS demo — not live traffic");
+    assert.equal(LAYER_META.enc.label, "ENC catalog (aid)");
     assert.equal(layerPaintSource("enc"), "local");
   });
 });
@@ -206,6 +207,8 @@ const {
   encCatalogFeatures,
   encCatalogForChart,
   encCellHasBounds,
+  encHelmLabel,
+  packedEncOfficial,
 } = await import("../src/lib/ahanu/packed-chart.ts");
 
 describe("packed chart layers", () => {
@@ -501,5 +504,72 @@ describe("ENC catalog aid overlay", () => {
       { id: "US5BAD2", usage: 5, name: "nan", west: Number.NaN, south: 41, east: -71, north: 42 },
     ]);
     assert.equal(geo.features.length, 0);
+  });
+});
+
+
+describe("ENC official S-57 helm", () => {
+  it("no-pack helm label stays catalog aid", () => {
+    assert.equal(encHelmLabel(), "ENC catalog (aid)");
+  });
+
+  it("labels official S-57 and paints those cell boxes only", async () => {
+    const { encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+    const { encToPackedJson } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const packed = encToPackedJson(
+      POINT_JUDITH_CANYON_BBOX,
+      [
+        {
+          id: "US5PVDBB",
+          usage: 5,
+          name: "Point Judith Harbor",
+          west: -71.55,
+          south: 41.325,
+          east: -71.475,
+          north: 41.4,
+        },
+        {
+          id: "US3NY01M",
+          usage: 3,
+          name: "Approaches to New York",
+          west: -74.0,
+          south: 38.8,
+          east: -69.2,
+          north: 41.5,
+        },
+      ],
+      {
+        catalogUrl: "https://charts.noaa.gov/ENCs/ENCProdCat.xml",
+        officialS57: [
+          {
+            id: "US5PVDBB",
+            official: true,
+            encoding: "s-57",
+            iso8211: true,
+            catalog031: true,
+            file000: "US5PVDBB.000",
+            file000Bytes: 417929,
+            leader: "015823LE1 0900201 ! 3404",
+            zipBytes: 114301,
+            zipSha256: "abc",
+            zipBase64: "UEsD",
+          },
+        ],
+      },
+    );
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const bodies = { ...fixture.bodies, enc: encodeLayerBody(packed) };
+    setPackedOcean(packedOceanFromBodies(bodies, "noaa"));
+    assert.equal(packedEncOfficial(), true);
+    assert.equal(encHelmLabel("noaa"), "ENC official S-57 · NOAA");
+    const geo = encCatalogForChart();
+    assert.equal(geo.features.length, 1);
+    assert.equal((geo.features[0]!.properties as { id?: string })?.id, "US5PVDBB");
+    assert.equal((geo.features[0]!.properties as { kind?: string })?.kind, "enc-s57");
   });
 });

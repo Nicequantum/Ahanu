@@ -4,7 +4,7 @@
  * Production marine bytes still leave Cloudflare R2. Preview stays fixture unless ?live=1.
  *
  * `?live=1` uses the same Worker overlays as buildTripPack({ tryLive }):
- * NDBC buoys, CO-OPS tides, ENC catalog, CoastWatch SST / chlorophyll / SSH,
+ * NDBC buoys, CO-OPS tides, ENC catalog or official S-57, CoastWatch SST / chlorophyll / SSH,
  * HMS closed areas, ETOPO bathymetry + cheap contours, and hour-0 GFS-Wave
  * when that subset decodes. A failed individual fetch keeps that layer fixture.
  * Preview keeps the 72 h series off unless ?gfsSeries=1 (Worker GET enables it).

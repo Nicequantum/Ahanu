@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { LAYER_META } from "@/lib/ahanu/constants";
+import { encHelmLabel } from "@/lib/ahanu/packed-chart";
 import { layerPaintSource, layerPaintTone } from "@/lib/ahanu/layer-status";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { LayerId } from "@/lib/ahanu/types";
@@ -31,7 +32,7 @@ export function LayersPanel() {
                 <div key={id} className="mb-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-2 text-sm">
-                      <span className="truncate">{LAYER_META[id].label}</span>
+                      <span className="truncate">{id === "enc" ? encHelmLabel() : LAYER_META[id].label}</span>
                       <Badge
                         tone={layerPaintTone(origin)}
                         className="shrink-0 text-[10px] uppercase tracking-wider"
@@ -66,7 +67,7 @@ export function LayersPanel() {
       <p className="text-xs text-muted">
         Packed / fixture = trip-pack grid or vector. Synthetic = demo field with no pack. Missing = pack
         loaded without that layer. Derived = on-device from packed SST/chl. Local = seed chart when no
-        pack. ENC catalog (aid) paints cell coverage boxes from the packed list — not official S-57.
+        pack. ENC official S-57 paints packed NOAA cell boxes when those zips landed; otherwise the catalog aid overlay.
         HMS closed areas are a reminder overlay, not a legal determination — verify with NOAA HMS
         before you leave the dock. AIS is a demo overlay — not live traffic.
       </p>

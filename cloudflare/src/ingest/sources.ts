@@ -74,9 +74,10 @@ function meta(
  *   Raster tiles (aid only, not a substitute for ENC):
  *                     https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png
  *
- * Adapter honesty: ingest S-57 zips now. When NOAA dual-issues S-101 for the
- * same RI/NY/MA cells, store both encodings under the same layer id (`enc`)
- * and let the client pick. Do not wait on S-101 to ship a pack.
+ * Adapter honesty: live Worker fetches a dock-to-offshore S-57 subset
+ * (harbor at PJ/Montauk/Newport + coastal + approach) when those zips are
+ * public and the .000 is ISO 8211. Full-box 237 cells / ~21 MB is too many
+ * subrequests for one pack GET. S-101 dual-issue later, same layer id.
  */
 export function noaaEnc(): IngestMeta {
   return meta({
@@ -106,7 +107,7 @@ export function noaaEnc(): IngestMeta {
       },
     ],
     notes:
-      "Clip to usage bands 4–5 (Approach/Harbor) around Point Judith / Montauk / Newport plus band 3 (Coastal) out to the 100-fathom curve. S-57 is the operational encoding; S-101 is ingested in parallel as NOAA dual-issues the same cells. Re-issue weekly or on NOAA NtM.",
+      "Live packs a dock-to-offshore S-57 subset (≤8 cells, ≤1.8 MB catalog size) when NOAA zips fetch and parse ISO 8211. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
   });
 }
 

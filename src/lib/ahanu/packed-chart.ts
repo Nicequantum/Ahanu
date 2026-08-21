@@ -15,6 +15,9 @@ import { encCatalogBounds } from "./noaa-enc";
 export const ENC_AID_DISCLAIMER =
   "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
 
+export const ENC_S57_DISCLAIMER =
+  "ENC in this pack is official NOAA S-57 (ISO 8211 .000 exchange set). Ahanu is an aid — not an ECDIS.";
+
 export const HMS_AID_DISCLAIMER =
   "HMS closed areas are a reminder overlay, not a legal determination. Recreational trolling is generally not the same as commercial pelagic longline closures. Verify with NOAA HMS before you leave the dock.";
 
@@ -181,6 +184,7 @@ export type PackedEncCell = {
   south?: number;
   east?: number;
   north?: number;
+  s57?: { iso8211?: boolean; official?: boolean; file000Bytes?: number; leader?: string; zipBase64?: string };
 };
 
 export function packedEncCells(): PackedEncCell[] {
@@ -190,7 +194,32 @@ export function packedEncCells(): PackedEncCell[] {
 export function packedEncNote(): string | null {
   const enc = getPackedOcean()?.enc;
   if (!enc) return null;
-  return enc.note || ENC_AID_DISCLAIMER;
+  return enc.note || (enc.official ? ENC_S57_DISCLAIMER : ENC_AID_DISCLAIMER);
+}
+
+export function packedEncOfficial(): boolean {
+  return Boolean(getPackedOcean()?.enc?.official);
+}
+
+export function packedOfficialEncCells(): PackedEncCell[] {
+  const enc = getPackedOcean()?.enc;
+  if (!enc?.official) return [];
+  const fromS57 = (enc.s57?.cellIds ?? []).filter(Boolean);
+  if (fromS57.length) {
+    const byId = new Map((enc.cells ?? []).map((c) => [c.id, c]));
+    return fromS57.map((id) => byId.get(id)).filter((c): c is PackedEncCell => Boolean(c));
+  }
+  return (enc.cells ?? []).filter((c) => c.s57?.iso8211);
+}
+
+export function encHelmLabel(source?: string): string {
+  if (packedEncOfficial()) return source === "noaa" || source === "r2" ? "ENC official S-57 · NOAA" : "ENC official S-57";
+  if (source === "noaa") return "ENC catalog (aid · NOAA)";
+  return "ENC catalog (aid)";
+}
+
+export function encOverlayCells(): PackedEncCell[] {
+  return packedEncOfficial() ? packedOfficialEncCells() : packedEncCells();
 }
 
 export function encCellHasBounds(
@@ -199,8 +228,11 @@ export function encCellHasBounds(
   return encCatalogBounds(cell) != null;
 }
 
-/** Aid overlay boxes from catalog west/south/east/north. Missing/empty/no-bounds → no features. Not official S-57. */
-export function encCatalogFeatures(cells: PackedEncCell[]): GeoJSON.FeatureCollection {
+/** Coverage boxes from west/south/east/north. Missing/empty/no-bounds → no features. */
+export function encCatalogFeatures(
+  cells: PackedEncCell[],
+  kind: "enc-catalog" | "enc-s57" = "enc-catalog",
+): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: cells.filter(encCellHasBounds).map((c) => ({
@@ -210,7 +242,7 @@ export function encCatalogFeatures(cells: PackedEncCell[]): GeoJSON.FeatureColle
         name: c.name,
         usage: c.usage,
         legal: false,
-        kind: "enc-catalog",
+        kind,
       },
       geometry: {
         type: "Polygon" as const,
@@ -229,11 +261,12 @@ export function encCatalogFeatures(cells: PackedEncCell[]): GeoJSON.FeatureColle
 }
 
 export function encCatalogForChart(): GeoJSON.FeatureCollection {
-  return encCatalogFeatures(packedEncCells());
+  const official = packedEncOfficial();
+  return encCatalogFeatures(encOverlayCells(), official ? "enc-s57" : "enc-catalog");
 }
 
 export function encCatalogLabelPoints(): { id: string; lon: number; lat: number }[] {
-  return packedEncCells()
+  return encOverlayCells()
     .filter(encCellHasBounds)
     .map((c) => ({
       id: c.id,

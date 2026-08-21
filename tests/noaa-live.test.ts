@@ -1964,3 +1964,91 @@ describe("optional live canyon probe", () => {
     assert.ok((payload.features ?? []).every((f) => f.properties?.kind === "head"));
   });
 });
+
+
+describe("official S-57 pack", () => {
+  it("isIso8211 accepts NOAA .000 leader and rejects PK/html", async () => {
+    const { isIso8211, sampleIso8211Dot000 } = await import("../src/lib/ahanu/noaa-enc.ts");
+    assert.equal(isIso8211(sampleIso8211Dot000()), true);
+    assert.equal(isIso8211(new Uint8Array([0x50, 0x4b, 0x03, 0x04])), false);
+    assert.equal(isIso8211(new TextEncoder().encode("<html>")), false);
+  });
+
+  it("parseS57ExchangeSet reads stored zip .000 + CATALOG.031", async () => {
+    const { parseS57ExchangeSet, sampleS57Zip } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const zip = sampleS57Zip("US5PVDBB");
+    assert.equal(zip[0], 0x50);
+    assert.equal(zip[1], 0x4b);
+    const parsed = await parseS57ExchangeSet(zip);
+    assert.ok(parsed);
+    assert.equal(parsed.iso8211, true);
+    assert.equal(parsed.catalog031, true);
+    assert.equal(parsed.file000, "US5PVDBB.000");
+    assert.ok(parsed.file000Bytes >= 24);
+    assert.match(parsed.leader, /^015823LE1/);
+    assert.equal(await parseS57ExchangeSet(new Uint8Array([80, 75, 3, 4, 0, 0])), null);
+  });
+
+  it("pickOfficialEncCells takes harbor then coastal then approach and does not invent", async () => {
+    const { pickOfficialEncCells, parseEncProductCatalog } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const cells = parseEncProductCatalog(ENC_SAMPLE, POINT_JUDITH_CANYON_BBOX);
+    const picks = pickOfficialEncCells(cells);
+    assert.ok(picks.some((c) => c.id === "US5PVDBB"), "Point Judith harbor");
+    assert.ok(picks.some((c) => c.id === "US3NY01M"), "coastal");
+    assert.ok(!picks.some((c) => c.id === "US5CA99M"));
+    assert.ok(picks.length <= 8);
+  });
+
+  it("live NOAA packs official S-57 when the zip is ISO 8211", async () => {
+    const { sampleS57Zip } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const zip = sampleS57Zip("US5PVDBB");
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      fetchImpl: async (url: string) => {
+        if (url.endsWith(".zip")) {
+          return new Response(zip, { status: 200, headers: { "Content-Type": "application/zip" } });
+        }
+        return liveFetch(url);
+      },
+    });
+    assert.ok(live.enc);
+    const enc = live.enc.payload as {
+      official?: boolean;
+      source?: string;
+      encoding?: string;
+      s57?: { cellIds?: string[]; files?: { id: string; iso8211?: boolean; leader?: string; zipBase64?: string; file000Bytes?: number }[] };
+      cells?: { id: string; s57?: { iso8211?: boolean } }[];
+    };
+    assert.equal(enc.official, true);
+    assert.equal(enc.source, "noaa");
+    assert.equal(enc.encoding, "s-57");
+    assert.ok(enc.s57?.cellIds?.includes("US5PVDBB"));
+    const file = enc.s57?.files?.find((f) => f.id === "US5PVDBB");
+    assert.ok(file);
+    assert.equal(file.iso8211, true);
+    assert.match(file.leader ?? "", /^015823LE1/);
+    assert.ok((file.file000Bytes ?? 0) >= 24);
+    assert.ok((file.zipBase64 ?? "").length > 8);
+    const raw = Buffer.from(file.zipBase64!, "base64");
+    assert.equal(raw[0], 0x50);
+    assert.equal(raw[1], 0x4b);
+    assert.ok(enc.cells?.some((c) => c.id === "US5PVDBB" && c.s57?.iso8211));
+  });
+
+  it("keeps catalog-only when the zip is not S-57", async () => {
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      fetchImpl: liveFetch,
+    });
+    const enc = live.enc?.payload as { official?: boolean; source?: string };
+    assert.equal(enc.official, false);
+    assert.equal(enc.source, "noaa-enc-catalog");
+    assert.equal((enc as { s57?: unknown }).s57, undefined);
+  });
+});

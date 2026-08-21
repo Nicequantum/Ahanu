@@ -9,7 +9,8 @@
  * 72 h GFS-Wave series. Cron reads AHANU_GFS_WAVE_SERIES / GFS_WAVE_SERIES
  * and still leaves the series off unless those flags are set.
  *
- * ENC catalog is not official S-57. Hour-0 GFS-Wave is not a 72 h grid.
+ * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
+ * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
  * Live SST / chlorophyll / SSH / HMS / bathymetry / canyons are only the
  * public grids that parsed. CMEMS is not fetched.
  *

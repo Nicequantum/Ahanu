@@ -10,7 +10,8 @@
  * Do not invent 1 km MUR / GHRSST, 1 km VIIRS / CMEMS L4, or AVISO DUACS
  * if a coarser public grid is what arrived. Bathymetry is the public
  * relief grid that parsed (ETOPO 2022 subsampled here) — not official ENC.
- * Not CMEMS. Not official S-57.
+ * Not CMEMS. Official S-57 packs only when a NOAA zip fetches and the .000
+ * is ISO 8211. Catalog-only otherwise.
  *
  * Keep this file free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -20,10 +21,15 @@ import {
   ENC_DIRECT_TILE_TEMPLATE,
   ENC_ONLINE_MAPSERVER_URL,
   ENC_PROD_CAT_URL,
+  ENC_S57_FETCH_MAX_BYTES,
   encCatalogDateValid,
   encToPackedJson,
   parseEncProductCatalog,
+  parseS57ExchangeSet,
+  pickOfficialEncCells,
   pickSmallEncZip,
+  bytesToBase64,
+  type EncS57File,
   type EncTileMeta,
 } from "./noaa-enc";
 import {
@@ -545,20 +551,56 @@ async function liveEnc(
     errors.push("enc: no active cells in box");
     return undefined;
   }
-  const probe = pickSmallEncZip(cells);
-  if (probe?.zipUrl && (probe.zipBytes ?? 0) <= 80_000) {
-    const zip = await fetchNoaaBytes(noaaGet(probe.zipUrl, fetchImpl, timeoutMs, 200_000, sleep));
-    if (zip && zip.byteLength > 4) {
-      probe.zipSha256 = await sha256Hex(zip);
-      probe.zipBytes = zip.byteLength;
-    } else {
-      errors.push(`enc: ${probe.id} zip probe failed`);
+  const officialS57: EncS57File[] = [];
+  const picks = pickOfficialEncCells(cells);
+  if (picks.length) {
+    const fetched = await Promise.all(
+      picks.map(async (cell) => {
+        if (!cell.zipUrl) return { cell, zip: null as Uint8Array | null };
+        const zip = await fetchNoaaBytes(
+          noaaGet(cell.zipUrl, fetchImpl, timeoutMs, ENC_S57_FETCH_MAX_BYTES, sleep),
+        );
+        return { cell, zip };
+      }),
+    );
+    for (const { cell, zip } of fetched) {
+      if (!zip || zip.byteLength < 8) continue;
+      const parsed = await parseS57ExchangeSet(zip);
+      if (!parsed) continue;
+      cell.zipBytes = zip.byteLength;
+      cell.zipSha256 = await sha256Hex(zip);
+      officialS57.push({
+        id: cell.id,
+        official: true,
+        encoding: "s-57",
+        iso8211: true,
+        catalog031: parsed.catalog031,
+        file000: parsed.file000 ?? `${cell.id}.000`,
+        file000Bytes: parsed.file000Bytes,
+        leader: parsed.leader,
+        zipBytes: zip.byteLength,
+        zipSha256: cell.zipSha256,
+        zipBase64: bytesToBase64(zip),
+        zipUrl: cell.zipUrl,
+      });
+    }
+  } else {
+    const probe = pickSmallEncZip(cells);
+    if (probe?.zipUrl && (probe.zipBytes ?? 0) <= 80_000) {
+      const zip = await fetchNoaaBytes(noaaGet(probe.zipUrl, fetchImpl, timeoutMs, 200_000, sleep));
+      if (zip && zip.byteLength > 4) {
+        probe.zipSha256 = await sha256Hex(zip);
+        probe.zipBytes = zip.byteLength;
+      } else {
+        errors.push(`enc: ${probe.id} zip probe failed`);
+      }
     }
   }
   return encToPackedJson(bbox, cells, {
     catalogUrl: ENC_PROD_CAT_URL,
     catalogDate: encCatalogDateValid(xml),
     tiles,
+    officialS57,
   });
 }
 
@@ -836,7 +878,7 @@ export {
   noaaStatusRetryable,
   isNoaaAbortError,
 } from "./noaa-http";
-export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds } from "./noaa-enc";
+export { ENC_PROD_CAT_URL, ENC_DIRECT_TILE_TEMPLATE, parseEncProductCatalog, encToPackedJson, encCatalogBounds, pickOfficialEncCells, parseS57ExchangeSet, sampleS57Zip, isIso8211 } from "./noaa-enc";
 export {
   gfsWaveFilterUrl,
   gfsWaveCycleCandidates,

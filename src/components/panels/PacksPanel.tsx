@@ -16,9 +16,9 @@ import {
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
-import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
+import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, encHelmLabel, packedEncCells, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. GFS line comes from liveErrors / layer hours. */
+/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints official S-57 cell boxes when those zips landed; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -84,7 +84,7 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (public ERDDAP — MUR L4 subsampled when it parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC catalog when those fetches parse. Failed fetches stay fixture.
+            SST (public ERDDAP — MUR L4 subsampled when it parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -112,7 +112,7 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not claim official ENC. Client re-checks hashes after download.
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC. Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>
@@ -282,23 +282,24 @@ export function PacksPanel() {
       {packedEncCells().length ? (
         <div className="mt-4">
           <h3 className="mb-1 text-sm font-medium">
-            {packs.find((layer) => layer.id === "enc")?.source === "noaa"
-              ? "ENC catalog (aid · NOAA)"
-              : "ENC catalog (aid)"}
+            {encHelmLabel(packs.find((layer) => layer.id === "enc")?.source)}
           </h3>
           <ul className="mb-2 space-y-0.5 text-[11px] text-muted">
-            {packedEncCells().map((c) => (
+            {(packedEncOfficial() ? packedOfficialEncCells() : packedEncCells()).map((c) => (
               <li key={c.id}>
                 {c.id} · {c.name}
+                {c.s57?.iso8211 ? " · S-57" : ""}
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted">{ENC_AID_DISCLAIMER}</p>
+          <p className="text-xs text-muted">{packedEncOfficial() ? ENC_S57_DISCLAIMER : ENC_AID_DISCLAIMER}</p>
         </div>
       ) : null}
       <p className="mt-4 text-xs text-muted">
         AIS demo — not live traffic. Chlorophyll and altimetry improve the pack; they do not block Ready.
-        ENC is a cell list, not a legal chart.
+        {packedEncOfficial()
+          ? " ENC official S-57 is packed NOAA exchange-set bytes — not an ECDIS."
+          : " ENC is a cell list, not a legal chart."}
       </p>
     </Pane>
   );
