@@ -7,8 +7,11 @@
  * vertices, not invented. Drops Follow the same way a skipper pan
  * does. Camera persist is moveend → ahanu-camera. fitBounds is
  * linear easeTo (flyTo from Veatch zooms out through the bay).
- * Landscape leftover width is offset west of US5PVDCD. maxZoom 14
- * so shoreline is readable (z12–14), not the canyon. Not ECDIS.
+ * Landscape leftover width is left-padded west of US5PVDCD.
+ * MapLibre fitBounds already bakes offset into center, then easeTo
+ * applies it again — so we never pass offset. Padding is stripped
+ * in _fitInternal. maxZoom 14 so shoreline is readable (z12–14),
+ * not the canyon. Not ECDIS.
  */
 
 import { NEWPORT, POINT_JUDITH_HARBOR_BBOX } from "./constants";
@@ -113,8 +116,12 @@ export interface HarborFrameInput {
 
 function bboxFromRing(ring: GeoJSON.Position[] | undefined): PackBBox | null {
   if (!ring?.length) return null;
-  const lons = ring.map((p) => p[0]).filter((n): n is number => typeof n === "number" && Number.isFinite(n));
-  const lats = ring.map((p) => p[1]).filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+  const lons = ring
+    .map((p) => p[0])
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+  const lats = ring
+    .map((p) => p[1])
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
   if (!lons.length || !lats.length) return null;
   return parsePackBbox({
     west: Math.min(...lons),
@@ -242,15 +249,30 @@ function latFromMercatorY(y: number): number {
   return (Math.atan(Math.sinh(n)) * 180) / Math.PI;
 }
 
+export type HarborFitPadding =
+  number | { top: number; bottom: number; left: number; right: number };
+
+function paddingEdges(padding: HarborFitPadding): {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+} {
+  if (typeof padding === "number") {
+    return { top: padding, bottom: padding, left: padding, right: padding };
+  }
+  return padding;
+}
+
 /** Visible plotter after fitBounds of `box`. Landscape width can spill past the pin. */
 export function viewportAfterHarborFit(
   box: PackBBox,
   mapSize: { width: number; height: number },
-  opts: { padding: number; maxZoom: number } = FRAME_HARBOR_FIT,
+  opts: { padding: HarborFitPadding; maxZoom: number } = FRAME_HARBOR_FIT,
 ): PackBBox {
-  const pad = opts.padding;
-  const availW = Math.max(1, mapSize.width - 2 * pad);
-  const availH = Math.max(1, mapSize.height - 2 * pad);
+  const pad = paddingEdges(opts.padding);
+  const availW = Math.max(1, mapSize.width - pad.left - pad.right);
+  const availH = Math.max(1, mapSize.height - pad.top - pad.bottom);
   const tile = 512;
   const xSpan = Math.abs(mercatorX(box.east) - mercatorX(box.west));
   const ySpan = Math.abs(mercatorY(box.south) - mercatorY(box.north));
@@ -258,8 +280,13 @@ export function viewportAfterHarborFit(
   const zoomH = Math.log2(availH / (ySpan * tile));
   const zoom = Math.min(zoomW, zoomH, opts.maxZoom);
   const world = tile * 2 ** zoom;
-  const cx = (mercatorX(box.west) + mercatorX(box.east)) / 2;
-  const cy = (mercatorY(box.south) + mercatorY(box.north)) / 2;
+  // MapLibre cameraForBoxAndBearing: paddingOffset = ((left-right)/2, (top-bottom)/2)
+  // is subtracted from the bounds midpoint. _fitInternal then deletes padding,
+  // so this is the actual easeTo camera — no second shift.
+  const padOffX = (pad.left - pad.right) / 2;
+  const padOffY = (pad.top - pad.bottom) / 2;
+  const cx = (mercatorX(box.west) + mercatorX(box.east)) / 2 - padOffX / world;
+  const cy = (mercatorY(box.south) + mercatorY(box.north)) / 2 - padOffY / world;
   const halfW = mapSize.width / 2 / world;
   const halfH = mapSize.height / 2 / world;
   return {
@@ -280,8 +307,9 @@ export function shiftViewportWest(view: PackBBox, shiftDeg: number): PackBBox {
 }
 
 /**
- * Positive x puts the pin right of center so leftover landscape width is
- * Block Island Sound, not US5PVDCD / Newport.
+ * Extra left padding (px) so leftover landscape width is Block Island
+ * Sound, not US5PVDCD / Newport. Same shift harbor used to pass as
+ * fitBounds offset — MapLibre would apply that offset twice.
  */
 export function harborFitOffsetPx(mapSize: { width: number; height: number }): [number, number] {
   const view = viewportAfterHarborFit(HARBOR_FRAME_BBOX, mapSize, FRAME_HARBOR_FIT);
@@ -292,16 +320,28 @@ export function harborFitOffsetPx(mapSize: { width: number; height: number }): [
   return [shiftDeg / degPerPx, 0];
 }
 
+export type FrameHarborFitOpts = {
+  padding: HarborFitPadding;
+  duration: number;
+  maxZoom: number;
+  linear: boolean;
+  essential: boolean;
+};
+
 function harborFitOpts(map: {
   getContainer?: () => { clientWidth: number; clientHeight: number };
-}): typeof FRAME_HARBOR_FIT | (typeof FRAME_HARBOR_FIT & { offset: [number, number] }) {
+}): FrameHarborFitOpts {
   const el = map.getContainer?.();
   const width = el?.clientWidth ?? 0;
   const height = el?.clientHeight ?? 0;
   if (width < 8 || height < 8) return { ...FRAME_HARBOR_FIT };
-  const offset = harborFitOffsetPx({ width, height });
-  if (offset[0] === 0 && offset[1] === 0) return { ...FRAME_HARBOR_FIT };
-  return { ...FRAME_HARBOR_FIT, offset };
+  const extraLeftPx = harborFitOffsetPx({ width, height })[0];
+  if (extraLeftPx <= 0) return { ...FRAME_HARBOR_FIT };
+  const edge = FRAME_HARBOR_FIT.padding;
+  return {
+    ...FRAME_HARBOR_FIT,
+    padding: { top: edge, bottom: edge, right: edge, left: edge + extraLeftPx },
+  };
 }
 
 export function applyFrameHarbor(
@@ -309,7 +349,7 @@ export function applyFrameHarbor(
     fitBounds: (
       bounds: [[number, number], [number, number]],
       opts?: {
-        padding?: number;
+        padding?: HarborFitPadding;
         duration?: number;
         maxZoom?: number;
         linear?: boolean;

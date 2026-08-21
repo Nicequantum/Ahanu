@@ -67,7 +67,9 @@ const CHART_MAP = fileURLToPath(
 );
 const APP_SHELL = fileURLToPath(new URL("../src/components/ahanu/AppShell.tsx", import.meta.url));
 const PACKS = fileURLToPath(new URL("../src/components/panels/PacksPanel.tsx", import.meta.url));
-const SETTINGS = fileURLToPath(new URL("../src/components/panels/SettingsPanel.tsx", import.meta.url));
+const SETTINGS = fileURLToPath(
+  new URL("../src/components/panels/SettingsPanel.tsx", import.meta.url),
+);
 const STORE = fileURLToPath(new URL("../src/lib/ahanu/store.ts", import.meta.url));
 
 const US5PVDCB = { west: -71.55, south: 41.4, east: -71.475, north: 41.475 };
@@ -80,7 +82,10 @@ const HARBOR_INLET = { west: -71.55, south: 41.325, east: -71.475, north: 41.475
 function assertContainsGalilee(bbox: { west: number; south: number; east: number; north: number }) {
   assert.equal(GALILEE_DOCK.lon, -71.51);
   assert.equal(GALILEE_DOCK.lat, 41.3615);
-  assert.ok(bboxContainsLonLat(bbox, GALILEE_DOCK.lon, GALILEE_DOCK.lat), "Galilee dock must sit inside the framed box");
+  assert.ok(
+    bboxContainsLonLat(bbox, GALILEE_DOCK.lon, GALILEE_DOCK.lat),
+    "Galilee dock must sit inside the framed box",
+  );
   assert.ok(bbox.south <= 41.3615 && bbox.north >= 41.3615);
   assert.ok(bbox.west <= -71.51 && bbox.east >= -71.51);
 }
@@ -88,7 +93,11 @@ function assertContainsGalilee(bbox: { west: number; south: number; east: number
 function assertExcludesNewport(bbox: { west: number; south: number; east: number; north: number }) {
   assert.equal(NEWPORT.lat, 41.49);
   assert.equal(NEWPORT.lon, -71.327);
-  assert.equal(bboxContainsLonLat(bbox, NEWPORT.lon, NEWPORT.lat), false, "Newport must stay outside Frame harbor");
+  assert.equal(
+    bboxContainsLonLat(bbox, NEWPORT.lon, NEWPORT.lat),
+    false,
+    "Newport must stay outside Frame harbor",
+  );
   assert.ok(bbox.north < NEWPORT.lat, "Frame harbor north must stay south of Newport 41.49");
 }
 
@@ -236,7 +245,10 @@ describe("Frame harbor bbox", () => {
     });
     assert.deepEqual(prints.get("US5PVDCB"), US5PVDCB);
     assert.equal(isAcceptedHarborPrint("US5PVDCB", US5PVDCB), true);
-    assert.equal(isAcceptedHarborPrint("US5PVDCB", { west: -72.8, south: 39.4, east: -68.8, north: 41.5 }), false);
+    assert.equal(
+      isAcceptedHarborPrint("US5PVDCB", { west: -72.8, south: 39.4, east: -68.8, north: 41.5 }),
+      false,
+    );
   });
 
   it("ignores canyon leftovers, US3RI1AA, and unused cells", () => {
@@ -464,10 +476,31 @@ describe("Frame harbor click box", () => {
       },
       getPackedOcean()?.enc,
     );
-    const hit = mapCalls[0] as { bounds: unknown; opts: { offset?: [number, number]; linear?: boolean } };
+    const hit = mapCalls[0] as {
+      bounds: unknown;
+      opts: {
+        offset?: [number, number];
+        linear?: boolean;
+        padding?: number | { top: number; bottom: number; left: number; right: number };
+      };
+    };
     assert.deepEqual(hit.bounds, FRAME_HARBOR_FIT_BOUNDS);
     assert.equal(hit.opts.linear, true);
-    assert.ok(hit.opts.offset && hit.opts.offset[0] > 0);
+    assert.ok(hit.opts.offset == null || hit.opts.offset[0] === 0, "fitBounds must not get offset");
+    const pad = hit.opts.padding;
+    assert.ok(pad && typeof pad === "object", "landscape leftover is left padding, not offset");
+    assert.ok(pad.left > pad.right);
+    assert.equal(pad.right, 32);
+    assert.equal(pad.top, 32);
+    assert.equal(pad.bottom, 32);
+    assert.equal(pad.left, 32 + ox);
+    const paddedView = viewportAfterHarborFit(HARBOR_FRAME_BBOX, laptop, {
+      padding: pad,
+      maxZoom: FRAME_HARBOR_MAX_ZOOM,
+    });
+    assertContainsGalilee(paddedView);
+    assert.equal(bboxContainsLonLat(paddedView, NEWPORT.lon, NEWPORT.lat), false);
+    assert.equal(bboxContainsLonLat(paddedView, -71.3625, 41.4375), false, "US5PVDCD centroid");
   });
 });
 
