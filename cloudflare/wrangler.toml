@@ -56,6 +56,6 @@ new_sqlite_classes = ["CommunityHub"]
 # GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1).
 # POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
 # Cron is in-process and does not HTTP POST /api/ingest.
-# POST /api/catches stays device-token Bearer (helm localStorage).
+# POST /api/catches stays device-token Bearer (helm localStorage), bound per row to SHA-256(token).
 [triggers]
 crons = ["15 2,8,14,20 * * *"]

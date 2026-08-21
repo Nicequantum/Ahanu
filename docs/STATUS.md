@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (bind catch rows to the creating device, 2026-08-21)
+
+`POST /api/catches` still opens on any non-empty device bearer (not `INGEST_TOKEN`). Each D1 row now stores `device_hash` = SHA-256 of that bearer. Same token updates (201 insert / 200 update). A different token on the same id is 403 and does not overwrite. Empty bearer stays 401. `GET /api/catches` stays 404 — no list of other devices. Existing four probe rows were kept; NULL `device_hash` is unbound-once (first successful same-id write binds) so a skipper is not locked out of their own log. Safer than treating unknown owners as permanently unwritable. Ingest stay fail-closed. ENC update extract and GFS cycle pick unchanged. Helm catch-sync unchanged (no PWA deploy). No Worker scoring. No Flutter.
+
 ## This pass (ENC updates in packed zips, 2026-08-21)
 
 Probed charts.noaa.gov zips for the eight packed cells (HTTP 200, application/zip). **ISO 8211 updates present:** US5PVDCB `.001` 4767 B (leader `017903LE1`, edition 3 UPDN 1); US5NY2GL `.001` 9277 / `.002` 3625 / `.003` 2108 / `.004` 7168 B (edition 4 UPDN 1–4); US5PVDDD `.001` 3471 / `.002` 2430 / `.003` 11876 B (edition 5 UPDN 1–3); US3RI1AA `.001` 14775 B (edition 1 UPDN 1). **Base .000 only (no cell .00n):** US5PVDBB, US3NY01M, US3MA1AD, US3MA1AC — CATALOG.031 is the exchange catalog, not an update. Helm extract now applies RUIN insert/delete/modify (plus FSPC/VRPC/SGCC pointer-control) from those ISO 8211 files in order. Pack JSON lists edition + update file names/sizes. Copy says **includes ENC updates** only after extract applied them; base-only cells say **base .000 only — no update files in this exchange set**. Not an ECDIS. Did not invent S-57. GFS complete-cycle, R2 persist, ingest lock, MapLibre worker, domains unchanged. No Worker scoring. No Flutter.

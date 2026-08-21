@@ -92,7 +92,7 @@ Mixing these — for example baking a habitat GeoTIFF on the Worker — would co
 
 Ingest adapters live in `cloudflare/src/ingest/sources.ts`. They are stubs that return metadata and **real NOAA / CMEMS URLs**. A scheduled Worker will clip, hash, and put. Until that job exists, `/api/packs` still returns a coherent Northeast manifest so the client can be built against a stable shape.
 
-HTTP `POST /api/ingest` requires Worker secret `INGEST_TOKEN` and fails closed if it is missing. Cron is in-process and does not present a bearer. `POST /api/catches` keeps device-token identity (`Authorization: Bearer <device-token>`); the header shape will not change when those become short-lived device JWTs.
+HTTP `POST /api/ingest` requires Worker secret `INGEST_TOKEN` and fails closed if it is missing. Cron is in-process and does not present a bearer. `POST /api/catches` keeps device-token identity (`Authorization: Bearer <device-token>`); each row is bound to SHA-256 of that bearer. Same token updates; a different token is 403. The header shape will not change when those become short-lived device JWTs.
 
 ### What the Worker is allowed to do
 

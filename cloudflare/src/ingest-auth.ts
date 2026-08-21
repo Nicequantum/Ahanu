@@ -6,10 +6,13 @@
  * gate — scheduled() calls ingestFixturePack in-process in the same
  * isolate, where the secret already lives.
  *
- * POST /api/catches keeps device-token identity: any non-empty Bearer.
- * Helm catch-sync already sends the skipper's localStorage token
- * (`ahanu-device-token`). Do not require INGEST_TOKEN here — that would
- * lock the skipper out. Never put INGEST_TOKEN in VITE_ public env.
+ * POST /api/catches keeps device-token identity: any non-empty Bearer
+ * opens the door; each catch row is then bound to SHA-256 of that
+ * bearer (not the raw token). Same token updates; a different token
+ * gets 403 and must not overwrite. Helm catch-sync already sends the
+ * skipper's localStorage token (`ahanu-device-token`). Do not require
+ * INGEST_TOKEN here — that would lock the skipper out. Never put
+ * INGEST_TOKEN in VITE_ public env.
  */
 
 export type IngestAuthEnv = {
@@ -64,6 +67,31 @@ export function requireDeviceAuth(req: Request): Response | null {
     return unauthorized("Authorization: Bearer <device-token>");
   }
   return null;
+}
+
+/** SHA-256 hex of the device bearer. Stored on the catch row; never the raw token. */
+export async function hashDeviceToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export type CatchBindDecision = "insert" | "update" | "bind" | "deny";
+
+/**
+ * Bind rule for a catch id.
+ * - no row → insert bound to this token
+ * - same hash → update (skipper path)
+ * - NULL/empty hash → unbound-once: first successful write binds
+ * - different hash → deny (do not overwrite)
+ */
+export function catchBindDecision(
+  existing: { device_hash?: string | null } | null,
+  incomingHash: string,
+): CatchBindDecision {
+  if (!existing) return "insert";
+  const have = (existing.device_hash ?? "").trim();
+  if (!have) return "bind";
+  return timingSafeEqual(have, incomingHash) ? "update" : "deny";
 }
 
 /**

@@ -26,14 +26,24 @@ import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live"
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox, resolvePackManifest } from "./ingest/run";
-import { requireDeviceAuth, requireIngestAuth } from "./ingest-auth";
+import {
+  bearerToken,
+  catchBindDecision,
+  hashDeviceToken,
+  requireDeviceAuth,
+  requireIngestAuth,
+} from "./ingest-auth";
 
 export type { BBox } from "./ingest/pack";
 
 /** Binding shapes — structural stand-ins for Cloudflare runtime types. */
+interface D1RunResult {
+  meta?: { changes?: number };
+}
 interface D1Prepared {
   bind: (...values: unknown[]) => D1Prepared;
-  run: () => Promise<unknown>;
+  run: () => Promise<D1RunResult | unknown>;
+  first: <T = Record<string, unknown>>() => Promise<T | null>;
 }
 interface D1Binding {
   prepare: (query: string) => D1Prepared;
@@ -420,7 +430,7 @@ const SEED_REPORTS: CommunityReport[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Auth — ingest fail-closed on INGEST_TOKEN; catches stay device-token.
+// Auth — ingest fail-closed on INGEST_TOKEN; catches stay device-token (bound per row).
 // Cron is in-process (scheduled → ingestFixturePack) and does not HTTP.
 // ---------------------------------------------------------------------------
 
@@ -457,26 +467,52 @@ function parseCatch(body: unknown): CatchRecord | string {
   return rec;
 }
 
+export type UpsertCatchResult =
+  | { ok: true; rec: CatchRecord; created: boolean }
+  | { ok: false; status: 403; error: string };
+
+function runChanges(result: unknown): number | undefined {
+  if (!result || typeof result !== "object" || !("meta" in result)) return undefined;
+  const changes = (result as D1RunResult).meta?.changes;
+  return typeof changes === "number" ? changes : undefined;
+}
+
 /**
- * D1 insert stub. Missing / unbound / unprovisioned DB is a no-op: the
+ * Bind-and-upsert. Missing / unbound / unprovisioned DB is a no-op: the
  * worker still 201s the record so the helm can keep a local log. `synced`
- * is true only when the statement actually ran.
+ * is true only when the statement actually ran. A different device token
+ * on an already-bound id is 403 and does not overwrite.
  */
-async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
+export async function upsertCatch(
+  env: Env,
+  rec: CatchRecord,
+  deviceToken: string,
+): Promise<UpsertCatchResult> {
+  const hash = await hashDeviceToken(deviceToken);
   const db = env.DB;
   if (!db || typeof db.prepare !== "function") {
-    return { ...rec, synced: false };
+    return { ok: true, rec: { ...rec, synced: false }, created: true };
   }
   try {
-    await db
+    const existing = await db
+      .prepare("SELECT device_hash FROM catches WHERE id = ?")
+      .bind(rec.id)
+      .first<{ device_hash?: string | null }>();
+    const decision = catchBindDecision(existing, hash);
+    if (decision === "deny") {
+      return { ok: false, status: 403, error: "catch belongs to another device" };
+    }
+    const written = await db
       .prepare(
-        `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        `INSERT INTO catches (id, user_id, species, lat, lon, at, length_in, weight_lb, released, notes, sst_c, depth_m, conditions, synced, device_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(id) DO UPDATE SET
            species=excluded.species, lat=excluded.lat, lon=excluded.lon, at=excluded.at,
            length_in=excluded.length_in, weight_lb=excluded.weight_lb, released=excluded.released,
            notes=excluded.notes, sst_c=excluded.sst_c, depth_m=excluded.depth_m,
-           conditions=excluded.conditions, synced=1`,
+           conditions=excluded.conditions, synced=1,
+           device_hash=COALESCE(catches.device_hash, excluded.device_hash)
+         WHERE catches.device_hash IS NULL OR catches.device_hash = excluded.device_hash`,
       )
       .bind(
         rec.id,
@@ -492,11 +528,16 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
         rec.sstC ?? null,
         rec.depthM ?? null,
         rec.conditions ?? null,
+        hash,
       )
       .run();
-    return { ...rec, synced: true };
+    const changes = runChanges(written);
+    if (changes === 0) {
+      return { ok: false, status: 403, error: "catch belongs to another device" };
+    }
+    return { ok: true, rec: { ...rec, synced: true }, created: decision === "insert" };
   } catch {
-    return { ...rec, synced: false };
+    return { ok: true, rec: { ...rec, synced: false }, created: true };
   }
 }
 
@@ -741,6 +782,10 @@ export default {
         }
         const denied = requireDeviceAuth(request);
         if (denied) return denied;
+        const token = bearerToken(request);
+        if (!token) {
+          return error(401, "unauthorized", { hint: "Authorization: Bearer <device-token>" });
+        }
         let body: unknown;
         try {
           body = await request.json();
@@ -749,8 +794,15 @@ export default {
         }
         const parsed = parseCatch(body);
         if (typeof parsed === "string") return error(400, parsed);
-        const saved = await upsertCatch(env, parsed);
-        return json({ ok: true, catch: saved }, 201, { "Cache-Control": "no-store" });
+        const saved = await upsertCatch(env, parsed, token);
+        if (!saved.ok) {
+          return error(saved.status, saved.error, {
+            hint: "POST /api/catches updates only the device that created this id",
+          });
+        }
+        return json({ ok: true, catch: saved.rec }, saved.created ? 201 : 200, {
+          "Cache-Control": "no-store",
+        });
       }
 
       if (path === "/api/community" || path.startsWith("/api/community/")) {
