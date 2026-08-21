@@ -229,7 +229,7 @@ describe("fetchLiveAis fail-closed", () => {
       openSocket: mockOpen([{ MessageType: "ShipStaticData", MetaData: {}, Message: {} }]),
     });
     assert.equal(hit, undefined);
-    assert.ok(errors.some((e) => /no positions/i.test(e)));
+    assert.ok(errors.some((e) => /no positions/i.test(e) && /1 frame/.test(e)));
   });
 
   it("AISStream error frame is a liveError and invents nothing", async () => {

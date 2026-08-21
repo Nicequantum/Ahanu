@@ -288,18 +288,19 @@ async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | und
 }
 
 async function defaultOpenAisStream(url: string): Promise<AisStreamSocket> {
-  // Cloudflare Workers outbound: fetch + Upgrade yields a socket that must
-  // accept() after listeners — connect-without-accept looks like "ok, 0 positions".
+  // Prefer the standard client constructor (fires open, auto-accepted).
+  // Workers fetch+Upgrade is the fallback when WebSocket is missing; that
+  // socket must accept() after listeners or it looks like "ok, 0 positions".
+  if (typeof WebSocket === "function") {
+    const ws = new WebSocket(url) as unknown as AisStreamSocket;
+    armSocket(ws);
+    return ws;
+  }
   if (workerFetchUpgradeAvailable()) {
     const upgraded = await openAisStreamViaFetch(url);
     if (upgraded) return upgraded;
   }
-  if (typeof WebSocket !== "function") {
-    throw new Error("websocket unavailable");
-  }
-  const ws = new WebSocket(url) as unknown as AisStreamSocket;
-  armSocket(ws);
-  return ws;
+  throw new Error("websocket unavailable");
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -366,9 +367,10 @@ export async function fetchLiveAis(options: {
     }
   };
 
-  const handleMessage = async (ev: { data?: unknown }) => {
+  const handleMessage = async (ev: { data?: unknown } | string) => {
     if (messages >= maxMessages) return;
-    const text = await socketMessageTextAsync(ev.data);
+    const raw = typeof ev === "string" ? ev : ev?.data;
+    const text = await socketMessageTextAsync(raw);
     if (!text) return;
     messages += 1;
     let parsed: unknown;
@@ -455,7 +457,8 @@ export async function fetchLiveAis(options: {
   }
 
   if (!targets.size) {
-    options.errors.push(failed ?? "ais: no positions in snapshot — live miss");
+    const frames = `${messages} frame${messages === 1 ? "" : "s"}`;
+    options.errors.push(failed ?? `ais: no positions in snapshot (${frames}) — live miss`);
     return undefined;
   }
 

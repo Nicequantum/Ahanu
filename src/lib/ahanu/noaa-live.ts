@@ -854,6 +854,15 @@ export async function tryLiveNoaa(options: {
 
   const series = seriesFlag(options.gfsWaveSeries);
   const gridTimeout = Math.max(timeoutMs, NOAA_GRID_TIMEOUT_MS);
+  // AIS snapshot alone — parallel NOAA (S-57 / GRIB) starves WS message
+  // dispatch and AISStream may close an unread queue. Looks like 0 positions.
+  const ais = await fetchLiveAis({
+    bbox: options.bbox,
+    apiKey: options.aisstreamApiKey,
+    errors,
+    openSocket: options.openAisStream,
+    snapshotMs: options.aisSnapshotMs,
+  });
   // SST before ENC/GFS/other ERDDAP so ACSPO is not starved under the shared budget.
   const sst = await fetchLiveSst({
     bbox: options.bbox,
@@ -877,7 +886,7 @@ export async function tryLiveNoaa(options: {
           ingest,
         }),
       );
-  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons, ais] = await Promise.all([
+  const [buoys, tides, enc, gfs, chl, ssh, hms, bathy, canyons] = await Promise.all([
     liveBuoys(options.bbox, fetchImpl, timeoutMs, errors, sleep),
     liveTides(options.bbox, options.start, options.hours, fetchImpl, timeoutMs, errors, sleep),
     liveEnc(options.bbox, fetchImpl, timeoutMs, errors, sleep),
@@ -916,13 +925,6 @@ export async function tryLiveNoaa(options: {
       timeoutMs: gridTimeout,
       errors,
       sleep,
-    }),
-    fetchLiveAis({
-      bbox: options.bbox,
-      apiKey: options.aisstreamApiKey,
-      errors,
-      openSocket: options.openAisStream,
-      snapshotMs: options.aisSnapshotMs,
     }),
   ]);
   if (buoys) out.buoys = buoys;
