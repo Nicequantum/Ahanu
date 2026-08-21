@@ -39,6 +39,12 @@ import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
 import { followAfterSkipperMapMove, isUserPlotterGesture, shouldRecenterOnOwnship } from "@/lib/ahanu/follow-camera";
+import {
+  cameraForChartLoad,
+  createDebouncedCameraPersist,
+  jumpToPersistedCamera,
+  readPersistedCamera,
+} from "@/lib/ahanu/plotter-camera";
 import { useAhanu } from "@/lib/ahanu/store";
 
 
@@ -185,11 +191,17 @@ export function ChartMap() {
   useEffect(() => {
     let dead = false;
     let map: import("maplibre-gl").Map | undefined;
+    const persistCamera = createDebouncedCameraPersist();
     (async () => {
       const maplibregl = await import("maplibre-gl");
       if (dead || !host.current) return;
       await ensureMaplibreWorker(maplibregl);
       const abyss = mode === "day" ? "#9bb7c6" : "#071016";
+      const bootCam = cameraForChartLoad({
+        follow: shouldRecenterOnOwnship(follow, replayT),
+        ownship: { lon: vessel.lon, lat: vessel.lat },
+        stored: readPersistedCamera(),
+      });
       map = new maplibregl.Map({
         container: host.current,
         style: {
@@ -197,8 +209,10 @@ export function ChartMap() {
           sources: {},
           layers: [{ id: "bg", type: "background", paint: { "background-color": abyss } }],
         },
-        center: [vessel.lon, vessel.lat],
-        zoom: 7.4,
+        center: [bootCam.lng, bootCam.lat],
+        zoom: bootCam.zoom,
+        bearing: bootCam.bearing,
+        pitch: bootCam.pitch,
         // Harbor ENC. Rasters are image overlays (no native maxzoom); they stretch.
         maxZoom: PLOTTER_MAX_ZOOM,
         minZoom: 5.4,
@@ -209,7 +223,12 @@ export function ChartMap() {
 
       map.on("load", () => {
         if (!map) return;
-        const skipperLayers = useAhanu.getState().layers;
+        const live = useAhanu.getState();
+        jumpToPersistedCamera(
+          map,
+          shouldRecenterOnOwnship(live.followShip, live.replayT),
+        );
+        const skipperLayers = live.layers;
         const encNow = skipperLayers.enc;
         const encPaint = encLayerPaint(Boolean(encNow?.visible), encNow?.opacity);
         const hmsNow = skipperLayers.hms_zones;
@@ -662,6 +681,18 @@ export function ChartMap() {
         applyEncPaintFromStore(map);
       });
 
+      map.on("moveend", () => {
+        if (!map) return;
+        const c = map.getCenter();
+        persistCamera({
+          lng: c.lng,
+          lat: c.lat,
+          zoom: map.getZoom(),
+          bearing: map.getBearing(),
+          pitch: map.getPitch(),
+        });
+      });
+
       const dropFollow = () => {
         const st = useAhanu.getState();
         if (st.followShip) st.setFollow(followAfterSkipperMapMove());
@@ -698,6 +729,7 @@ export function ChartMap() {
 
     return () => {
       dead = true;
+      persistCamera.flush();
       labelRefs.current.forEach((m) => m.remove());
       labelRefs.current = [];
       encLabelRefs.current.forEach((m) => m.remove());

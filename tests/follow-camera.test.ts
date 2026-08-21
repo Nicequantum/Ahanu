@@ -87,13 +87,13 @@ describe("Follow camera", () => {
 
   it("ChartMap drops Follow on pan/zoom and never gates the ownship mark", async () => {
     const src = await readFile(CHART_MAP, "utf8");
-    assert.match(src, /shouldRecenterOnOwnship\(follow, replayT\)/);
+    assert.match(src, /shouldRecenterOnOwnship\(follow, replayT\) && map/);
     assert.match(src, /map\.on\("dragstart"/);
     assert.match(src, /map\.on\("zoomstart"/);
     assert.match(src, /isUserPlotterGesture/);
     assert.match(src, /setFollow\(followAfterSkipperMapMove\(\)\)/);
     const markAt = src.indexOf("shipRef.current?.setLngLat");
-    const easeAt = src.indexOf("shouldRecenterOnOwnship(follow, replayT)");
+    const easeAt = src.indexOf("shouldRecenterOnOwnship(follow, replayT) && map");
     assert.ok(markAt >= 0 && easeAt > markAt, "ownship marker must update before the Follow camera gate");
     const markBlock = src.slice(markAt, easeAt);
     assert.doesNotMatch(markBlock, /follow/, "ownship setLngLat must not sit behind Follow");
