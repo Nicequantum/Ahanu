@@ -36,7 +36,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 
 | Layer               | Bytes                                                         | Window                   | Why it is in the pack                                        |
 | ------------------- | ------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
-| NOAA ENC            | Official S-57 zips when they fetch (ISO 8211 .000); else catalog cell list | static, weekly refresh   | Official bytes are NOAA exchange sets. Ahanu is not an ECDIS. |
+| NOAA ENC            | Official S-57 zips when they fetch (ISO 8211 .000); else catalog cell list | static, weekly refresh   | Client paints an S-57 extract (coast/shore/depth/wrecks when present). Not an ECDIS. |
 | Bathymetry COG      | raster (live: NCEI ETOPO 2022 ~0.033° via ERDDAP)             | static                   | Canyon walls, 100-fathom curve, heads. Not official ENC.     |
 | Depth contours      | vector (live: cheap 100/200 fm from the packed grid)          | static                   | Fast drawing, night-readable.                                |
 | Canyon axes & heads | GeoJSON (live: MarineCadastre named heads)                    | static                   | Live: named heads only. Fixture still has synthetic axes.    |

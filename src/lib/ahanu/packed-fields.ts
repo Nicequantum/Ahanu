@@ -51,7 +51,23 @@ export interface EncS57Extract {
     file000?: string;
     bounds?: { west: number; south: number; east: number; north: number };
     features: GeoJSON.Feature[];
-    counts: { aids: number; lights: number; soundings: number; soundingsOmitted: number };
+    counts: {
+      aids: number;
+      lights: number;
+      soundings: number;
+      soundingsOmitted: number;
+      coastline?: number;
+      shoreline?: number;
+      depthAreas?: number;
+      depthAreasOmitted?: number;
+      depthContours?: number;
+      depthContoursOmitted?: number;
+      landAreas?: number;
+      wrecks?: number;
+      obstructions?: number;
+      bridges?: number;
+    };
+    classesPresent?: { acronym: string; objl: number; count: number }[];
   }[];
   features: GeoJSON.Feature[];
 }

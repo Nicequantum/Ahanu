@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (deeper S-57 extract, 2026-08-21)
+
+Client extract now reconstructs connected-node / edge geometry from packed official `.000` bytes (VRPT is 9-byte NAME+ORNT+USAG+TOPI+MASK). Harbor cell **US5PVDCB** (Point Judith Harbor, 417929-byte ISO 8211 `.000`, charts.noaa.gov 2026-08-21): COALNE 141, DEPARE 30, DEPCNT 31, SLCONS 407, LNDARE 15, OBSTRN 5, SOUNDG 2 (204 SG3D points), BOYSAW 16. **Absent from US5PVDCB:** LIGHTS, WRECKS, UWTROC — not painted from that file. Neighbor **US5PVDBB** (905695-byte `.000`): COALNE 135, DEPARE 147, DEPCNT 151, SLCONS 532, LNDARE 48, OBSTRN 67, WRECKS 7, LIGHTS 10, SOUNDG 11, BCNLAT 4. Paint is real SG2D/SG3D + connected-node coordinates only. Caps: harbor usage-5 no line/area cap, soundings 400/cell; approach usage-4 soundings 120 / contours 200 / depth areas 80; coastal usage-3 soundings 40 / contours 80 / depth areas 40 / coastline+shore 200. Prefer harbor fidelity. ECDIS disclaimer kept. New paint labeled S-57 extract. Packing unchanged — PWA only. No Worker scoring. No Flutter.
+
 ## This pass (custom hostnames on ahanu.dev, 2026-08-21)
 
 Zone `ahanu.dev` (569d9e656eb67216396642b55e340017) is active on this account. Apex was already a Workers custom domain for PWA `ahanu` (200 HTML). No MX. `www` and `api` were NXDOMAIN. Did not steal apex. Attached `ahanu.dev` + `www.ahanu.dev` to `ahanu` and `api.ahanu.dev` to `ahanu-packs` via wrangler `custom_domain = true` (Cloudflare creates the proxied DNS). `ahanu.app` / `api.ahanu.app` stay unattached — that zone is not here. CF/prod helm `VITE_AHANU_PACKS_URL` defaults to `https://api.ahanu.dev`; SW allowlists that origin and keeps workers.dev as fallback. Ingest stay fail-closed. GFS 72 h, SST honesty, AIS demo, S-57 unchanged. No Worker scoring. No Flutter.

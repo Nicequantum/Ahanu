@@ -19,7 +19,7 @@ Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They ar
 | Habitat score and go/no-go                                                         | On-device only. Worker does not score.                               |
 | Preview GET /api/packs                                                             | Deterministic hashed fixtures                                        |
 | SST / wind / wave / bathy grids                                                    | Hashed fixtures. Live GHRSST / GFS-Wave / NDFD / CMEMS not ingested. |
-| ENC                                                                                | Fixture cell list, not official S-57. Not a legal chart.             |
+| ENC                                                                                | Official S-57 zips when packed; client paints an extract, not ECDIS. |
 | NDBC buoys and CO-OPS tides                                                        | Public fetch when the network allows; failure degrades to fixtures   |
 | AIS                                                                                | Demo gateway in src/lib/data/ais.ts                                  |
 | Production R2 objects / ingest cron                                                | Not provisioned here                                                 |

@@ -208,7 +208,10 @@ const {
   encAidsForChart,
   encCatalogForChart,
   encCellHasBounds,
+  encCoastForChart,
+  encDepthAreasForChart,
   encForChart,
+  encHazardsForChart,
   encHelmLabel,
   encPackRowLabel,
   encSoundingsForChart,
@@ -659,5 +662,14 @@ describe("ENC official S-57 helm", () => {
     assert.equal(snd.features.length, 1);
     assert.equal((snd.features[0]!.properties as { depthM?: number })?.depthM, 12.6);
     assert.equal((snd.features[0]!.properties as { kind?: string })?.kind, "enc-s57-sounding");
+    const coast = encCoastForChart();
+    assert.equal(coast.features.length, 1);
+    assert.equal((coast.features[0]!.properties as { kind?: string })?.kind, "enc-s57-coastline");
+    assert.match(String((coast.features[0]!.properties as { extract?: string })?.extract), /S-57 extract/i);
+    const depare = encDepthAreasForChart();
+    assert.equal(depare.features.length, 1);
+    assert.equal((depare.features[0]!.properties as { drval1?: number })?.drval1, 0);
+    const hazards = encHazardsForChart();
+    assert.ok(hazards.features.some((f) => (f.properties as { kind?: string })?.kind === "enc-s57-wreck"));
   });
 });

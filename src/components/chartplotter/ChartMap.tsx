@@ -18,7 +18,14 @@ import {
   contoursForChart,
   encAidsForChart,
   encCatalogLabelPoints,
+  encCoastForChart,
+  encDepthAreasForChart,
+  encDepthContoursForChart,
   encForChart,
+  encHazardAreas,
+  encHazardPoints,
+  encLandPolygons,
+  encShoreForChart,
   encSoundingsForChart,
   hmsForChart,
 } from "@/lib/ahanu/packed-chart";
@@ -277,6 +284,63 @@ export function ChartMap() {
           paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": 0 },
         });
 
+        map.addSource("enc-land", { type: "geojson", data: encLandPolygons() });
+        map.addLayer({
+          id: "enc-land",
+          type: "fill",
+          source: "enc-land",
+          paint: { "fill-color": "#3d4a3a", "fill-opacity": 0 },
+        });
+        map.addSource("enc-depth-areas", { type: "geojson", data: encDepthAreasForChart() });
+        map.addLayer({
+          id: "enc-depth-areas",
+          type: "fill",
+          source: "enc-depth-areas",
+          paint: {
+            "fill-color": [
+              "case",
+              ["==", ["typeof", ["get", "drval1"]], "number"],
+              ["step", ["get", "drval1"], "#8b7355", 0, "#2a5360", 5, "#1d3f4c", 10, "#152f3a"],
+              "#1d3f4c",
+            ],
+            "fill-opacity": 0,
+          },
+        });
+        map.addSource("enc-coast", { type: "geojson", data: encCoastForChart() });
+        map.addLayer({
+          id: "enc-coast",
+          type: "line",
+          source: "enc-coast",
+          paint: { "line-color": "#d4c4a8", "line-width": 1.35, "line-opacity": 0 },
+        });
+        map.addSource("enc-shore", { type: "geojson", data: encShoreForChart() });
+        map.addLayer({
+          id: "enc-shore",
+          type: "line",
+          source: "enc-shore",
+          paint: { "line-color": "#b8a070", "line-width": 1.15, "line-opacity": 0 },
+        });
+        map.addSource("enc-depth-contours", { type: "geojson", data: encDepthContoursForChart() });
+        map.addLayer({
+          id: "enc-depth-contours",
+          type: "line",
+          source: "enc-depth-contours",
+          paint: { "line-color": "#6a8a9a", "line-width": 0.8, "line-opacity": 0 },
+        });
+        map.addSource("enc-hazard-areas", { type: "geojson", data: encHazardAreas() });
+        map.addLayer({
+          id: "enc-hazard-areas",
+          type: "fill",
+          source: "enc-hazard-areas",
+          filter: ["==", ["geometry-type"], "Polygon"],
+          paint: { "fill-color": "#e06b5a", "fill-opacity": 0 },
+        });
+        map.addLayer({
+          id: "enc-hazard-lines",
+          type: "line",
+          source: "enc-hazard-areas",
+          paint: { "line-color": "#e4b56a", "line-width": 1.1, "line-opacity": 0 },
+        });
         map.addSource("enc", { type: "geojson", data: encForChart() });
         map.addLayer({
           id: "enc",
@@ -317,6 +381,19 @@ export function ChartMap() {
             "circle-radius": 1.6,
             "circle-color": "#8aa0ab",
             "circle-opacity": 0,
+          },
+        });
+        map.addSource("enc-hazards", { type: "geojson", data: encHazardPoints() });
+        map.addLayer({
+          id: "enc-hazards",
+          type: "circle",
+          source: "enc-hazards",
+          paint: {
+            "circle-radius": ["case", ["==", ["get", "kind"], "enc-s57-wreck"], 4.6, 3.6],
+            "circle-color": ["case", ["==", ["get", "kind"], "enc-s57-wreck"], "#e06b5a", "#e4b56a"],
+            "circle-opacity": 0,
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#071016",
           },
         });
 
@@ -605,10 +682,18 @@ export function ChartMap() {
     vis("chl-edges", layers.chl_edges.visible, 0.8);
     vis("hms", layers.hms_zones.visible, layers.hms_zones.opacity);
     vis("hms-outline", layers.hms_zones.visible, layers.hms_zones.opacity);
+    vis("enc-land", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-depth-areas", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-coast", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-shore", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-depth-contours", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-hazard-areas", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-hazard-lines", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("enc", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("enc-outline", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("enc-aids", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("enc-soundings", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
+    vis("enc-hazards", layers.enc?.visible ?? false, layers.enc?.opacity ?? 0);
     vis("buoys", layers.buoys.visible, 0.9);
     vis("track", layers.tracks.visible, 0.8);
     vis("spots", layers.spots.visible, 1);
@@ -627,21 +712,43 @@ export function ChartMap() {
         layers.hms_zones.visible ? Math.min(1, layers.hms_zones.opacity + 0.35) : 0,
       );
     }
+    const encOn = Boolean(layers.enc?.visible);
+    const encOp = layers.enc?.opacity ?? 0.32;
+    if (map.getLayer("enc-land")) {
+      map.setPaintProperty("enc-land", "fill-opacity", encOn ? Math.min(0.55, encOp + 0.15) : 0);
+    }
+    if (map.getLayer("enc-depth-areas")) {
+      map.setPaintProperty("enc-depth-areas", "fill-opacity", encOn ? Math.min(0.28, encOp * 0.7) : 0);
+    }
+    if (map.getLayer("enc-coast")) {
+      map.setPaintProperty("enc-coast", "line-opacity", encOn ? Math.min(1, encOp + 0.5) : 0);
+    }
+    if (map.getLayer("enc-shore")) {
+      map.setPaintProperty("enc-shore", "line-opacity", encOn ? Math.min(1, encOp + 0.4) : 0);
+    }
+    if (map.getLayer("enc-depth-contours")) {
+      map.setPaintProperty("enc-depth-contours", "line-opacity", encOn ? Math.min(0.85, encOp + 0.25) : 0);
+    }
+    if (map.getLayer("enc-hazard-areas")) {
+      map.setPaintProperty("enc-hazard-areas", "fill-opacity", encOn ? Math.min(0.35, encOp) : 0);
+    }
+    if (map.getLayer("enc-hazard-lines")) {
+      map.setPaintProperty("enc-hazard-lines", "line-opacity", encOn ? Math.min(1, encOp + 0.35) : 0);
+    }
     if (map.getLayer("enc")) {
-      map.setPaintProperty("enc", "fill-opacity", layers.enc?.visible ? (layers.enc.opacity ?? 0.32) : 0);
+      map.setPaintProperty("enc", "fill-opacity", encOn ? encOp : 0);
     }
     if (map.getLayer("enc-outline")) {
-      map.setPaintProperty(
-        "enc-outline",
-        "line-opacity",
-        layers.enc?.visible ? Math.min(1, (layers.enc.opacity ?? 0.32) + 0.4) : 0,
-      );
+      map.setPaintProperty("enc-outline", "line-opacity", encOn ? Math.min(1, encOp + 0.4) : 0);
     }
     if (map.getLayer("enc-aids")) {
-      map.setPaintProperty("enc-aids", "circle-opacity", layers.enc?.visible ? Math.min(1, (layers.enc.opacity ?? 0.32) + 0.45) : 0);
+      map.setPaintProperty("enc-aids", "circle-opacity", encOn ? Math.min(1, encOp + 0.45) : 0);
     }
     if (map.getLayer("enc-soundings")) {
-      map.setPaintProperty("enc-soundings", "circle-opacity", layers.enc?.visible ? Math.min(0.75, (layers.enc.opacity ?? 0.32) + 0.2) : 0);
+      map.setPaintProperty("enc-soundings", "circle-opacity", encOn ? Math.min(0.75, encOp + 0.2) : 0);
+    }
+    if (map.getLayer("enc-hazards")) {
+      map.setPaintProperty("enc-hazards", "circle-opacity", encOn ? Math.min(1, encOp + 0.5) : 0);
     }
     for (const m of encLabelRefs.current) {
       const el = m.getElement();
@@ -682,9 +789,16 @@ export function ChartMap() {
     set("c200", packedContours.c200);
     set("canyons", canyonsForChart());
     set("hms", hmsForChart());
+    set("enc-land", encLandPolygons());
+    set("enc-depth-areas", encDepthAreasForChart());
+    set("enc-coast", encCoastForChart());
+    set("enc-shore", encShoreForChart());
+    set("enc-depth-contours", encDepthContoursForChart());
+    set("enc-hazard-areas", encHazardAreas());
     set("enc", encForChart());
     set("enc-aids", encAidsForChart());
     set("enc-soundings", encSoundingsForChart());
+    set("enc-hazards", encHazardPoints());
     set("buoys", buoyPointsGeo(buoysForChart()));
     void import("maplibre-gl").then((maplibregl) => {
       if (mapRef.current !== map) return;

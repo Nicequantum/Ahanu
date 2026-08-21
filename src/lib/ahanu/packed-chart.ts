@@ -299,6 +299,56 @@ export function encSoundingsForChart(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: extractFeatures("enc-s57-sounding") };
 }
 
+export function encCoastForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-coastline") };
+}
+
+export function encShoreForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-shore") };
+}
+
+export function encDepthAreasForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-depth-area") };
+}
+
+export function encDepthContoursForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-depth-contour") };
+}
+
+export function encLandForChart(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: extractFeatures("enc-s57-land") };
+}
+
+export function encHazardsForChart(): GeoJSON.FeatureCollection {
+  const features = [
+    ...extractFeatures("enc-s57-wreck"),
+    ...extractFeatures("enc-s57-obstruction"),
+    ...extractFeatures("enc-s57-bridge"),
+  ];
+  return { type: "FeatureCollection", features };
+}
+
+export function encLandPolygons(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: encLandForChart().features.filter((f) => f.geometry?.type === "Polygon"),
+  };
+}
+
+export function encHazardPoints(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: encHazardsForChart().features.filter((f) => f.geometry?.type === "Point"),
+  };
+}
+
+export function encHazardAreas(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: encHazardsForChart().features.filter((f) => f.geometry?.type === "Polygon" || f.geometry?.type === "LineString"),
+  };
+}
+
 export function encCatalogLabelPoints(): { id: string; lon: number; lat: number }[] {
   const extractCells = extractFeatures("enc-s57-cell");
   if (extractCells.length) {

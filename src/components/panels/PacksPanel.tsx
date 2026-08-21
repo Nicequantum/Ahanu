@@ -18,7 +18,7 @@ import {
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, ENC_S57_EXTRACT_NOTE, encHelmLabel, encPackRowLabel, packedEncCells, packedEncExtract, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
+/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
