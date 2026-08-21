@@ -13,6 +13,7 @@ import {
   saveDeviceToken,
 } from "@/lib/ahanu/catch-sync";
 import { metersToFathoms } from "@/lib/ahanu/geo";
+import { gpsStatusLine } from "@/lib/ahanu/ownship-gps";
 import { useAhanu } from "@/lib/ahanu/store";
 import type { NavMode } from "@/lib/ahanu/types";
 import { Pane, Stat } from "@/components/panels/pane";
@@ -96,6 +97,7 @@ export function SettingsPanel() {
   const boat = useAhanu((s) => s.boat);
   const nav = useAhanu((s) => s.vessel.mode);
   const setNav = useAhanu((s) => s.setMode);
+  const gpsStatus = useAhanu((s) => s.gpsStatus);
   const follow = useAhanu((s) => s.followShip);
   const setFollow = useAhanu((s) => s.setFollow);
   const drop = useAhanu((s) => s.dropAnchor);
@@ -142,6 +144,13 @@ export function SettingsPanel() {
         Pan, zoom, Frame pack, or Frame harbor drops Follow. Last Follow is kept on this device.
         Tap Follow to center on the vessel.
       </p>
+      <p className="mb-2 text-[11px] text-muted">
+        GPS uses this device. Denied or unavailable keeps the last position — no invented fix.
+        Trolling and steaming stay simulated.
+      </p>
+      {nav === "gps" && gpsStatusLine(gpsStatus) ? (
+        <p className="mb-3 text-xs text-muted">{gpsStatusLine(gpsStatus)}</p>
+      ) : null}
       <NmeaToggle />
       <Button variant="outline" className="w-full" onClick={anchored ? weigh : drop}>
         {anchored ? "Weigh anchor" : "Drop anchor alarm"}

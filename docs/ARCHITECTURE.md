@@ -117,7 +117,7 @@ Ahanu does not talk to the backbone itself. A small gateway on the boat (Wi-Fi a
 - wind (if the vessel has it)
 - later: engine / fuel, AIS targets (`LayerId` `"ais"` is reserved)
 
-The PWA and the Flutter client both consume a local WebSocket / UDP JSON feed. When the gateway is absent, the client simulates or freezes last-known `VesselState`. Gateway code is not in this repository.
+The PWA and the Flutter client both consume a local WebSocket / UDP JSON feed. Gateway code is not in this repository. Helm **GPS** uses this device's Geolocation (`watchPosition`) when the skipper taps GPS. Denied / unavailable / timeout keeps the last position — no invented fix. Trolling / steaming stay simulated. The NMEA gateway remains future hardware.
 
 ---
 

@@ -22,6 +22,7 @@ Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They ar
 | ENC                                                                                | Official S-57 zips when packed; client paints an extract, not ECDIS. |
 | NDBC buoys and CO-OPS tides                                                        | Public fetch when the network allows; failure degrades to fixtures   |
 | AIS                                                                                | Packed AISStream snapshot when the Worker secret lands; else miss    |
+| Ownship GPS                                                                        | GPS mode watches this device. Denied keeps last position. Trolling / steaming simulated. NMEA gateway future. |
 | Production R2 objects / ingest cron                                                | Provisioned. R2 ahanu-trip-packs + D1 ahanu-core (ENAM). Cron 15 2,8,14,20. |
 | Flutter helm                                                                       | Not started. flutter/ is a Dart domain stub                          |
 

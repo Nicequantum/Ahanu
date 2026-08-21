@@ -2,6 +2,12 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (ownship GPS, 2026-08-21)
+
+NOAA CoastWatch ACSPO L3S-LEO NRT daily last cell is still **2026-08-20T12:00Z** (~28 h at probe). Kelvin + Celsius NRT same stamp. RAN last 2026-06-16. MUR 2026-08-20T09:00Z. GeoPolar / CoralTemp 2026-08-19T12:00Z. Do not invent SST. skipCache not landed.
+
+Helm GPS mode only froze the last simulated ownship (Veatch). No `navigator.geolocation` path. GPS now watches this device (Permissions-Policy already `geolocation=(self)`). A real fix moves the mark; denied / unavailable / timeout keeps the last position — no invented Galilee. Unknown SOG is 0, not leftover trolling knots. Last GPS-on is persisted (`ahanu-nav-gps`); first visit stays trolling. Trolling / steaming stay simulated. NMEA gateway stays future hardware. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (leftover L4 chlorophyll label, 2026-08-21)
 
 Live GET /api/packs on api.ahanu.dev labeled chlorophyll **Chlorophyll-a L4** after a live NASA Aqua MODIS L3SMI 8-day NRT 4 km grid landed (sources[] already named that product, analysis 2026-08-09). CMEMS L4 is not fetched — leftover fixture/catalog copy, same class as leftover NDFD on GFS-Wave. Generation now names fixture **Aqua MODIS chlorophyll (fixture)** and live **Aqua MODIS chlorophyll** (VIIRS L3 fallback names **VIIRS chlorophyll**). Persist / serving R2 GET/HEAD rewrite leftover L4 labels — no NOAA. Helm Packs remaps the stored leftover. Do not invent a newer chlorophyll scene. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.

@@ -32,6 +32,7 @@ import {
 import { hashedPackCount, readyOffshoreBadge } from "@/lib/ahanu/pack";
 import { packsApiBase } from "@/lib/ahanu/pack-client";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
+import { gpsHudLabel } from "@/lib/ahanu/ownship-gps";
 import { packedTideCurve, packedTideHarbors, resolveTideHarbor } from "@/lib/ahanu/tide-curve";
 import type { PanelId } from "@/lib/ahanu/types";
 import { cn } from "@/lib/utils";
@@ -260,6 +261,7 @@ function HudChip({ label, value }: { label: string; value: string }) {
 
 function InstrumentBar() {
   const v = useAhanu((s) => s.vessel);
+  const gpsStatus = useAhanu((s) => s.gpsStatus);
   const hour = useAhanu((s) => s.forecastHour);
   const setHour = useAhanu((s) => s.setHour);
   const species = useAhanu((s) => s.species);
@@ -308,6 +310,9 @@ function InstrumentBar() {
       </div>
       <div className="flex items-center gap-2 rounded-2xl bg-surface/90 px-2 py-2 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md">
         <p className="hidden px-2 text-[11px] text-muted md:block">
+          {v.mode === "gps" && gpsHudLabel(gpsStatus)
+            ? `${gpsHudLabel(gpsStatus)} · `
+            : ""}
           {formatCoord(v)} · {metersToFeet(v.depthM).toFixed(0)} ft · {SPECIES_LABELS[species]}{" "}
           {zoneLabel(score)} {score}
         </p>

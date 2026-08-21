@@ -58,6 +58,14 @@ import {
 } from "./follow-camera";
 import { FRAME_HARBOR_CAMERA } from "./frame-harbor";
 import { writePersistedCamera } from "./plotter-camera";
+import {
+  applyOwnshipGpsFix,
+  readPersistedGpsOn,
+  startOwnshipGps,
+  stopOwnshipGps,
+  writePersistedGpsOn,
+  type GpsStatus,
+} from "./ownship-gps";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -115,6 +123,8 @@ export interface AhanuState {
   nmeaGateway: boolean;
   replayT: number | null;
   safetyDepthM: number;
+  gpsStatus: GpsStatus;
+  gpsFix: { lat: number; lon: number } | null;
   setPanel: (p: PanelId) => void;
   toggleLayer: (id: LayerId) => void;
   setOpacity: (id: LayerId, opacity: number) => void;
@@ -232,6 +242,8 @@ export const useAhanu = create<AhanuState>()(
       hydrated: false,
       forecastPlaying: false,
       nmeaGateway: false,
+      gpsStatus: "off" as GpsStatus,
+      gpsFix: null,
       replayT: null,
       safetyDepthM: 10,
       setPanel: (panel) => set({ panel }),
@@ -260,17 +272,67 @@ export const useAhanu = create<AhanuState>()(
         writePersistedTideHarbor(st ? { id: st.id, name: st.name } : next);
         set({ tideHarbor: next });
       },
-      setMode: (mode) =>
+      setMode: (mode) => {
+        if (mode === "gps") {
+          writePersistedGpsOn(true);
+          set((s) => ({
+            gpsStatus: "waiting",
+            vessel: {
+              ...s.vessel,
+              mode,
+              sog: 0,
+              simulating: false,
+              anchored: false,
+            },
+          }));
+          startOwnshipGps({
+            onFix: (fix) => {
+              const cur = get();
+              if (cur.vessel.mode !== "gps") return;
+              const next = applyOwnshipGpsFix(cur.vessel, fix, cur.gpsFix);
+              const last = cur.track[cur.track.length - 1];
+              const hop = { lat: next.lat, lon: next.lon };
+              const nextTrack =
+                !last || haversineNm(last, hop) > 0.12
+                  ? [...cur.track.slice(-400), hop]
+                  : cur.track;
+              set({
+                gpsStatus: "live",
+                gpsFix: hop,
+                track: nextTrack,
+                vessel: {
+                  ...cur.vessel,
+                  ...next,
+                  depthM: Math.max(8, depthM(next.lat, next.lon)),
+                  mode: "gps",
+                  simulating: false,
+                  anchored: false,
+                },
+              });
+            },
+            onStatus: (status) => {
+              const cur = get();
+              if (cur.vessel.mode !== "gps") return;
+              set({ gpsStatus: status });
+            },
+          });
+          return;
+        }
+        writePersistedGpsOn(false);
+        stopOwnshipGps();
         set((s) => ({
+          gpsStatus: "off",
+          gpsFix: null,
           vessel: {
             ...s.vessel,
             mode,
             sog: mode === "trolling" ? s.boat.trollKt : mode === "steaming" ? s.boat.cruiseKt : 0,
-            simulating: mode !== "gps" && mode !== "anchor",
+            simulating: mode !== "anchor",
             anchored: mode === "anchor",
           },
           simT: mode === "steaming" ? 0 : s.simT,
-        })),
+        }));
+      },
       setFollow: (followShip) => {
         writePersistedFollow(followShip);
         set({ followShip });
@@ -374,8 +436,12 @@ export const useAhanu = create<AhanuState>()(
           },
         });
       },
-      dropAnchor: () =>
+      dropAnchor: () => {
+        writePersistedGpsOn(false);
+        stopOwnshipGps();
         set((s) => ({
+          gpsStatus: "off",
+          gpsFix: null,
           vessel: {
             ...s.vessel,
             anchored: true,
@@ -384,9 +450,14 @@ export const useAhanu = create<AhanuState>()(
             mode: "anchor",
             anchor: { lat: s.vessel.lat, lon: s.vessel.lon },
           },
-        })),
-      weighAnchor: () =>
+        }));
+      },
+      weighAnchor: () => {
+        writePersistedGpsOn(false);
+        stopOwnshipGps();
         set((s) => ({
+          gpsStatus: "off",
+          gpsFix: null,
           vessel: {
             ...s.vessel,
             anchored: false,
@@ -395,7 +466,8 @@ export const useAhanu = create<AhanuState>()(
             sog: s.boat.trollKt,
             anchor: null,
           },
-        })),
+        }));
+      },
       toggleMeasure: () =>
         set((s) => ({
           measure: { active: !s.measure.active, points: s.measure.active ? [] : s.measure.points },
@@ -578,6 +650,9 @@ export async function hydrateAhanuStore() {
       const followOn = readPersistedFollow();
       if (useAhanu.getState().followShip !== followOn) {
         useAhanu.setState({ followShip: followOn });
+      }
+      if (readPersistedGpsOn()) {
+        useAhanu.getState().setMode("gps");
       }
       // IDB is source of truth for a dock pack. Persist can be empty or
       // raced to [] if a parallel setState wrote before rehydrate.
