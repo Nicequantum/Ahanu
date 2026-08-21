@@ -205,6 +205,55 @@ describe("HEAD GET-only packs routes", () => {
     assert.ok(!(loaded.sources ?? []).some((s) => s.id === "ghrsst-coastwatch-sst"));
   });
 
+  it("HEAD /api/packs rewrites leftover 02° MUR notes from an ACSPO pack without NOAA", async () => {
+    const { env, store } = mockEnv(acspoFetch);
+    const nowFresh = new Date("2026-08-20T19:00:00.000Z");
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: nowFresh,
+      timeoutMs: 50,
+      fetchImpl: acspoFetch,
+    });
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key)!);
+    const sstName =
+      "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4. 201×106 at 2026-08-20T12:00:00.000Z.";
+    stored.notes =
+      `Landed this pack: ${sstName} · Official NOAA S-57 (20 cells, 21 update files). 02° — not 1 km MUR / GHRSST L4. 201×106 at 2026-08-20T12:00:00.000Z. Fixture grids plus live NOAA overlays where fetch succeeded.`;
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    env.fetchImpl = throwingNoaa();
+
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.equal(headed.source, "r2");
+    assert.ok(headed.manifest);
+    assert.ok(headed.built);
+    assert.match(headed.manifest.notes ?? "", /0\.02°/);
+    assert.doesNotMatch(headed.manifest.notes ?? "", /(?:^|[^\d.])02°\s*—\s*not 1 km MUR/);
+    assert.equal((headed.manifest.notes ?? "").match(/Landed this pack:/g)?.length, 1);
+
+    const head = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`, { method: "HEAD" }), env);
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("X-Ahanu-Source"), "r2");
+    assert.equal(await head.text(), "");
+    const loaded = await loadPersistedManifest(env, built.manifest.packId);
+    assert.ok(loaded);
+    assert.match(loaded.notes ?? "", /0\.02°/);
+    assert.doesNotMatch(loaded.notes ?? "", /(?:^|[^\d.])02°\s*—\s*not 1 km MUR/);
+    assert.equal((loaded.notes ?? "").match(/Landed this pack:/g)?.length, 1);
+  });
+
   it("HEAD /api/packs?skipCache=1 serves last R2 and does not take a live-rebuild slot", async () => {
     const { env } = mockEnv();
     const built = await buildTripPack({

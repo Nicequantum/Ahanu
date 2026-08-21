@@ -26,7 +26,8 @@
  * from the landed body so R2 cannot keep a MUR label on an ACSPO object.
  * Official ENC persist includes cellIds + updateCount. Serving R2 (GET and
  * HEAD) also rewrites a leftover MUR label when the stored SST body is
- * already ACSPO (no NOAA fetch). HEAD persist writes that catalog rewrite.
+ * already ACSPO, and leftover "02° — not 1 km MUR" notes from the first-period
+ * strip of 0.02° (no NOAA fetch). HEAD persist writes that catalog rewrite.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -40,6 +41,7 @@ import {
   capLiveErrors,
   evaluateReadyForOffshore,
   encSourceName,
+  leftoverMurNotes,
   leftoverMurSstLabel,
   packIdFor,
   rewriteLandedManifest,
@@ -231,8 +233,9 @@ export type HeadPackResult =
 /**
  * HEAD /api/packs: last R2 only. Never buildTripPack, never take a
  * skipCache live-rebuild slot. skipCache on the query is ignored.
- * Serving leftover MUR labels on an already-landed ACSPO body is the
- * same catalog rewrite GET persist uses — no NOAA.
+ * Serving leftover MUR labels on an already-landed ACSPO body, or
+ * leftover "02° — not 1 km MUR" notes from the first-period strip, is
+ * the same catalog rewrite GET persist uses — no NOAA.
  */
 export async function headPackManifest(
   env: IngestEnv,
@@ -426,7 +429,7 @@ async function loadStoredLayerBody(
   return resolveR2LayerBody(env.PACKS, raw);
 }
 
-/** Serving R2: leftover MUR label on an ACSPO body, or official ENC without counts. No NOAA. */
+/** Serving R2: leftover MUR label on an ACSPO body, leftover 02° MUR notes, or official ENC without counts. No NOAA. */
 async function rewriteLeftoverR2Labels(
   env: IngestEnv,
   stored: BuiltPack["manifest"],
@@ -448,8 +451,12 @@ async function rewriteLeftoverR2Labels(
     const body = await loadStoredLayerBody(env, stored, "enc");
     if (body && encSourceName(body)) overlays.enc = body;
   }
-  if (!overlays.sst && !overlays.enc) return { manifest: stored, source: "r2" };
+  const notesDirty = leftoverMurNotes(stored.notes);
+  if (!overlays.sst && !overlays.enc && !notesDirty) return { manifest: stored, source: "r2" };
   const manifest = rewriteLandedManifest(stored, overlays);
+  if (!overlays.sst && !overlays.enc && (manifest.notes ?? "") === (stored.notes ?? "")) {
+    return { manifest: stored, source: "r2" };
+  }
   return { manifest, source: "live", built: { manifest, bodies: overlays } };
 }
 

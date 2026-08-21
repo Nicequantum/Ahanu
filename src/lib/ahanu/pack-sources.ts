@@ -157,6 +157,44 @@ export function landedProductSources(
   return landedPackSources(manifest).filter((s) => s.id !== "fixture" && s.id !== "noaa");
 }
 
+const LANDED_PACK_PREFIX = "Landed this pack: ";
+
+const NOTES_BOILERPLATE_ANCHORS = [
+  "Fixture grids plus live NOAA overlays",
+  "Fixture bodies with SHA-256",
+  "SHA-256 of pack object bytes",
+  "SHA-256 of the object bytes",
+] as const;
+
+function notesBoilerplate(notes: string): string {
+  for (const a of NOTES_BOILERPLATE_ANCHORS) {
+    const i = notes.indexOf(a);
+    if (i >= 0) return notes.slice(i).trim();
+  }
+  return "";
+}
+
+/**
+ * Leftover from stripping "Landed this pack:" at the first period.
+ * ACSPO names contain "0.02° — not 1 km MUR"; the first-period cut
+ * left "02° — not 1 km MUR" on R2 notes and grew on every persist/HEAD.
+ * Does not match the honest "0.02° — not 1 km MUR" in the ACSPO name.
+ */
+export function leftoverMurNotes(notes?: string | null): boolean {
+  if (!notes) return false;
+  if (/(?:^|[^\d.])02°\s*—\s*not 1 km MUR/i.test(notes)) return true;
+  return (notes.match(/Landed this pack:/g) ?? []).length > 1;
+}
+
+function stripLandedPrefix(base: string, line: string): string {
+  const t = base.trim();
+  if (!t) return "";
+  const boiler = notesBoilerplate(t);
+  if (boiler) return boiler;
+  if (line && t.startsWith(line)) return t.slice(line.length).trim();
+  return t;
+}
+
 export function landedPackNotes(manifest: {
   sources?: PackSourceRef[];
   layers?: { id: string; label: string; source?: string }[];
@@ -169,13 +207,13 @@ export function landedPackNotes(manifest: {
   const enc = products.find((s) => s.id === "noaa-enc");
   const bits = [sst?.name, gfs?.name, enc?.name].filter((n): n is string => Boolean(n));
   const base = (manifest.notes ?? "").trim();
-  const line = `Landed this pack: ${bits.join(" · ")}.`;
+  const line = `${LANDED_PACK_PREFIX}${bits.join(" · ")}.`;
   if (!bits.length) {
-    const stripped = base.replace(/^Landed this pack:[^.]*\.\s*/, "").trim();
+    const stripped = stripLandedPrefix(base, "");
     return stripped || base;
   }
   if (!base) return line;
-  const stripped = base.replace(/^Landed this pack:[^.]*\.\s*/, "").trim();
+  const stripped = stripLandedPrefix(base, line);
   return stripped ? `${line} ${stripped}` : line;
 }
 

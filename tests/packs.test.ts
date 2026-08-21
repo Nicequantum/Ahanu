@@ -19,6 +19,7 @@ const {
   landedPackNotes,
   landedProductSources,
   encSourceName,
+  leftoverMurNotes,
   leftoverMurSstLabel,
   rewriteLandedManifest,
 } = await import("../src/lib/ahanu/pack.ts");
@@ -1190,6 +1191,70 @@ describe("landedPackSources", () => {
     assert.doesNotMatch(next.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
     assert.match(next.notes ?? "", /ACSPO/);
     assert.doesNotMatch(next.notes ?? "", /Landed this pack: SST MUR/);
+  });
+
+  it("landedPackNotes is idempotent when ACSPO name has 0.02° and does not leave MUR leftover", () => {
+    const sst =
+      "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4. 201×106 at 2026-08-20T12:00:00.000Z.";
+    const gfs = "GFS-Wave 20260821 06z f000–f072 / 3 h parsed d14755eaf17e (79778 B, 72 h)";
+    const enc = "Official NOAA S-57 (20 cells, 21 update files)";
+    const boilerplate = "Fixture grids plus live NOAA overlays where fetch succeeded.";
+    const manifest = {
+      sources: [
+        { id: "noaa-sst", name: sst },
+        { id: "nomads-gfswave", name: gfs },
+        { id: "noaa-enc", name: enc },
+      ],
+      layers: [
+        { id: "sst", label: "SST ACSPO", source: "noaa" },
+        { id: "enc", label: "NOAA ENC (official S-57)", source: "noaa" },
+      ],
+      notes: boilerplate,
+    };
+    const once = landedPackNotes(manifest);
+    const twice = landedPackNotes({ ...manifest, notes: once });
+    const thrice = landedPackNotes({ ...manifest, notes: twice });
+    assert.equal(once, twice);
+    assert.equal(twice, thrice);
+    assert.match(once, /^Landed this pack: NOAA ACSPO/);
+    assert.match(once, /0\.02°/);
+    assert.match(once, /Fixture grids/);
+    assert.equal(leftoverMurNotes(once), false);
+    assert.doesNotMatch(once, /(?:^|[^\d.])02°\s*—\s*not 1 km MUR/);
+    assert.equal((once.match(/Landed this pack:/g) ?? []).length, 1);
+    assert.equal((once.match(/GFS-Wave/g) ?? []).length, 1);
+    assert.equal((once.match(/Official NOAA S-57/g) ?? []).length, 1);
+  });
+
+  it("rewriteLandedManifest strips leftover 02° MUR notes already on R2", () => {
+    const sst =
+      "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4. 201×106 at 2026-08-20T12:00:00.000Z.";
+    const leftover =
+      `Landed this pack: ${sst} · GFS-Wave 20260821 06z. · Official NOAA S-57 (20 cells, 21 update files). 02° — not 1 km MUR / GHRSST L4. 201×106 at 2026-08-20T12:00:00.000Z. · GFS-Wave 20260821 06z. · Official NOAA S-57 (20 cells, 21 update files). Fixture grids plus live NOAA overlays where fetch succeeded.`;
+    assert.equal(leftoverMurNotes(leftover), true);
+    assert.equal(leftoverMurNotes(sst), false);
+    const next = rewriteLandedManifest(
+      {
+        sources: [
+          { id: "noaa-sst", name: sst },
+          { id: "nomads-gfswave", name: "GFS-Wave 20260821 06z" },
+          { id: "noaa-enc", name: "Official NOAA S-57 (20 cells, 21 update files)" },
+        ],
+        layers: [
+          { id: "sst", label: "SST ACSPO", source: "noaa" },
+          { id: "enc", label: "NOAA ENC (official S-57)", source: "noaa" },
+        ],
+        notes: leftover,
+      },
+      {},
+    );
+    assert.equal(leftoverMurNotes(next.notes), false);
+    assert.match(next.notes ?? "", /0\.02°/);
+    assert.doesNotMatch(next.notes ?? "", /(?:^|[^\d.])02°\s*—\s*not 1 km MUR/);
+    assert.equal((next.notes ?? "").match(/Landed this pack:/g)?.length, 1);
+    assert.equal((next.notes ?? "").match(/GFS-Wave/g)?.length, 1);
+    assert.equal((next.notes ?? "").match(/Official NOAA S-57/g)?.length, 1);
+    assert.match(next.notes ?? "", /Fixture grids/);
   });
 });
 

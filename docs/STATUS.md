@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (persist leftover 02° MUR notes, 2026-08-21)
+
+Live GET /api/packs notes on api.ahanu.dev grew leftover **02° — not 1 km MUR** after ENC. SST label was already ACSPO. Root cause: `landedPackNotes` stripped `Landed this pack:` at the first period, and ACSPO names contain `0.02°`. Every persist / HEAD / workerManifest rewrite prepended the landed line and left the MUR fragment. `landedPackNotes` is now idempotent (boilerplate anchors, not first-period). Serving R2 GET/HEAD persist writes the cleaned notes when that leftover is present — no NOAA. Honest `0.02° — not 1 km MUR` in the ACSPO name stays. SST last cell still 2026-08-20T12:00Z. AIS leftover honest. 8455083 packed. No Flutter. PR #1 not merged.
+
 ## This pass (Retry when SST > 24 h, Live NOAA off, 2026-08-21)
 
 Live PJ pack on api.ahanu.dev: ACSPO `2026-08-20T12:00Z` (~27 h). NOAA has not published a newer scene — do not invent SST. Ready correctly needs Accept stale. Helm Download talks to the live Worker even when **Live NOAA** is off (`?live=1` is preview-only), but Retry was gated on that switch, so skipCache stayed disabled after a dock download. `canRetryLiveOverlays` now exposes Retry when SST is stale or Ready is false, including live-off; downloading still hides it. Fixture + live-off with no age still stays off. Accept-stale persist, ACSPO label, 20 ENC cells, 8455083, Frame harbor unchanged. No AIS. No Flutter. PR #1 not merged.
