@@ -42,6 +42,7 @@ import {
   LiveRebuildLimitError,
   connectingIp,
 } from "./live-rebuild-limit";
+import { applyPacksSecurityHeaders } from "../../src/lib/ahanu/security-headers";
 
 export type { BBox } from "./ingest/pack";
 
@@ -209,7 +210,6 @@ export interface TripPackManifest {
 }
 
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
   "Access-Control-Max-Age": "86400",
@@ -607,6 +607,11 @@ export default {
     ctx.waitUntil(ingestFixturePack(env));
   },
   async fetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
+    return applyPacksSecurityHeaders(request, await packsFetch(request, env, ctx));
+  },
+};
+
+async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -824,5 +829,4 @@ export default {
       const message = err instanceof Error ? err.message : "internal error";
       return error(500, message);
     }
-  },
-};
+}

@@ -14,13 +14,8 @@ import { POINT_JUDITH_CANYON_BBOX } from "./constants";
 import { NOAA_GRID_TIMEOUT_MS } from "./noaa-http";
 import { buildFixturePack, buildTripPack, peekBuiltPack, type PackBBox } from "./pack";
 import { specForLayer } from "./pack-fixtures";
+import { applyPacksSecurityHeaders } from "./security-headers";
 import type { CatchRecord, SpeciesId } from "./types";
-
-const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
-};
 
 const SPECIES: readonly SpeciesId[] = [
   "bigeye",
@@ -36,14 +31,14 @@ const SPECIES: readonly SpeciesId[] = [
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...CORS, ...extra },
+    headers: { "Content-Type": "application/json; charset=utf-8", ...extra },
   });
 }
 
 function text(body: string, contentType: string, extra: Record<string, string> = {}): Response {
   return new Response(body, {
     status: 200,
-    headers: { "Content-Type": contentType, ...CORS, ...extra },
+    headers: { "Content-Type": contentType, ...extra },
   });
 }
 
@@ -60,13 +55,21 @@ function parseBbox(url: URL): PackBBox | Response {
   const north = parseCoord(url.searchParams.get("north"));
   const provided = [west, south, east, north].filter((n) => n !== undefined);
   if (provided.length > 0) {
-    if (provided.length !== 4 || [west, south, east, north].some((n) => n === undefined || Number.isNaN(n))) {
+    if (
+      provided.length !== 4 ||
+      [west, south, east, north].some((n) => n === undefined || Number.isNaN(n))
+    ) {
       return json({ error: "west, south, east, north must all be finite numbers" }, 400);
     }
     if (east === west || north === south) {
       return json({ error: "bbox has zero area" }, 400);
     }
-    return { west: west as number, south: south as number, east: east as number, north: north as number };
+    return {
+      west: west as number,
+      south: south as number,
+      east: east as number,
+      north: north as number,
+    };
   }
   const raw = url.searchParams.get("bbox");
   if (raw) {
@@ -102,7 +105,10 @@ function packCacheControl(live: boolean, skipCache = false): Record<string, stri
 
 function parseStartHours(url: URL): { start: string; hours: number } | Response {
   const startRaw = url.searchParams.get("start");
-  const start = startRaw && !Number.isNaN(Date.parse(startRaw)) ? new Date(startRaw).toISOString() : new Date().toISOString();
+  const start =
+    startRaw && !Number.isNaN(Date.parse(startRaw))
+      ? new Date(startRaw).toISOString()
+      : new Date().toISOString();
   const hoursRaw = url.searchParams.get("hours");
   const hours = hoursRaw && hoursRaw.trim() !== "" ? Number(hoursRaw) : 72;
   if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
@@ -133,9 +139,7 @@ function previewTripPack(
     fetchImpl,
     sleep: extra?.sleep,
     skipCache: extra?.skipCache,
-    gfsWaveSeries: extra?.gfsWaveSeries
-      ? { enabled: true, paceMs: 0 }
-      : undefined,
+    gfsWaveSeries: extra?.gfsWaveSeries ? { enabled: true, paceMs: 0 } : undefined,
   });
 }
 
@@ -147,7 +151,18 @@ export async function handlePacksRequest(
     sleep?: (ms: number) => Promise<void>;
   },
 ): Promise<Response> {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  return applyPacksSecurityHeaders(request, await packsRequest(request, opts));
+}
+
+async function packsRequest(
+  request: Request,
+  opts?: {
+    fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+    timeoutMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<Response> {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204 });
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
 
@@ -159,7 +174,11 @@ export async function handlePacksRequest(
     const skipCache = wantSkipCache(url);
     const gfsWaveSeries = wantGfsSeries(url);
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache, gfsWaveSeries })
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, {
+          ...opts,
+          skipCache,
+          gfsWaveSeries,
+        })
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     return json(built.manifest, 200, {
       "X-Ahanu-Pack-Id": built.manifest.packId,
@@ -194,7 +213,11 @@ export async function handlePacksRequest(
       reuse && cached
         ? cached
         : wantLive(url)
-          ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache, gfsWaveSeries })
+          ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, {
+              ...opts,
+              skipCache,
+              gfsWaveSeries,
+            })
           : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);
@@ -212,7 +235,10 @@ export async function handlePacksRequest(
     const header = request.headers.get("Authorization") ?? "";
     if (!header.startsWith("Bearer ") || !header.slice(7).trim()) {
       return json(
-        { error: "unauthorized", hint: "Authorization: Bearer <token>. Keep the catch local with synced:false." },
+        {
+          error: "unauthorized",
+          hint: "Authorization: Bearer <token>. Keep the catch local with synced:false.",
+        },
         401,
       );
     }
@@ -222,12 +248,14 @@ export async function handlePacksRequest(
     } catch {
       return json({ error: "invalid JSON" }, 400);
     }
-    if (!body || typeof body !== "object") return json({ error: "body must be a JSON object" }, 400);
+    if (!body || typeof body !== "object")
+      return json({ error: "body must be a JSON object" }, 400);
     const b = body as Record<string, unknown>;
     if (typeof b.id !== "string" || !SPECIES.includes(b.species as SpeciesId)) {
       return json({ error: "id and species required" }, 400);
     }
-    if (typeof b.lat !== "number" || typeof b.lon !== "number") return json({ error: "lat/lon required" }, 400);
+    if (typeof b.lat !== "number" || typeof b.lon !== "number")
+      return json({ error: "lat/lon required" }, 400);
     const rec: CatchRecord = {
       id: b.id,
       species: b.species as SpeciesId,
@@ -238,7 +266,9 @@ export async function handlePacksRequest(
       synced: false,
     };
     // Preview has no D1. Accept the upsert so a token path can mark synced:true.
-    return json({ ok: true, catch: { ...rec, synced: true } }, 201, { "Cache-Control": "no-store" });
+    return json({ ok: true, catch: { ...rec, synced: true } }, 201, {
+      "Cache-Control": "no-store",
+    });
   }
 
   return json({ error: "not found", path }, 404);

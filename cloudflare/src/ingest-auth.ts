@@ -15,28 +15,24 @@
  * INGEST_TOKEN in VITE_ public env.
  */
 
+import { applyPacksSecurityHeaders } from "../../src/lib/ahanu/security-headers";
+
 export type IngestAuthEnv = {
   INGEST_TOKEN?: string;
   AHANU_INGEST_TOKEN?: string;
 };
 
-const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Ahanu-Device",
-  "Access-Control-Max-Age": "86400",
-  "Access-Control-Expose-Headers": "ETag, X-Ahanu-Pack-Id, X-Ahanu-Hash, X-Ahanu-Source",
-};
-
-function unauthorized(hint: string): Response {
-  return new Response(JSON.stringify({ error: "unauthorized", hint }, null, 2), {
-    status: 401,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      ...CORS,
-    },
-  });
+function unauthorized(req: Request, hint: string): Response {
+  return applyPacksSecurityHeaders(
+    req,
+    new Response(JSON.stringify({ error: "unauthorized", hint }, null, 2), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    }),
+  );
 }
 
 /** Bearer payload after `Bearer `, or null when missing/empty. */
@@ -64,7 +60,7 @@ export function timingSafeEqual(a: string, b: string): boolean {
 /** Device-token gate for POST /api/catches. Any non-empty Bearer. */
 export function requireDeviceAuth(req: Request): Response | null {
   if (!bearerToken(req)) {
-    return unauthorized("Authorization: Bearer <device-token>");
+    return unauthorized(req, "Authorization: Bearer <device-token>");
   }
   return null;
 }
@@ -101,14 +97,14 @@ export function catchBindDecision(
 export function requireIngestAuth(req: Request, env: IngestAuthEnv): Response | null {
   const token = bearerToken(req);
   if (!token) {
-    return unauthorized("Authorization: Bearer <INGEST_TOKEN>");
+    return unauthorized(req, "Authorization: Bearer <INGEST_TOKEN>");
   }
   const secret = ingestSecret(env);
   if (!secret) {
-    return unauthorized("INGEST_TOKEN is not configured");
+    return unauthorized(req, "INGEST_TOKEN is not configured");
   }
   if (!timingSafeEqual(token, secret)) {
-    return unauthorized("ingest token mismatch");
+    return unauthorized(req, "ingest token mismatch");
   }
   return null;
 }

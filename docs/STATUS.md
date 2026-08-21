@@ -2,10 +2,13 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (HTTP security headers on both Workers, 2026-08-21)
+
+PWA Worker now sends production-sane headers on documents: CSP (MapLibre `worker-src 'self' blob:`, packs `connect-src` to api.ahanu.dev + workers.dev, `frame-ancestors 'none'` on prod hosts), nosniff, Referrer-Policy, X-Frame-Options DENY on prod, HSTS on ahanu.dev / www, Permissions-Policy, COOP same-origin-allow-popups. Grok preview hosts skip XFO / frame-ancestors so the iframe still embeds. Packs CORS is reflected helm origin (ahanu.dev / www / ahanu workers.dev aliases) — no `*`. nosniff + HSTS on api.ahanu.dev. skipCache Cache-Control, SW cache, NDBC probe cache, skipCache limit, catch bind, ENC, GFS, ingest lock unchanged. No Worker scoring. No Flutter.
+
 ## This pass (limit skipCache live rebuilds per IP, 2026-08-21)
 
 Public `GET /api/packs?skipCache=1` still forces a full NOAA+ENC rebuild (~11s). That path is now fail-closed at **3 live rebuilds / 60s / CF-Connecting-IP** (missing IP or limiter error → 429 + Retry-After). R2/manifest hits do not take a slot, so helm restore stays cheap. Objects rebuild-on-total-miss uses the same gate; isolate/R2 hits do not. Cron and POST /api/ingest stay in-process and are not limited. Helm Retry (`skipCache=1`) still works, just not unbounded. Catch bind, ENC updates, GFS cycle pick, ingest lock unchanged. No Worker scoring. No Flutter.
-
 
 ## This pass (bind catch rows to the creating device, 2026-08-21)
 
