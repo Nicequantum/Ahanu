@@ -283,40 +283,52 @@ function extractFeatures(kind: string): GeoJSON.Feature[] {
   return (packedEncExtract()?.features ?? []).filter((f) => (f.properties as { kind?: string } | null)?.kind === kind);
 }
 
+const POLY = ["Polygon", "MultiPolygon"] as const;
+const LINE = ["LineString", "MultiLineString"] as const;
+const POINT = ["Point", "MultiPoint"] as const;
+
+function featuresOfTypes(features: GeoJSON.Feature[], types: readonly string[]): GeoJSON.Feature[] {
+  return features.filter((f) => f.geometry != null && types.includes(f.geometry.type));
+}
+
+function extractTyped(kind: string, types: readonly string[]): GeoJSON.Feature[] {
+  return featuresOfTypes(extractFeatures(kind), types);
+}
+
 /** Cell footprints: parsed .000 extent when official extract landed, else catalog boxes. */
 export function encForChart(): GeoJSON.FeatureCollection {
-  const cells = extractFeatures("enc-s57-cell");
+  const cells = extractTyped("enc-s57-cell", POLY);
   if (cells.length) return { type: "FeatureCollection", features: cells };
   return encCatalogForChart();
 }
 
 export function encAidsForChart(): GeoJSON.FeatureCollection {
-  const features = [...extractFeatures("enc-s57-aid"), ...extractFeatures("enc-s57-light")];
+  const features = [...extractTyped("enc-s57-aid", POINT), ...extractTyped("enc-s57-light", POINT)];
   return { type: "FeatureCollection", features };
 }
 
 export function encSoundingsForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-sounding") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-sounding", POINT) };
 }
 
 export function encCoastForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-coastline") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-coastline", LINE) };
 }
 
 export function encShoreForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-shore") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-shore", LINE) };
 }
 
 export function encDepthAreasForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-depth-area") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-depth-area", POLY) };
 }
 
 export function encDepthContoursForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-depth-contour") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-depth-contour", LINE) };
 }
 
 export function encLandForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractFeatures("enc-s57-land") };
+  return { type: "FeatureCollection", features: extractTyped("enc-s57-land", POLY) };
 }
 
 export function encHazardsForChart(): GeoJSON.FeatureCollection {
@@ -331,21 +343,21 @@ export function encHazardsForChart(): GeoJSON.FeatureCollection {
 export function encLandPolygons(): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
-    features: encLandForChart().features.filter((f) => f.geometry?.type === "Polygon"),
+    features: featuresOfTypes(encLandForChart().features, POLY),
   };
 }
 
 export function encHazardPoints(): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
-    features: encHazardsForChart().features.filter((f) => f.geometry?.type === "Point"),
+    features: featuresOfTypes(encHazardsForChart().features, POINT),
   };
 }
 
 export function encHazardAreas(): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
-    features: encHazardsForChart().features.filter((f) => f.geometry?.type === "Polygon" || f.geometry?.type === "LineString"),
+    features: featuresOfTypes(encHazardsForChart().features, [...POLY, ...LINE]),
   };
 }
 

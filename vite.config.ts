@@ -254,10 +254,10 @@ export default defineConfig(({ command, isPreview }) => {
       strictPort: true,
     },
     resolve: { tsconfigPaths: true },
-    // MapLibre is a browser WebGL client. Exclude it from Vite's dep optimizer
-    // in *dev* so the map worker loads. Never set `ssr.external` — Cloudflare's
+    // MapLibre v6 worker is bound in ChartMap via setWorkerUrl + ?worker&url. Exclude
+    // from the dep optimizer so the worker module is not prebundled. Never set `ssr.external` — Cloudflare's
     // Vite plugin rejects `resolve.external` on the SSR worker environment.
-    optimizeDeps: command === "serve" ? { exclude: ["maplibre-gl"] } : undefined,
+    optimizeDeps: { exclude: ["maplibre-gl"] },
     plugins: [
       pgliteBootstrapPlugin(),
       ahanuPacksPlugin(),

@@ -30,6 +30,7 @@ import {
   hmsForChart,
 } from "@/lib/ahanu/packed-chart";
 import { applyEncLayerPaint, encLayerPaint } from "@/lib/ahanu/enc-paint";
+import { ensureMaplibreWorker } from "@/lib/ahanu/maplibre-worker";
 import { applyHmsLayerPaint, hmsLayerPaint } from "@/lib/ahanu/hms-paint";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
@@ -196,6 +197,7 @@ export function ChartMap() {
     (async () => {
       const maplibregl = await import("maplibre-gl");
       if (dead || !host.current) return;
+      await ensureMaplibreWorker(maplibregl);
       const abyss = mode === "day" ? "#9bb7c6" : "#071016";
       map = new maplibregl.Map({
         container: host.current,
