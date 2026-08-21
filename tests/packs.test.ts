@@ -39,7 +39,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "canyons-live-heads-2026-08-20");
+    assert.equal(PACK_BUILDER_REV, "gfs-wave-series-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -673,6 +673,7 @@ const {
   canRetryLiveOverlays,
   liveErrorsForSession,
   blockingLiveErrors,
+  gfsHelmLine,
   isHonestyLiveError,
   LIVE_ERROR_CAP,
 } = await import("../src/lib/ahanu/pack.ts");
@@ -752,6 +753,11 @@ describe("live ingest errors on pack session", () => {
       false,
     );
     assert.equal(isHonestyLiveError(GFS_HOUR0_FIXTURE_NOTE), true);
+    assert.equal(
+      isHonestyLiveError("gfs: hours 0,3,6 live; remaining hours through 72 fixture (series incomplete)"),
+      true,
+    );
+    assert.equal(isHonestyLiveError("sst: fetch failed"), false);
     assert.deepEqual(blockingLiveErrors([GFS_HOUR0_FIXTURE_NOTE, "sst: fetch failed"]), [
       "sst: fetch failed",
     ]);
@@ -768,6 +774,23 @@ describe("live ingest errors on pack session", () => {
       }),
       false,
     );
+  });
+});
+
+describe("gfsHelmLine", () => {
+  it("does not claim 72 h live when the honesty note is a fixture tail", async () => {
+    const line = gfsHelmLine({
+      liveErrors: [GFS_HOUR0_FIXTURE_NOTE],
+      wind: { source: "noaa", hours: 72 },
+      waves: { source: "noaa", hours: 72 },
+    });
+    assert.equal(line, GFS_HOUR0_FIXTURE_NOTE);
+    const live = gfsHelmLine({
+      liveErrors: [],
+      wind: { source: "noaa", hours: 72 },
+      waves: { source: "noaa", hours: 72 },
+    });
+    assert.match(live, /72 h live/);
   });
 });
 

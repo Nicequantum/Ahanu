@@ -298,6 +298,7 @@ export type GfsWaveSeriesFlag =
       enabled?: boolean;
       hours?: number[];
       paceMs?: number;
+      budgetMs?: number;
       sleep?: (ms: number) => Promise<void>;
       ymd?: string;
       cc?: string;
@@ -608,6 +609,7 @@ function seriesFlag(raw: GfsWaveSeriesFlag | undefined): {
   enabled: boolean;
   hours?: number[];
   paceMs?: number;
+  budgetMs?: number;
   sleep?: (ms: number) => Promise<void>;
   ymd?: string;
   cc?: string;
@@ -618,6 +620,7 @@ function seriesFlag(raw: GfsWaveSeriesFlag | undefined): {
     enabled: gfsWaveSeriesEnabled(raw.enabled),
     hours: raw.hours,
     paceMs: raw.paceMs,
+    budgetMs: raw.budgetMs,
     sleep: raw.sleep,
     ymd: raw.ymd,
     cc: raw.cc,
@@ -652,6 +655,7 @@ async function liveGfsWaveSeries(
       hours,
       fetchImpl: pacedFetch,
       paceMs: series.paceMs ?? GFS_WAVE_PACE_MS,
+      budgetMs: series.budgetMs,
       enabled: true,
       sleep: series.sleep,
     });
@@ -689,7 +693,7 @@ async function liveGfsWaveSeries(
 /**
  * Fetch public NOAA overlays. Any failure is recorded and that layer is
  * omitted (caller keeps the fixture). Never throws. Does not replace
- * 72 h wind/wave fixture grids with a single hour. Hour 0 may paint; hours 3–72 stay fixture unless a series completes.
+ * 72 h wind/wave fixture grids with a single hour. Hour 0 may paint; a Worker series paints every fetched hour and keeps a fixture tail when incomplete.
  */
 export async function tryLiveNoaa(options: {
   bbox: PackBBox;
@@ -843,6 +847,8 @@ export {
   gfsWaveSeriesHours,
   GFS_HOUR0_FIXTURE_NOTE,
   mergeHour0IntoFixture,
+  mergeLiveHoursIntoFixture,
+  workerGfsWaveSeriesFlag,
 } from "./noaa-gfs";
 export {
   SST_ENDPOINTS,

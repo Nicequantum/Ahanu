@@ -17,12 +17,15 @@ import {
 } from "../../src/lib/ahanu/pack";
 import { NOAA_GRID_TIMEOUT_MS } from "../../src/lib/ahanu/noaa-http";
 import { hashedLayerR2Key, latestLayerR2Key, packManifestR2Key } from "./ingest/run";
+import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
 export interface LayerBodyEnv {
   PACKS?: {
     get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
     put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
   };
+  AHANU_GFS_WAVE_SERIES?: string;
+  GFS_WAVE_SERIES?: string;
 }
 
 export interface LayerBodyResult {
@@ -142,6 +145,10 @@ export async function layerBody(
     timeoutMs: NOAA_GRID_TIMEOUT_MS,
     skipCache,
     fetchImpl: opts?.fetchImpl,
+    gfsWaveSeries: workerGfsWaveSeriesFlag({
+      AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
+      GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
+    }),
   });
   rememberBuiltPack(built);
   const rec = built.manifest.layers.find((l) => l.id === layerId);

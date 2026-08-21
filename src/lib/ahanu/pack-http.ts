@@ -7,7 +7,7 @@
  * NDBC buoys, CO-OPS tides, ENC catalog, CoastWatch SST / chlorophyll / SSH,
  * HMS closed areas, ETOPO bathymetry + cheap contours, and hour-0 GFS-Wave
  * when that subset decodes. A failed individual fetch keeps that layer fixture.
- * The paced 72 h GFS-Wave series stays off.
+ * Preview keeps the 72 h series off unless ?gfsSeries=1 (Worker GET enables it).
  */
 
 import { POINT_JUDITH_CANYON_BBOX } from "./constants";
@@ -89,6 +89,11 @@ function wantSkipCache(url: URL): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function wantGfsSeries(url: URL): boolean {
+  const v = (url.searchParams.get("gfsSeries") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 /** Fixture bodies are deterministic. Live NOAA is not fresh forever. */
 function packCacheControl(live: boolean, skipCache = false): Record<string, string> {
   if (skipCache) return { "Cache-Control": "no-store" };
@@ -112,7 +117,12 @@ function previewTripPack(
   start: string,
   hours: number,
   fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>,
-  extra?: { timeoutMs?: number; sleep?: (ms: number) => Promise<void>; skipCache?: boolean },
+  extra?: {
+    timeoutMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    skipCache?: boolean;
+    gfsWaveSeries?: boolean;
+  },
 ) {
   return buildTripPack({
     bbox,
@@ -123,6 +133,9 @@ function previewTripPack(
     fetchImpl,
     sleep: extra?.sleep,
     skipCache: extra?.skipCache,
+    gfsWaveSeries: extra?.gfsWaveSeries
+      ? { enabled: true, paceMs: 0 }
+      : undefined,
   });
 }
 
@@ -144,8 +157,9 @@ export async function handlePacksRequest(
     const win = parseStartHours(url);
     if (win instanceof Response) return win;
     const skipCache = wantSkipCache(url);
+    const gfsWaveSeries = wantGfsSeries(url);
     const built = wantLive(url)
-      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
+      ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache, gfsWaveSeries })
       : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     return json(built.manifest, 200, {
       "X-Ahanu-Pack-Id": built.manifest.packId,
@@ -162,6 +176,7 @@ export async function handlePacksRequest(
     const spec = specForLayer(layer);
     if (!spec) return json({ error: "unknown layer", layer }, 404);
     const skipCache = wantSkipCache(url);
+    const gfsWaveSeries = wantGfsSeries(url);
     const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
     const hash = (url.searchParams.get("hash") ?? "").trim().toLowerCase() || undefined;
     const cached = peekBuiltPack({ bbox, start: win.start, hours: win.hours, packId });
@@ -179,7 +194,7 @@ export async function handlePacksRequest(
       reuse && cached
         ? cached
         : wantLive(url)
-          ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache })
+          ? await previewTripPack(bbox, win.start, win.hours, opts?.fetchImpl, { ...opts, skipCache, gfsWaveSeries })
           : await buildFixturePack({ bbox, start: win.start, hours: win.hours });
     const body = built.bodies[spec.id];
     if (!body) return json({ error: "missing fixture", layer }, 404);

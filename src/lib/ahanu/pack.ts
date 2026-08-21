@@ -28,8 +28,11 @@ import {
 import {
   GFS_HOUR0_FIXTURE_NOTE,
   gfsHour0FixtureNote,
+  gfsLiveHoursNote,
   hour0Plane,
+  isGfsHonestyNote,
   mergeHour0IntoFixture,
+  mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
 
 export {
@@ -53,7 +56,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "canyons-live-heads-2026-08-20";
+export const PACK_BUILDER_REV = "gfs-wave-series-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -122,10 +125,24 @@ export function capLiveErrors(errors: readonly string[] | undefined | null): str
   return out;
 }
 
-/** GFS hour-0 honesty lines. Visible on Packs; not overlay misses. */
+/** GFS hour-0 / partial-series honesty lines. Visible on Packs; not overlay misses. */
 export function isHonestyLiveError(line: string): boolean {
-  const t = line.trim();
-  return t === GFS_HOUR0_FIXTURE_NOTE || t === gfsHour0FixtureNote("incomplete");
+  return isGfsHonestyNote(line);
+}
+
+/** Helm copy: real live vs fixture hours. Does not claim 72 h live unless it is. */
+export function gfsHelmLine(input: {
+  liveErrors?: readonly string[] | null;
+  wind?: { source?: string; hours?: number };
+  waves?: { source?: string; hours?: number };
+}): string {
+  const note = (input.liveErrors ?? []).find((e) => e.trim().startsWith("gfs:"));
+  if (note) return note.trim();
+  const hours = Math.min(input.wind?.hours ?? 0, input.waves?.hours ?? 0);
+  if (input.wind?.source === "noaa" && input.waves?.source === "noaa" && hours >= 72) {
+    return "GFS-Wave 72 h live (NOMADS atlocn.0p16 / 3 h).";
+  }
+  return "GFS-Wave: hour-0 live when it parses; 72 h series on the Worker when NOMADS serves it.";
 }
 
 /** liveErrors that are real overlay misses (honesty notes stripped). */
@@ -599,7 +616,7 @@ export async function buildFixturePack(options: {
     ],
     builder: { rev: PACK_BUILDER_REV },
     notes: liveIds.length
-      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses; hours 3–72 stay fixture unless a paced series completes. That is not a live 72 h NOAA grid. A paced 72 h / 3 h GFS-Wave series is off unless enabled and only stamps 72 h noaa when every step decodes. Client must re-hash. Worker readyForOffshore is a hint."
+      ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). ENC catalog is a cell list, not official S-57. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."
       : "Fixture bodies with SHA-256 of the object bytes. Worker readyForOffshore is a hint. Client must re-download, re-hash, and re-check. Production cron writes R2; those objects do not exist here.",
     liveErrors: capLiveErrors(options.liveErrors),
   };
@@ -628,22 +645,29 @@ function overlayGfsWindWaves(input: {
   hour0Waves?: PackedGrid;
 }): { wind?: string; waves?: string; note?: string } {
   const series = input.series;
-  if (series?.complete && (series.windKt || series.waveFt)) {
+  if (series?.complete && series.hoursCovered >= 72 && (series.windKt || series.waveFt)) {
     return {
       wind: series.windKt ? encodeLayerBody(series.windKt) : undefined,
       waves: series.waveFt ? encodeLayerBody(series.waveFt) : undefined,
     };
   }
   const seriesOff = !series || !series.fetchedHours.length;
-  const note = gfsHour0FixtureNote(seriesOff ? "off" : "incomplete");
-  const liveWind = hour0Plane(series?.windKt) ?? input.hour0Wind;
-  const liveWaves = hour0Plane(series?.waveFt) ?? input.hour0Waves;
+  const liveHours = series?.fetchedHours?.length
+    ? series.fetchedHours
+    : ((input.hour0Wind ?? input.hour0Waves)?.hours ?? [0]);
+  const note = seriesOff ? gfsHour0FixtureNote("off") : gfsLiveHoursNote(liveHours, input.hours);
+  const liveWind = series?.windKt ?? input.hour0Wind;
+  const liveWaves = series?.waveFt ?? input.hour0Waves;
   const fixWind = asPackedGrid(generateLayerPayload("wind", input.bbox, input.start, input.hours));
   const fixWaves = asPackedGrid(generateLayerPayload("waves", input.bbox, input.start, input.hours));
   const out: { wind?: string; waves?: string; note?: string } = {};
-  if (liveWind && fixWind) out.wind = encodeLayerBody(mergeHour0IntoFixture(liveWind, fixWind, note));
-  if (liveWaves && fixWaves) out.waves = encodeLayerBody(mergeHour0IntoFixture(liveWaves, fixWaves, note));
-  if (out.wind || out.waves) out.note = note;
+  const merge = (live: PackedGrid, fix: PackedGrid) =>
+    (live.hours?.length ?? 0) > 1
+      ? mergeLiveHoursIntoFixture(live, fix, note)
+      : mergeHour0IntoFixture(live, fix, note);
+  if (liveWind && fixWind) out.wind = encodeLayerBody(merge(liveWind, fixWind));
+  if (liveWaves && fixWaves) out.waves = encodeLayerBody(merge(liveWaves, fixWaves));
+  if ((out.wind || out.waves) && note) out.note = note;
   return out;
 }
 
@@ -671,6 +695,7 @@ export type GfsWaveSeriesFlag =
       enabled?: boolean;
       hours?: number[];
       paceMs?: number;
+      budgetMs?: number;
       sleep?: (ms: number) => Promise<void>;
       ymd?: string;
       cc?: string;

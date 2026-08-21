@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (live 72 h GFS-Wave series, 2026-08-21)
+
+Worker GET /api/packs and cron now fetch NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). NOAA served those hours here (~3 KB, ~300 ms each; 25 sequential ~8 s). The old 10 s pace was politeness, not a NOAA or Worker hard limit. HTTP has no wall-clock cap if the client stays connected; CPU default 30 s; paid subrequests 10k; simultaneous connections 6 — series stays sequential so other overlays keep slots. A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail; liveErrors name the hours. Ready still does not fail on a live hour-0 / fixture tail. Helm gfsHelmLine shows the real note and does not claim 72 h live unless it is. Preview stays series-off unless ?gfsSeries=1. Set GFS_WAVE_SERIES=0 to force hour-0 only. No ENC/S-57 invented. No Worker scoring. No Flutter.
+
 ## This pass (persist Accept stale SST + hashed verify, 2026-08-20)
 
 `sstStaleOverride` now uses a dedicated localStorage key (`ahanu-sst-stale-override`) the same way night-bridge and tide harbor do — written on Accept, read at store init and again after persist rehydrate, then passed into `restorePackedSession`. A 24–48 h SST pack stays Ready · stale SST after reload only if the skipper already accepted. The switch is not auto-flipped. Hashed numerator stays SHA-256 verify: stale SST and hour-0 GFS cover < 72 h count when hash-ok and are marked stale separately. A real hash miss stays N/12 and Packs names the layer id. Live cached PJ pack (2026-08-21): all 12 NOAA objects SHA-256 match the manifest. Helm 11/12 after a skipCache live download is kept honest — Packs now names the unverified id rather than inventing 12/12. Likely optional `buoys` (NDBC snapshot can change between manifest build and object GET). Stale SST and hour-0 GFS cover < 72 h are not that miss. No ENC/S-57 invented. No Worker scoring. No Flutter.

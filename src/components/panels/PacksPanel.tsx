@@ -8,6 +8,7 @@ import { useAhanu } from "@/lib/ahanu/store";
 import type { TripPackLayer } from "@/lib/ahanu/types";
 import {
   canRetryLiveOverlays,
+  gfsHelmLine,
   hashedPackCount,
   PACK_BUILDER_REV,
   readyOffshoreBadge,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/ahanu/pack";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
-/** Helm-only 2026-08-20: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. 72 h GFS series stays off. */
+/** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. GFS line comes from liveErrors / layer hours. */
 
 function packTone(status: TripPackLayer["status"]): "go" | "caution" | "nogo" | "muted" {
   if (status === "ready") return "go";
@@ -81,7 +82,7 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (CoralTemp 5 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, hour-0 GFS, plus buoys, tides, and ENC catalog when those fetches parse. 72 h GFS series stays off. Failed fetches stay fixture.
+            SST (CoralTemp 5 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC catalog when those fetches parse. Failed fetches stay fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -109,10 +110,16 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, hour-0 wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not fetch a 72 h
-        series and does not claim official ENC. Client re-checks hashes after download.
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and the ENC cell list when those bytes parse. It does not claim official ENC. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
+      </p>
+      <p className="mb-3 text-[11px] text-muted">
+        {gfsHelmLine({
+          liveErrors,
+          wind: packs.find((layer) => layer.id === "wind"),
+          waves: packs.find((layer) => layer.id === "waves"),
+        })}
       </p>
 
       <div className="mb-3 grid grid-cols-2 gap-2">
@@ -243,6 +250,7 @@ export function PacksPanel() {
                 {p.sizeBytes
                   ? `${p.sizeBytes} B`
                   : `${p.sizeMb} MB`}
+                {p.hours ? ` · ${p.hours}h` : ""}
                 {p.hash ? ` · ${p.hash.slice(0, 12)}` : ""}
                 {p.verified ? " · verified" : ""}
               </p>

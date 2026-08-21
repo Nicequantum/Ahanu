@@ -1,6 +1,9 @@
 /**
- * Merge live GFS hour-0 onto the 72 h fixture wind/wave stack.
- * Hour 0 is NOAA; hours 3–72 stay fixture. Not a live 72 h series.
+ * Merge live GFS hours onto the 72 h fixture wind/wave stack.
+ * A complete 72 h series is used as-is (no fixture tail).
+ * A short live prefix paints those hours; the remainder stays fixture.
+ * hoursCovered on a mixed stack is the fixture horizon so Ready does not
+ * fail 1 h < 72 h. That is not a live 72 h NOAA claim — the note says so.
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
@@ -12,6 +15,25 @@ export function gfsHour0FixtureNote(kind: "off" | "incomplete" = "off"): string 
   return kind === "off"
     ? GFS_HOUR0_FIXTURE_NOTE
     : "gfs: hour-0 live; hours 3–72 fixture (series incomplete)";
+}
+
+/** Honest live-vs-fixture line. Empty when every requested hour is live. */
+export function gfsLiveHoursNote(liveHours: number[], maxHour = 72): string {
+  const sorted = [...new Set(liveHours)].filter((h) => Number.isFinite(h)).sort((a, b) => a - b);
+  if (!sorted.length) return GFS_HOUR0_FIXTURE_NOTE;
+  if (sorted.length === 1 && sorted[0] === 0) return gfsHour0FixtureNote("incomplete");
+  const last = sorted[sorted.length - 1]!;
+  const step = sorted.length > 1 ? Math.max(1, sorted[1]! - sorted[0]!) : 3;
+  const expected = Math.floor(maxHour / step) + 1;
+  if (sorted[0] === 0 && last >= maxHour && sorted.length >= expected) return "";
+  return `gfs: hours ${sorted.join(",")} live; remaining hours through ${maxHour} fixture (series incomplete)`;
+}
+
+export function isGfsHonestyNote(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith("gfs:")) return false;
+  if (t === GFS_HOUR0_FIXTURE_NOTE || t === gfsHour0FixtureNote("incomplete")) return true;
+  return /fixture/.test(t) && !/f000–f072/.test(t);
 }
 
 function gridLat(bbox: PackBBox, ny: number, y: number): number {
@@ -42,6 +64,24 @@ function sameMesh(a: PackedGrid, b: PackedGrid): boolean {
     a.bbox.south === b.bbox.south &&
     a.bbox.north === b.bbox.north
   );
+}
+
+function paintPlane(live: PackedGrid, livePlane: number[], fixture: PackedGrid, tmpl: number[]): number[] {
+  const painted = new Array<number>(fixture.nx * fixture.ny);
+  if (sameMesh(live, fixture) && livePlane.length === fixture.nx * fixture.ny) {
+    for (let i = 0; i < livePlane.length; i++) painted[i] = livePlane[i]!;
+    return painted;
+  }
+  for (let y = 0; y < fixture.ny; y++) {
+    const lat = gridLat(fixture.bbox, fixture.ny, y);
+    for (let x = 0; x < fixture.nx; x++) {
+      const lon = gridLon(fixture.bbox, fixture.nx, x);
+      const v = sampleNearest(live, livePlane, lat, lon);
+      const i = y * fixture.nx + x;
+      painted[i] = v != null ? v : (tmpl[i] ?? 0);
+    }
+  }
+  return painted;
 }
 
 /** Hour-0 plane only. Undefined if the stack has no hour 0. */
@@ -79,47 +119,44 @@ export function hour0Plane(grid: PackedGrid | undefined | null): PackedGrid | un
 }
 
 /**
- * Paint live hour-0 onto the fixture mesh. Hours 3–72 stay fixture.
+ * Paint every live hour onto the matching fixture hour.
+ * Hours the live grid does not have stay fixture.
  * hoursCovered is the combined stack (fixture horizon), not a live 72 h claim.
  */
-export function mergeHour0IntoFixture(
+export function mergeLiveHoursIntoFixture(
   live: PackedGrid,
   fixture: PackedGrid,
-  note = GFS_HOUR0_FIXTURE_NOTE,
+  note: string,
 ): PackedGrid {
   const hours = fixture.hours.length ? [...fixture.hours] : [0];
-  let idx = hours.indexOf(0);
-  if (idx < 0) {
-    hours.unshift(0);
-    idx = 0;
-  }
-  const liveHour = hour0Plane(live);
-  const livePlane = liveHour?.values[0];
-  if (!livePlane || !liveHour) return fixture;
-
   const values = fixture.values.map((p) => p.slice());
-  const tmpl = values[idx] ?? values[0] ?? [];
+  const tmpl = values[0] ?? [];
   while (values.length < hours.length) values.push(tmpl.slice());
 
-  const painted = new Array<number>(fixture.nx * fixture.ny);
-  if (sameMesh(liveHour, fixture) && livePlane.length === fixture.nx * fixture.ny) {
-    for (let i = 0; i < livePlane.length; i++) painted[i] = livePlane[i]!;
-  } else {
-    for (let y = 0; y < fixture.ny; y++) {
-      const lat = gridLat(fixture.bbox, fixture.ny, y);
-      for (let x = 0; x < fixture.nx; x++) {
-        const lon = gridLon(fixture.bbox, fixture.nx, x);
-        const v = sampleNearest(liveHour, livePlane, lat, lon);
-        const i = y * fixture.nx + x;
-        painted[i] = v != null ? v : (tmpl[i] ?? 0);
-      }
+  const liveIndex = new Map<number, number>();
+  live.hours.forEach((h, i) => liveIndex.set(h, i));
+
+  const dirValues = fixture.dirValues?.map((p) => p.slice());
+  const periodValues = fixture.periodValues?.map((p) => p.slice());
+  if (dirValues) while (dirValues.length < hours.length) dirValues.push((dirValues[0] ?? []).slice());
+  if (periodValues) while (periodValues.length < hours.length) periodValues.push((periodValues[0] ?? []).slice());
+
+  for (let fi = 0; fi < hours.length; fi++) {
+    const li = liveIndex.get(hours[fi]!);
+    if (li == null) continue;
+    const livePlane = live.values[li];
+    if (!livePlane) continue;
+    values[fi] = paintPlane(live, livePlane, fixture, values[fi] ?? tmpl);
+    if (dirValues && live.dirValues?.[li]) {
+      dirValues[fi] = paintPlane(live, live.dirValues[li]!, fixture, dirValues[fi] ?? []);
+    }
+    if (periodValues && live.periodValues?.[li]) {
+      periodValues[fi] = paintPlane(live, live.periodValues[li]!, fixture, periodValues[fi] ?? []);
     }
   }
-  values[idx] = painted;
 
   const hoursCovered = Math.max(fixture.hoursCovered ?? 0, hours.length ? Math.max(...hours) : 0);
-
-  return {
+  const out: PackedGrid = {
     kind: "grid",
     layer: fixture.layer,
     bbox: fixture.bbox,
@@ -134,5 +171,27 @@ export function mergeHour0IntoFixture(
     fixture: true,
     note,
   };
+  if (dirValues && (live.dirValues || fixture.dirValues)) {
+    out.dirUnit = live.dirUnit ?? fixture.dirUnit ?? "deg";
+    out.dirValues = dirValues;
+  }
+  if (periodValues && (live.periodValues || fixture.periodValues)) {
+    out.periodUnit = live.periodUnit ?? fixture.periodUnit ?? "s";
+    out.periodValues = periodValues;
+  }
+  return out;
 }
 
+/**
+ * Paint live hour-0 onto the fixture mesh. Hours 3–72 stay fixture.
+ * hoursCovered is the combined stack (fixture horizon), not a live 72 h claim.
+ */
+export function mergeHour0IntoFixture(
+  live: PackedGrid,
+  fixture: PackedGrid,
+  note = GFS_HOUR0_FIXTURE_NOTE,
+): PackedGrid {
+  const liveHour = hour0Plane(live);
+  if (!liveHour) return fixture;
+  return mergeLiveHoursIntoFixture(liveHour, fixture, note);
+}

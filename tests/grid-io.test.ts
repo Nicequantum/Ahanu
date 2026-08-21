@@ -344,7 +344,7 @@ describe("paced GFS-Wave series", () => {
     assert.ok(!(windBody.note ?? "").includes("f000–f072 / 3 h"));
   });
 
-  it("enabled 3-step pack is noaa with honest hours, not 72 h ready", async () => {
+  it("enabled 3-step pack paints those hours live and keeps a fixture tail", async () => {
     const pack = await buildTripPack({
       bbox: POINT_JUDITH_CANYON_BBOX,
       start: START,
@@ -359,20 +359,36 @@ describe("paced GFS-Wave series", () => {
     const waves = pack.manifest.layers.find((l) => l.id === "waves")!;
     assert.equal(wind.source, "noaa");
     assert.equal(waves.source, "noaa");
-    assert.equal(wind.hours, 6);
-    assert.equal(waves.hours, 6);
-    assert.notEqual(wind.hours, 72);
-    assert.equal(pack.manifest.readyForOffshore, false);
+    assert.equal(wind.hours, 72);
+    assert.equal(waves.hours, 72);
     const body = parseLayerBody(pack.bodies.wind!) as {
       hours?: number[];
       hoursCovered?: number;
       source?: string;
+      fixture?: boolean;
+      note?: string;
+      values?: number[][];
     };
-    assert.deepEqual(body.hours, STEPS);
-    assert.equal(body.hoursCovered, 6);
+    assert.ok(body.hours && body.hours[0] === 0 && body.hours.includes(72));
+    assert.equal(body.hoursCovered, 72);
     assert.equal(body.source, "noaa");
+    assert.equal(body.fixture, true);
+    assert.match(body.note ?? "", /hours 0,3,6 live/);
+    assert.match(body.note ?? "", /fixture/);
+    assert.ok(!(body.note ?? "").includes("f000–f072 / 3 h"));
     const nomads = pack.manifest.sources.find((s) => s.id === "nomads-gfswave");
-    assert.ok(nomads?.name.includes("not 72 h ready"));
+    assert.ok(nomads?.name.includes("not 72 h ready") || (body.note ?? "").includes("fixture"));
+    const ev = pack.manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.updatedAt,
+      hoursCovered: l.hours,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({ hours: 72, start: START, now: START, layers: ev });
+    assert.ok(!ready.failures.some((f) => /covers 6 h/.test(f)));
   });
 
   it("mocked full 25-step assemble claims 72 h", async () => {
@@ -425,5 +441,74 @@ describe("paced GFS-Wave series", () => {
     assert.ok(gfsUrls.length >= 1);
     assert.ok(gfsUrls.every((u) => u.includes("f000")));
     assert.ok(!gfsUrls.some((u) => u.includes("f003") || u.includes("f072")));
+  });
+
+  it("workerGfsWaveSeriesFlag is on unless env is 0", async () => {
+    const { workerGfsWaveSeriesFlag } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    assert.deepEqual(workerGfsWaveSeriesFlag(), { enabled: true, paceMs: 0, budgetMs: 25_000 });
+    assert.equal(workerGfsWaveSeriesFlag({ GFS_WAVE_SERIES: "0" }), false);
+    assert.equal(workerGfsWaveSeriesFlag({ AHANU_GFS_WAVE_SERIES: "off" }), false);
+    const on = workerGfsWaveSeriesFlag({ GFS_WAVE_SERIES: "1" });
+    assert.notEqual(on, false);
+    if (on) assert.equal(on.paceMs, 0);
+  });
+
+  it("budgetMs stops the series and keeps the live prefix", async () => {
+    const { fetchGfsWaveSeries } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const wanted = [0, 3, 6, 9, 12];
+    const base = mockSeriesFetch(wanted);
+    const rows = await fetchGfsWaveSeries({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      ymd: "20260820",
+      cc: "12",
+      hours: wanted,
+      enabled: true,
+      paceMs: 0,
+      budgetMs: 25,
+      fetchImpl: async (url) => {
+        await new Promise((r) => setTimeout(r, 20));
+        return base(url);
+      },
+    });
+    assert.ok(rows.length >= 1);
+    assert.ok(rows.length < wanted.length);
+    assert.ok(rows.every((r) => r.hour <= 6));
+  });
+
+  it("mergeLiveHoursIntoFixture paints 0,3,6 and leaves later fixture hours", async () => {
+    const { mergeLiveHoursIntoFixture, gfsLiveHoursNote } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const { assembleGfsWaveSeries } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const files = STEPS.map((hour) => ({ hour, bytes: encodeHourSample(hour, 5 + hour, 1 + hour / 6) }));
+    const assembled = assembleGfsWaveSeries(files, STEPS);
+    assert.ok(assembled.windKt);
+    const fixturePack = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fix = parseLayerBody(fixturePack.bodies.wind!) as {
+      kind: "grid";
+      layer: string;
+      bbox: typeof POINT_JUDITH_CANYON_BBOX;
+      nx: number;
+      ny: number;
+      hours: number[];
+      hoursCovered: number;
+      unit: string;
+      values: number[][];
+    };
+    const note = gfsLiveHoursNote(STEPS, 72);
+    const merged = mergeLiveHoursIntoFixture(assembled.windKt!, fix, note);
+    assert.equal(merged.hoursCovered, 72);
+    assert.equal(merged.fixture, true);
+    assert.equal(merged.source, "noaa");
+    assert.match(merged.note ?? "", /0,3,6 live/);
+    assert.notDeepEqual(merged.values[0], fix.values[0]);
+    const i3 = merged.hours.indexOf(3);
+    const i9 = merged.hours.indexOf(9);
+    assert.ok(i3 >= 0 && i9 >= 0);
+    assert.notDeepEqual(merged.values[i3], fix.values[i3]);
+    assert.deepEqual(merged.values[i9], fix.values[i9]);
   });
 });

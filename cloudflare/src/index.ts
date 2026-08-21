@@ -26,6 +26,7 @@ import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live"
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack, persistBuiltPack, ingestDefaultBbox } from "./ingest/run";
+import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
 export type { BBox } from "./ingest/pack";
 
@@ -300,10 +301,11 @@ function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["man
     sources: listIngestSources().map((s) => ({ id: s.id, name: s.name })),
     notes:
       "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
-      "(NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / hour-0 GFS-Wave). " +
+      "(NDBC / CO-OPS / ENC catalog / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / GFS-Wave). " +
       "ENC catalog is a cell list, not official S-57. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
-      "Hour-0 wind/wave is painted from the NCEP subset when it parses; hours 3–72 stay fixture unless a paced series completes. " +
-      "That is not a live 72 h NOAA grid. Client must re-hash. On-device scoring does not run here.",
+      "GFS-Wave fetches NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). A complete series is 72 h noaa. " +
+      "A short prefix paints those hours and keeps a fixture tail — liveErrors say which. " +
+      "Client must re-hash. On-device scoring does not run here.",
     liveErrors: manifest.liveErrors ?? [],
   };
 }
@@ -659,6 +661,10 @@ export default {
           tryLive: true,
           timeoutMs: NOAA_GRID_TIMEOUT_MS,
           skipCache,
+          gfsWaveSeries: workerGfsWaveSeriesFlag({
+            AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
+            GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
+          }),
         });
         rememberBuiltPack(built);
         try {

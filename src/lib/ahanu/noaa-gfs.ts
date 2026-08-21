@@ -1,9 +1,10 @@
 /**
  * Public NCEP NOMADS GFS-Wave subset (no secrets).
  * One Atlantic 0p16 hour is a few KB for the Point Judith box.
- * A full 72 h / 3 h pack is ~25 files and needs cron pacing — do not
- * replace the 72 h fixture wind/wave grids with a single f000 clip.
- * Hour 0 may be painted onto the fixture stack when the subset parses.
+ * A full 72 h / 3 h pack is ~25 files. Worker GET uses pace 0 and a
+ * 25 s budget (NOMADS served f000–f072 here in ~8 s sequential).
+ * The 10 s pace is politeness for non-Worker callers, not a NOAA limit.
+ * Do not replace the 72 h fixture with a single f000 clip.
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
@@ -105,15 +106,19 @@ export async function fetchGfsWaveSeries(options: {
   hours?: number[];
   fetchImpl: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
   paceMs?: number;
+  budgetMs?: number;
   enabled?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<{ hour: number; url: string; bytes: Uint8Array }[]> {
   if (options.enabled !== true) return [];
   const hours = options.hours ?? gfsWaveSeriesHours();
   const pace = options.paceMs ?? GFS_WAVE_PACE_MS;
+  const budget = options.budgetMs;
   const sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const started = Date.now();
   const out: { hour: number; url: string; bytes: Uint8Array }[] = [];
   for (let i = 0; i < hours.length; i++) {
+    if (budget != null && Date.now() - started > budget) break;
     if (i > 0 && pace > 0) await sleep(pace);
     const hour = hours[i]!;
     const url = gfsWaveFilterUrl(options.ymd, options.cc, hour, options.bbox);
@@ -132,6 +137,31 @@ export async function fetchGfsWaveSeries(options: {
 }
 
 export const GFS_WAVE_SERIES_ENV = "AHANU_GFS_WAVE_SERIES";
+
+/** Worker GET / cron: no 10 s NOMADS pause. Verified ~300 ms / file. */
+export const GFS_WAVE_WORKER_PACE_MS = 0;
+
+/** Stop the series and keep the live prefix if NOMADS is slow. */
+export const GFS_WAVE_SERIES_BUDGET_MS = 25_000;
+
+export type WorkerGfsWaveSeriesFlag =
+  | false
+  | { enabled: true; paceMs: number; budgetMs: number };
+
+/**
+ * Worker / cron series gate. On unless env is explicitly 0/false/off.
+ * GET /api/packs used to ignore the env and stay hour-0 only.
+ */
+export function workerGfsWaveSeriesFlag(
+  env?: Record<string, string | undefined> | null,
+): WorkerGfsWaveSeriesFlag {
+  const raw = env ? (env.AHANU_GFS_WAVE_SERIES ?? env.GFS_WAVE_SERIES) : undefined;
+  if (typeof raw === "string") {
+    const s = raw.trim().toLowerCase();
+    if (s === "0" || s === "false" || s === "off" || s === "no") return false;
+  }
+  return { enabled: true, paceMs: GFS_WAVE_WORKER_PACE_MS, budgetMs: GFS_WAVE_SERIES_BUDGET_MS };
+}
 
 function truthyFlag(v: unknown): boolean {
   if (v === true) return true;
@@ -279,4 +309,12 @@ export function assembleGfsWaveSeries(
   };
 }
 
-export { GFS_HOUR0_FIXTURE_NOTE, gfsHour0FixtureNote, hour0Plane, mergeHour0IntoFixture } from "./noaa-gfs-merge";
+export {
+  GFS_HOUR0_FIXTURE_NOTE,
+  gfsHour0FixtureNote,
+  gfsLiveHoursNote,
+  hour0Plane,
+  isGfsHonestyNote,
+  mergeHour0IntoFixture,
+  mergeLiveHoursIntoFixture,
+} from "./noaa-gfs-merge";

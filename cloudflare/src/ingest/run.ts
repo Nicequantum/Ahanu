@@ -16,7 +16,7 @@
  * D1 `pack_layers` is upserted only when that table already exists.
  */
 import { buildTripPack, type BuiltPack, type PackLayerRecord } from "../../../src/lib/ahanu/pack";
-import { gfsWaveSeriesEnabled } from "../../../src/lib/ahanu/noaa-gfs";
+import { workerGfsWaveSeriesFlag } from "../../../src/lib/ahanu/noaa-gfs";
 import { NOAA_GRID_TIMEOUT_MS, type FetchLike } from "../../../src/lib/ahanu/noaa-http";
 import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../../src/lib/ahanu/pack-fixtures";
 
@@ -180,7 +180,7 @@ export async function ingestFixturePack(env: IngestEnv, options: IngestOptions =
   const bbox = options.bbox ?? ingestDefaultBbox(env);
   const start = options.start ?? new Date().toISOString();
   const hours = options.hours ?? 72;
-  const seriesOn = gfsWaveSeriesEnabled(undefined, {
+  const seriesOn = workerGfsWaveSeriesFlag({
     AHANU_GFS_WAVE_SERIES: env.AHANU_GFS_WAVE_SERIES,
     GFS_WAVE_SERIES: env.GFS_WAVE_SERIES,
   });

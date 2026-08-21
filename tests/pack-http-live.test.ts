@@ -438,6 +438,42 @@ describe("preview pack HTTP hour-0 GFS merge", () => {
     });
     assert.ok(!ready.failures.some((f) => /covers 1 h/.test(f)));
   });
+
+  it("live=1&gfsSeries=1 fetches beyond f000 and can stamp 72 h noaa", async () => {
+    const { encodeHourSample } = await import("../src/lib/ahanu/grid-io.ts");
+    const { gfsWaveSeriesHours } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const wanted = gfsWaveSeriesHours();
+    const base = mockNoaaSuccess();
+    const tracker = { urls: [] as string[] };
+    const fetchImpl = async (url: string) => {
+      tracker.urls.push(url);
+      if (url.includes("filter_gfswave")) {
+        const m = url.match(/\.f(\d{3})\.grib2/);
+        const hour = m ? Number(m[1]) : 0;
+        return new Response(encodeHourSample(hour, 5 + hour / 3, 1), { status: 200 });
+      }
+      return base(url);
+    };
+    const res = await handlePacksRequest(
+      new Request(`http://ahanu.test/api/packs?${Q}&live=1&gfsSeries=1&skipCache=1`),
+      { fetchImpl },
+    );
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as {
+      layers: LayerRow[];
+      liveErrors?: string[];
+      sources?: { id: string; name: string }[];
+    };
+    const gfsUrls = tracker.urls.filter((u) => u.includes("filter_gfswave"));
+    assert.ok(gfsUrls.some((u) => u.includes("f003")));
+    assert.ok(gfsUrls.some((u) => u.includes("f072")));
+    const wind = man.layers.find((l) => l.id === "wind")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(wind.hours, 72);
+    const nomads = man.sources?.find((s) => s.id === "nomads-gfswave");
+    assert.ok(nomads?.name.includes("72 h"));
+    assert.ok(!(man.liveErrors ?? []).some((e) => e.includes("series off")));
+  });
 });
 
 describe("preview pack HTTP objects reuse last pack bytes", () => {

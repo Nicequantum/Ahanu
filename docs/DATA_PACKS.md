@@ -72,21 +72,21 @@ The weather axis is 72 hours because canyon weather is a two-night problem. A fa
 
 The Worker does not decide go/no-go. The device compares each forecast hour to the skipper’s limits and paints green / caution / no-go locally.
 
-### Enabling the live 72 h / 3 h series (off by default)
+### Live 72 h / 3 h GFS-Wave series (Worker on)
 
-Hour-0 (f000) may paint when tryLive is on. The full series is a separate path.
-It stays off so CI and GET /api/packs never pull about 25 NOMADS files.
+Hour-0 (f000) may paint when tryLive is on. The Worker also fetches f000–f072 / 3 h
+unless `GFS_WAVE_SERIES=0`. Preview `?live=1` stays hour-0 unless `?gfsSeries=1`.
 
 | How                                                           | What happens                                                  |
 | ------------------------------------------------------------- | ------------------------------------------------------------- |
-| buildTripPack({ tryLive: true, gfsWaveSeries: true })         | Fetch f000-f072, about 10 s between files (GFS_WAVE_PACE_MS). |
+| Worker GET /api/packs                                         | Series on (pace 0, 25 s budget). Incomplete prefix + fixture tail. |
+| buildTripPack({ tryLive: true, gfsWaveSeries: true })         | Fetch f000-f072. Default pace 10 s unless paceMs is set.      |
 | gfsWaveSeries: { enabled: true, hours: [0, 3, 6], paceMs: 0 } | Tests and short clips. Fake fetchImpl.                        |
-| env AHANU_GFS_WAVE_SERIES=1 or GFS_WAVE_SERIES=1              | Read by Worker cron ingestFixturePack only.                   |
-| Worker [vars] GFS_WAVE_SERIES                                 | Same cron flag. Do not enable on GET /api/packs.              |
+| env GFS_WAVE_SERIES=1 (wrangler [vars])                       | Worker GET + cron. Set `0` to force hour-0 only.              |
 
-NOMADS pacing: about 10 seconds between subset files, about 4 minutes for 25 hours.
+NOMADS served f000–f072 for the Point Judith box (~3 KB, ~300 ms). The 10 s pace is politeness, not a NOAA limit.
 A failed or missing step must not claim 72 h. hoursCovered is the contiguous prefix from hour 0 (hour 0 alone is 1 h).
-Fixture wind/wave stay when the series is off or empty.
+A short live prefix paints those hours onto the fixture stack; the remainder stays fixture and is named in liveErrors.
 
 Cron (15 2,8,14,20 * * *) remains commented in cloudflare/wrangler.toml until R2 ahanu-trip-packs and D1 ahanu-core exist.
 Uncommenting the trigger without the env flag still leaves the series off.
