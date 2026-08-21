@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (SW network-first production packs, 2026-08-21)
+
+SW allowlisted api.ahanu.dev / workers.dev but treated GETs without `live=1` as fixture cache-first. Helm Download talks to the live Worker with Live NOAA off (`?live=1` is preview-only; skipCache is Retry only), so a second dock Download could serve the last SW cache after cron / Retry / notes cleanup. Production pack origins are now network-first (30 s stamp is a hint, not forever). Same-origin fixture stays cache-first. Airplane after dock download still uses IndexedDB + last successful SW cache. Does not invent NOAA. No AIS edit. No Flutter. PR #1 not merged.
+
 ## This pass (persist leftover 02° MUR notes, 2026-08-21)
 
 Live GET /api/packs notes on api.ahanu.dev grew leftover **02° — not 1 km MUR** after ENC. SST label was already ACSPO. Root cause: `landedPackNotes` stripped `Landed this pack:` at the first period, and ACSPO names contain `0.02°`. Every persist / HEAD / workerManifest rewrite prepended the landed line and left the MUR fragment. `landedPackNotes` is now idempotent (boilerplate anchors, not first-period). Serving R2 GET/HEAD persist writes the cleaned notes when that leftover is present — no NOAA. Honest `0.02° — not 1 km MUR` in the ACSPO name stays. SST last cell still 2026-08-20T12:00Z. AIS leftover honest. 8455083 packed. No Flutter. PR #1 not merged.

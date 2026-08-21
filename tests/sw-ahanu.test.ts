@@ -14,6 +14,7 @@ const {
   applyPacksOriginMessage,
   isLivePackRequest,
   isSkipCachePackRequest,
+  isRemotePackOrigin,
   packFetchStrategy,
   packNetworkRequest,
   isLiveCacheFresh,
@@ -97,10 +98,29 @@ describe("SW pack URL strategy", () => {
   it("cache-first for fixture, network-first for live", () => {
     assert.equal(packFetchStrategy(new URL(packUrl("/api/packs"))), "cache-first");
     assert.equal(packFetchStrategy(new URL(packUrl("/api/objects", "&layer=sst"))), "cache-first");
+    assert.equal(packFetchStrategy(new URL(packUrl("/api/packs")), ORIGIN), "cache-first");
     assert.equal(packFetchStrategy(new URL(packUrl("/api/packs", "&live=1"))), "network-first");
     assert.equal(packFetchStrategy(new URL(packUrl("/api/packs", "&skipCache=1"))), "network-first");
     assert.equal(isSkipCachePackRequest(new URL(packUrl("/api/packs", "&skipCache=true"))), true);
     assert.equal(packFetchStrategy(new URL("http://ahanu.test/api/catches")), null);
+  });
+
+  it("production Worker packs without live=1 are network-first, not fixture cache-first", () => {
+    const prod = new URL(
+      `${PACKS_CUSTOM_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`,
+    );
+    const objects = new URL(
+      `${PACKS_CUSTOM_ORIGIN}/api/objects?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}&layer=sst`,
+    );
+    const workersDev = new URL(
+      `${PACKS_WORKER_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`,
+    );
+    assert.equal(isRemotePackOrigin(prod.origin, ORIGIN), true);
+    assert.equal(isRemotePackOrigin(ORIGIN, ORIGIN), false);
+    assert.equal(packFetchStrategy(prod), "network-first");
+    assert.equal(packFetchStrategy(prod, ORIGIN), "network-first");
+    assert.equal(packFetchStrategy(objects, ORIGIN), "network-first");
+    assert.equal(packFetchStrategy(workersDev, ORIGIN), "network-first");
   });
 
   it("live freshness is 30 s, not forever", () => {
@@ -376,7 +396,7 @@ describe("respondToPackRequest", () => {
     assert.equal(isAllowedPackOrigin(parsed.origin, ORIGIN), true);
     assert.equal(isAllowedPackOrigin(PACKS_CUSTOM_ORIGIN, ORIGIN), true);
     assert.equal(isAllowedPackOrigin("https://other.example", ORIGIN), false);
-    assert.equal(packFetchStrategy(parsed), "cache-first");
+    assert.equal(packFetchStrategy(parsed), "network-first");
     assert.equal(packFetchStrategy(new URL(`${url}&live=1`)), "network-first");
 
     const caches = createMemoryCaches();
@@ -416,7 +436,7 @@ describe("respondToPackRequest", () => {
     const url = `${PACKS_CUSTOM_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
     const parsed = new URL(url);
     assert.equal(isAllowedPackOrigin(parsed.origin, ORIGIN), true);
-    assert.equal(packFetchStrategy(parsed), "cache-first");
+    assert.equal(packFetchStrategy(parsed), "network-first");
 
     const caches = createMemoryCaches();
     let fetches = 0;
@@ -448,6 +468,69 @@ describe("respondToPackRequest", () => {
     assert.equal(fetches, 1);
   });
 
+  it("production Download without live=1 does not hide a newer Worker pack", async () => {
+    const url = `${PACKS_CUSTOM_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
+    const objUrl = `${PACKS_CUSTOM_ORIGIN}/api/objects?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}&layer=sst`;
+    const caches = createMemoryCaches();
+    const packReq = new Request(url);
+    const objReq = new Request(objUrl);
+    await (
+      await caches.open(CACHE_NAME)
+    ).put(
+      packReq,
+      new Response("stale-worker-notes", {
+        status: 200,
+        headers: { "X-Ahanu-Cached-At": "1" },
+      }),
+    );
+    await (
+      await caches.open(CACHE_NAME)
+    ).put(
+      objReq,
+      new Response("stale-sst", {
+        status: 200,
+        headers: { "X-Ahanu-Cached-At": "1" },
+      }),
+    );
+    let packFetches = 0;
+    let objFetches = 0;
+    const pack = await respondToPackRequest(packReq, {
+      fetchImpl: async () => {
+        packFetches += 1;
+        return new Response("cleaned-worker-notes", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1 + LIVE_MAX_AGE_MS + 1,
+    });
+    const obj = await respondToPackRequest(objReq, {
+      fetchImpl: async () => {
+        objFetches += 1;
+        return new Response("fresh-sst", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1 + LIVE_MAX_AGE_MS + 1,
+    });
+    assert.ok(pack);
+    assert.equal(await pack.text(), "cleaned-worker-notes");
+    assert.equal(packFetches, 1);
+    assert.ok(obj);
+    assert.equal(await obj.text(), "fresh-sst");
+    assert.equal(objFetches, 1);
+
+    const offline = await respondToPackRequest(packReq, {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(offline);
+    assert.equal(await offline.text(), "cleaned-worker-notes");
+  });
+
   it("cross-origin pack fetch uses CORS; a CORS failure does not invent a cached body", async () => {
     const url = `${PACKS_WORKER_ORIGIN}/api/objects?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}&layer=sst`;
     const caches = createMemoryCaches();
@@ -475,6 +558,11 @@ describe("respondToPackRequest", () => {
     assert.equal(isAllowedPackOrigin(extra, ORIGIN), false);
     assert.equal(applyPacksOriginMessage({ type: "ahanu-packs-origin", origin: extra }), extra);
     assert.equal(isAllowedPackOrigin(extra, ORIGIN), true);
+    assert.equal(isRemotePackOrigin(extra, ORIGIN), true);
+    assert.equal(
+      packFetchStrategy(new URL(`${extra}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`)),
+      "network-first",
+    );
     assert.equal(isAllowedPackOrigin("https://evil.example/api/packs", ORIGIN), false);
     assert.equal(allowPackOrigin("ftp://nope.example"), null);
 

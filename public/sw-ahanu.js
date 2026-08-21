@@ -1,10 +1,14 @@
 /* Ahanu pack cache — marina Wi-Fi download, then steam offline.
  *
- * Fixture GET /api/packs and GET /api/objects: cache-first after first success.
- * ?live=1: network-first; a 30 s stamp is only a freshness hint, never "live forever".
+ * Same-origin fixture GET /api/packs and GET /api/objects: cache-first after first success.
+ * ?live=1 / ?skipCache=1: network-first; a 30 s stamp is only a freshness hint, never "live forever".
+ * Production Worker origins (api.ahanu.dev, workers.dev, extra allowlist): network-first even
+ * without live=1 — helm Download omits that flag (preview-only). Cache-first would hide a
+ * newer cron / Retry / notes persist behind the last dock GET.
  * IndexedDB remains the source of truth for a pack already written on the device.
  * This worker is the HTTP fallback when those URLs are fetched again — same origin
  * (local Vite) and the live ahanu-packs Worker. Arbitrary cross-origin is not cached.
+ * Airplane after dock download still uses IndexedDB + last successful SW cache.
  */
 
 export const CACHE_NAME = "ahanu-packs-v2";
@@ -63,10 +67,19 @@ export function isSkipCachePackRequest(url) {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/** Allowlisted packs Worker / override — not same-origin Vite fixture. */
+export function isRemotePackOrigin(urlOrigin, selfOrigin) {
+  if (selfOrigin && urlOrigin === selfOrigin) return false;
+  return isAllowedPackOrigin(urlOrigin, undefined);
+}
+
 /** @returns {"cache-first" | "network-first" | null} */
-export function packFetchStrategy(url) {
+export function packFetchStrategy(url, selfOrigin) {
   if (!isPackPath(url.pathname)) return null;
-  return isLivePackRequest(url) || isSkipCachePackRequest(url) ? "network-first" : "cache-first";
+  if (isLivePackRequest(url) || isSkipCachePackRequest(url)) return "network-first";
+  // Production helm Download talks to the Worker without live=1.
+  if (isRemotePackOrigin(url.origin, selfOrigin)) return "network-first";
+  return "cache-first";
 }
 
 /**
@@ -136,7 +149,7 @@ export async function respondToPackRequest(request, env) {
   if (request.method !== "GET") return null;
   const url = new URL(requestUrl(request));
   if (!isAllowedPackOrigin(url.origin, env.origin)) return null;
-  const strategy = packFetchStrategy(url);
+  const strategy = packFetchStrategy(url, env.origin);
   if (!strategy) return null;
 
   const fetchImpl = env.fetchImpl;
