@@ -289,6 +289,30 @@ export function leftoverNdfdWindLabel(label?: string | null): boolean {
   return /NDFD/i.test(label);
 }
 
+/** Leftover fixture/catalog copy. CMEMS L4 is not fetched. */
+export function leftoverL4ChlLabel(label?: string | null): boolean {
+  if (!label) return false;
+  return /\bL4\b/i.test(label) || /CMEMS/i.test(label);
+}
+
+/** Pack row from the landed Aqua MODIS / VIIRS body. Leftover L4 catalog copy does not win. */
+export function chlLabelFromLanded(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  if (input.source === "fixture") return "Aqua MODIS chlorophyll (fixture)";
+  const note = input.note ?? "";
+  if (/VIIRS/i.test(note) && !/Aqua MODIS|L3SMI/i.test(note)) {
+    return "VIIRS chlorophyll";
+  }
+  if (/Aqua MODIS|L3SMI|MODIS/i.test(note) || leftoverL4ChlLabel(input.stored)) {
+    return "Aqua MODIS chlorophyll";
+  }
+  if (input.stored && !leftoverL4ChlLabel(input.stored)) return input.stored;
+  return "Aqua MODIS chlorophyll";
+}
+
 /** Pack row from the landed GFS-Wave body. Leftover NDFD catalog copy does not win. */
 export function windLabelFromLanded(input: {
   note?: string | null;
@@ -328,9 +352,10 @@ function overlayIsOfficialEnc(overlay?: string): boolean {
 
 /**
  * Persist-time rewrite. layer.label / sources[] follow the landed body so
- * R2 cannot keep a MUR label on an ACSPO object or an NDFD label on a
- * GFS-Wave wind object. ENC sources include cell/update counts when
- * official. Does not invent products. NDFD is not fetched.
+ * R2 cannot keep a MUR label on an ACSPO object, an NDFD label on a
+ * GFS-Wave wind object, or an L4 label on an Aqua MODIS chlorophyll
+ * object. ENC sources include cell/update counts when official. Does
+ * not invent products. NDFD and CMEMS L4 are not fetched.
  */
 export function rewriteLandedManifest<
   T extends {
@@ -365,6 +390,16 @@ export function rewriteLandedManifest<
         ...layer,
         label: windLabelFromLanded({
           note: overlayNote(overlays.wind),
+          source: layer.source,
+          stored: layer.label,
+        }),
+      };
+    }
+    if (layer.id === "chlorophyll" && leftoverL4ChlLabel(layer.label)) {
+      return {
+        ...layer,
+        label: chlLabelFromLanded({
+          note: overlayNote(overlays.chlorophyll),
           source: layer.source,
           stored: layer.label,
         }),

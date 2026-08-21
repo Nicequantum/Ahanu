@@ -18,6 +18,7 @@ const worker = (await import("../cloudflare/src/index.ts")).default;
 const {
   buildTripPack,
   leftoverFixtureSources,
+  leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   packIdFor,
   peekBuiltPack,
@@ -768,6 +769,57 @@ describe("GET /api/packs R2 manifest", () => {
     assert.ok(headWind);
     assert.equal(leftoverNdfdWindLabel(headWind.label), false);
     assert.doesNotMatch(headWind.label, /NDFD/);
+  });
+
+  it("GET/HEAD persist drops leftover L4 chlorophyll labels when Aqua MODIS already landed", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const chl = built.manifest.layers.find((l) => l.id === "chlorophyll");
+    assert.ok(chl);
+    chl.source = "noaa";
+    chl.label = "Chlorophyll-a L4";
+    assert.equal(leftoverL4ChlLabel(chl.label), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    const storedChl = stored.layers.find((l) => l.id === "chlorophyll");
+    storedChl.source = "noaa";
+    storedChl.label = "Chlorophyll-a L4";
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: { id: string; label: string; source?: string }[] };
+    const liveChl = man.layers.find((l) => l.id === "chlorophyll");
+    assert.ok(liveChl);
+    assert.equal(leftoverL4ChlLabel(liveChl.label), false);
+    assert.doesNotMatch(liveChl.label, /\bL4\b/);
+    assert.match(liveChl.label, /Aqua MODIS/);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    const headChl = headed.manifest.layers.find((l) => l.id === "chlorophyll");
+    assert.ok(headChl);
+    assert.equal(leftoverL4ChlLabel(headChl.label), false);
+    assert.doesNotMatch(headChl.label, /\bL4\b/);
   });
 });
 

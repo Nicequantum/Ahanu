@@ -24,9 +24,11 @@ const {
   leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
+  leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   rewriteLandedManifest,
   windPackRowLabel,
+  chlPackRowLabel,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
@@ -1155,6 +1157,120 @@ describe("windPackRowLabel", () => {
     );
     assert.equal(next.layers.find((l) => l.id === "wind")?.label, "GFS-Wave wind");
     assert.doesNotMatch(next.layers.find((l) => l.id === "wind")?.label ?? "", /NDFD/);
+  });
+});
+
+describe("chlPackRowLabel", () => {
+  it("names Aqua MODIS and remaps leftover L4 catalog copy", () => {
+    assert.equal(leftoverL4ChlLabel("Chlorophyll-a L4"), true);
+    assert.equal(leftoverL4ChlLabel("Aqua MODIS chlorophyll"), false);
+    assert.equal(chlPackRowLabel({ source: "fixture" }), "Aqua MODIS chlorophyll (fixture)");
+    assert.equal(
+      chlPackRowLabel({
+        source: "noaa",
+        stored: "Chlorophyll-a L4",
+        note: "NASA Aqua MODIS L3SMI 8-day NRT 4 km / 0.0417° — not 1 km VIIRS, not CMEMS L4. 97×52 at 2026-08-09T00:00:00.000Z.",
+      }),
+      "Aqua MODIS chlorophyll",
+    );
+    assert.equal(
+      chlPackRowLabel({
+        source: "noaa",
+        stored: "Chlorophyll-a L4",
+      }),
+      "Aqua MODIS chlorophyll",
+    );
+    assert.doesNotMatch(
+      chlPackRowLabel({ source: "noaa", stored: "Chlorophyll-a L4" }),
+      /\bL4\b/,
+    );
+    assert.equal(
+      chlPackRowLabel({
+        source: "noaa",
+        stored: "Chlorophyll-a L4",
+        note: "NOAA S-NPP VIIRS NRT L3 daily 4 km / 0.0375° — not 1 km VIIRS, not CMEMS L4.",
+      }),
+      "VIIRS chlorophyll",
+    );
+  });
+
+  it("writes Aqua MODIS on the fixture-pack row, not leftover L4", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fixtureChl = fixture.manifest.layers.find((l) => l.id === "chlorophyll")!;
+    assert.equal(fixtureChl.label, "Aqua MODIS chlorophyll (fixture)");
+    assert.doesNotMatch(fixtureChl.label, /\bL4\b/);
+
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "chlorophyll",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 24,
+      unit: "mg_m3",
+      values: [[0.2, 0.3, 0.4, 0.5]],
+      live: true,
+      source: "noaa",
+      updatedAt: "2026-08-09T00:00:00.000Z",
+      note: "NASA Aqua MODIS L3SMI 8-day NRT 4 km / 0.0417° — not 1 km VIIRS, not CMEMS L4. 97×52 at 2026-08-09T00:00:00.000Z.",
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { chlorophyll: overlay },
+    });
+    const chl = live.manifest.layers.find((l) => l.id === "chlorophyll")!;
+    assert.equal(chl.source, "noaa");
+    assert.equal(chl.label, "Aqua MODIS chlorophyll");
+    assert.doesNotMatch(chl.label, /\bL4\b/);
+  });
+
+  it("rewriteLandedManifest replaces a leftover L4 label from an Aqua MODIS body", () => {
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "chlorophyll",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 24,
+      unit: "mg_m3",
+      values: [[0.2, 0.3, 0.4, 0.5]],
+      live: true,
+      source: "noaa",
+      updatedAt: "2026-08-09T00:00:00.000Z",
+      note: "NASA Aqua MODIS L3SMI 8-day NRT 4 km / 0.0417° — not 1 km VIIRS, not CMEMS L4. 97×52 at 2026-08-09T00:00:00.000Z.",
+    });
+    const next = rewriteLandedManifest(
+      {
+        sources: [{ id: "cmems-chl", name: "Copernicus chlorophyll-a L4" }],
+        layers: [{ id: "chlorophyll", label: "Chlorophyll-a L4", source: "noaa" }],
+      },
+      { chlorophyll: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "chlorophyll")?.label, "Aqua MODIS chlorophyll");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "chlorophyll")?.label ?? "", /\bL4\b/);
+    assert.ok(!next.sources.some((s) => s.id === "cmems-chl"));
+  });
+
+  it("rewriteLandedManifest remaps leftover L4 without a chlorophyll overlay", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "chlorophyll", label: "Chlorophyll-a L4", source: "noaa" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "chlorophyll")?.label, "Aqua MODIS chlorophyll");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "chlorophyll")?.label ?? "", /\bL4\b/);
   });
 });
 

@@ -73,7 +73,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "contours", label: "Depth contours", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "canyons", label: "Canyon axes & heads", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "sst", label: "SST composite (public ERDDAP)", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: true },
-  { id: "chlorophyll", label: "Chlorophyll-a L4", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
+  { id: "chlorophyll", label: "Aqua MODIS chlorophyll", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "altimetry", label: "SSH anomaly", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "wind", label: "GFS-Wave wind", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "waves", label: "GFS-Wave / WW3 GRIB", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },

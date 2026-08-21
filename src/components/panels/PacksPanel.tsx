@@ -13,6 +13,7 @@ import {
   PACK_BUILDER_REV,
   readyOffshoreBadge,
   sstHelmLine,
+  chlPackRowLabel,
   sstPackRowLabel,
   sstStaleReadyCue,
   windPackRowLabel,
@@ -301,7 +302,13 @@ export function PacksPanel() {
                           source: p.source,
                           note: getPackedOcean()?.windKt?.note,
                         })
-                      : p.label}
+                      : p.id === "chlorophyll"
+                        ? chlPackRowLabel({
+                            stored: p.label,
+                            source: p.source,
+                            note: getPackedOcean()?.chl?.note,
+                          })
+                        : p.label}
               </p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}

@@ -35,7 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
-import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, windLabelFromLanded } from "./pack-sources";
+import { chlLabelFromLanded, encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, windLabelFromLanded } from "./pack-sources";
 
 export {
   bboxKey,
@@ -61,11 +61,13 @@ export {
   leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
+  leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   rewriteLandedManifest,
   sstLabelFromLanded,
   sstLandedName,
   windLabelFromLanded,
+  chlLabelFromLanded,
   type PackSourceRef,
 } from "./pack-sources";
 
@@ -197,7 +199,16 @@ export function windPackRowLabel(input: {
   return windLabelFromLanded(input);
 }
 
-function overlayWindNote(overlay?: string): string | undefined {
+/** Pack row: name Aqua MODIS. Do not claim CMEMS L4 — that product is not fetched. */
+export function chlPackRowLabel(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  return chlLabelFromLanded(input);
+}
+
+function overlayGridNote(overlay?: string): string | undefined {
   if (!overlay) return undefined;
   const parsed = parseLayerBody(overlay);
   if (!parsed || parsed.kind !== "grid") return undefined;
@@ -237,7 +248,14 @@ function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
   }
   if (spec.id === "wind") {
     return windPackRowLabel({
-      note: overlayWindNote(overlay),
+      note: overlayGridNote(overlay),
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  if (spec.id === "chlorophyll") {
+    return chlPackRowLabel({
+      note: overlayGridNote(overlay),
       source: overlay ? "noaa" : "fixture",
       stored: spec.label,
     });

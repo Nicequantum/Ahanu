@@ -41,7 +41,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | Depth contours      | vector (live: cheap 100/200 fm from the packed grid)          | static                   | Fast drawing, night-readable.                                |
 | Canyon axes & heads | GeoJSON (live: MarineCadastre named heads)                    | static                   | Live: named heads only. Fixture still has synthetic axes.    |
 | SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
-| Chlorophyll-a L4    | CMEMS (licensed, not fetched) / PFEG Aqua MODIS 8-day 4 km    | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
+| Aqua MODIS chlorophyll | PFEG Aqua MODIS L3SMI 8-day 4 km (CMEMS L4 not fetched)     | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
 | SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |
 | Wind GRIB           | GFS-Wave ATL 0p16 (NDFD not fetched)                          | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
 | Wave GRIB           | GFS-Wave ATL 0p16 (WW3)                                       | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWaveFt`.                     |

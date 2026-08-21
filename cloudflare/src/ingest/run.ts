@@ -23,11 +23,13 @@
  * other R2 layers stay. Fixture tides are not rebuilt here.
  * skipCache=1 or a total miss is a live build + persist.
  * Persist (full, SST refresh, ENC refresh) rewrites layer.label / sources[]
- * from the landed body so R2 cannot keep a MUR label on an ACSPO object
- * or an NDFD label on a GFS-Wave wind object. Official ENC persist includes
- * cellIds + updateCount. Serving R2 (GET and HEAD) also rewrites a leftover
+ * from the landed body so R2 cannot keep a MUR label on an ACSPO object,
+ * an NDFD label on a GFS-Wave wind object, or an L4 label on an Aqua
+ * MODIS chlorophyll object. Official ENC persist includes cellIds +
+ * updateCount. Serving R2 (GET and HEAD) also rewrites a leftover
  * MUR label when the stored SST body is already ACSPO, leftover NDFD wind
- * labels (NDFD is not fetched), leftover "02° — not 1 km MUR" notes from
+ * labels (NDFD is not fetched), leftover L4 chlorophyll labels (CMEMS L4
+ * is not fetched), leftover "02° — not 1 km MUR" notes from
  * the first-period strip of 0.02°, leftover sources[] "not live GRIB/SST/CMEMS"
  * when those layers are live NOAA, and duplicate sst/enc/tides "live refresh"
  * liveErrors from stale-SST GET prepend (no NOAA fetch). HEAD persist writes
@@ -49,6 +51,7 @@ import {
   leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
+  leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   packIdFor,
   rewriteLandedManifest,
@@ -506,7 +509,7 @@ async function loadStoredLayerBody(
   return resolveR2LayerBody(env.PACKS, raw);
 }
 
-/** Serving R2: leftover MUR label on an ACSPO body, leftover NDFD wind label, leftover 02° MUR notes, leftover live-grid fixture sources[], duplicate live-refresh errors, or official ENC without counts. No NOAA. NDFD is not fetched. */
+/** Serving R2: leftover MUR label on an ACSPO body, leftover NDFD wind label, leftover L4 chlorophyll label, leftover 02° MUR notes, leftover live-grid fixture sources[], duplicate live-refresh errors, or official ENC without counts. No NOAA. NDFD and CMEMS L4 are not fetched. */
 async function rewriteLeftoverR2Labels(
   env: IngestEnv,
   stored: BuiltPack["manifest"],
@@ -533,12 +536,20 @@ async function rewriteLeftoverR2Labels(
   const sourcesDirty = leftoverFixtureSources(stored.sources, stored.layers);
   const wind = stored.layers.find((layer) => layer.id === "wind");
   const windDirty = leftoverNdfdWindLabel(wind?.label);
-  if (!overlays.sst && !overlays.enc && !notesDirty && !errorsDirty && !sourcesDirty && !windDirty) return { manifest: stored, source: "r2" };
+  const chl = stored.layers.find((layer) => layer.id === "chlorophyll");
+  const chlDirty = leftoverL4ChlLabel(chl?.label);
+  if (chlDirty) {
+    const body = await loadStoredLayerBody(env, stored, "chlorophyll");
+    if (body) overlays.chlorophyll = body;
+  }
+  if (!overlays.sst && !overlays.enc && !notesDirty && !errorsDirty && !sourcesDirty && !windDirty && !chlDirty) return { manifest: stored, source: "r2" };
   const rewritten = rewriteLandedManifest(stored, overlays);
   const liveErrors = collapseRefreshKeptLiveErrors(rewritten.liveErrors);
   const manifest = { ...rewritten, liveErrors };
   const windNext = manifest.layers.find((layer) => layer.id === "wind")?.label ?? "";
   const windPrev = wind?.label ?? "";
+  const chlNext = manifest.layers.find((layer) => layer.id === "chlorophyll")?.label ?? "";
+  const chlPrev = chl?.label ?? "";
   if (
     !overlays.sst &&
     !overlays.enc &&
@@ -546,7 +557,8 @@ async function rewriteLeftoverR2Labels(
     liveErrorsEqual(liveErrors, stored.liveErrors) &&
     !leftoverFixtureSources(manifest.sources, manifest.layers) &&
     JSON.stringify(manifest.sources ?? []) === JSON.stringify(stored.sources ?? []) &&
-    windNext === windPrev
+    windNext === windPrev &&
+    chlNext === chlPrev
   ) {
     return { manifest: stored, source: "r2" };
   }

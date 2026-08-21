@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (leftover L4 chlorophyll label, 2026-08-21)
+
+Live GET /api/packs on api.ahanu.dev labeled chlorophyll **Chlorophyll-a L4** after a live NASA Aqua MODIS L3SMI 8-day NRT 4 km grid landed (sources[] already named that product, analysis 2026-08-09). CMEMS L4 is not fetched — leftover fixture/catalog copy, same class as leftover NDFD on GFS-Wave. Generation now names fixture **Aqua MODIS chlorophyll (fixture)** and live **Aqua MODIS chlorophyll** (VIIRS L3 fallback names **VIIRS chlorophyll**). Persist / serving R2 GET/HEAD rewrite leftover L4 labels — no NOAA. Helm Packs remaps the stored leftover. Do not invent a newer chlorophyll scene. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (leftover NDFD wind label, 2026-08-21)
 
 Live GET /api/packs on api.ahanu.dev labeled wind **NDFD oceanic + GFS-Wave wind GRIB** after a live GFS-Wave 72 h series landed. NDFD is not fetched — leftover fixture/catalog copy, same class as leftover MUR on ACSPO. Generation now names fixture **GFS-Wave wind (fixture)** and live **GFS-Wave wind**. Persist / serving R2 GET/HEAD rewrite leftover NDFD labels — no NOAA. Helm Packs remaps the stored leftover. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only (personal + Galilee friends); leftover lists no longer treat ahanu.app as required. No AIS ingest edit. No Flutter. PR #1 not merged.
