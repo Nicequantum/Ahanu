@@ -57,8 +57,14 @@ export interface AisStreamSocket {
   ) => void;
   /** Workers fetch-upgrade sockets must accept() after listeners are attached. */
   accept?: () => void;
+  needsAccept?: boolean;
   readyState?: number;
   binaryType?: string;
+  on?: (type: string, fn: (ev: { data?: unknown }) => void) => void;
+  onopen?: ((ev: { data?: unknown }) => void) | null;
+  onmessage?: ((ev: { data?: unknown }) => void) | null;
+  onerror?: ((ev: { data?: unknown }) => void) | null;
+  onclose?: ((ev: { data?: unknown }) => void) | null;
 }
 
 export type OpenAisStream = (url: string) => AisStreamSocket | Promise<AisStreamSocket>;
@@ -262,12 +268,53 @@ function armSocket(socket: AisStreamSocket): void {
 }
 
 function acceptSocket(socket: AisStreamSocket): void {
-  if (typeof socket.accept !== "function") return;
+  // Only fetch-upgrade sockets. accept() on a constructor client WS can
+  // kill the receive pipeline and looks like 0 frames.
+  if (socket.needsAccept !== true || typeof socket.accept !== "function") return;
   try {
     socket.accept();
   } catch {
-    /* constructor sockets are already accepted */
+    /* already accepted */
   }
+}
+
+function listen(
+  socket: AisStreamSocket,
+  type: "open" | "message" | "error" | "close",
+  fn: (ev: { data?: unknown }) => void,
+): void {
+  try {
+    socket.addEventListener(type, fn);
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (typeof socket.on === "function") socket.on(type, fn);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const prop =
+      type === "open" ? "onopen" : type === "message" ? "onmessage" : type === "error" ? "onerror" : "onclose";
+    socket[prop] = fn;
+  } catch {
+    /* ignore */
+  }
+}
+
+function eventPayload(ev: unknown): unknown {
+  if (typeof ev === "string" || ev instanceof ArrayBuffer || ArrayBuffer.isView(ev)) return ev;
+  if (!ev || typeof ev !== "object") return ev;
+  const o = ev as { data?: unknown; text?: unknown };
+  if ("data" in o) return o.data;
+  return ev;
+}
+
+function describePayload(raw: unknown): string {
+  if (raw == null) return String(raw);
+  if (typeof raw !== "object") return typeof raw;
+  const name = (raw as { constructor?: { name?: string } }).constructor?.name;
+  return name && name !== "Object" ? name : "object";
 }
 
 function workerFetchUpgradeAvailable(): boolean {
@@ -281,6 +328,7 @@ async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | und
     const ws = (resp as Response & { webSocket?: (WebSocket & AisStreamSocket) | null }).webSocket;
     if (!ws) return undefined;
     armSocket(ws);
+    ws.needsAccept = true;
     return ws;
   } catch {
     return undefined;
@@ -288,17 +336,16 @@ async function openAisStreamViaFetch(url: string): Promise<AisStreamSocket | und
 }
 
 async function defaultOpenAisStream(url: string): Promise<AisStreamSocket> {
-  // Prefer the standard client constructor (fires open, auto-accepted).
-  // Workers fetch+Upgrade is the fallback when WebSocket is missing; that
-  // socket must accept() after listeners or it looks like "ok, 0 positions".
+  // Workers: fetch + Upgrade + accept() is the documented outbound read path.
+  // Constructor is fallback (auto-accepted; do not accept() again).
+  if (workerFetchUpgradeAvailable()) {
+    const upgraded = await openAisStreamViaFetch(url);
+    if (upgraded) return upgraded;
+  }
   if (typeof WebSocket === "function") {
     const ws = new WebSocket(url) as unknown as AisStreamSocket;
     armSocket(ws);
     return ws;
-  }
-  if (workerFetchUpgradeAvailable()) {
-    const upgraded = await openAisStreamViaFetch(url);
-    if (upgraded) return upgraded;
   }
   throw new Error("websocket unavailable");
 }
@@ -336,6 +383,7 @@ export async function fetchLiveAis(options: {
   let opened = false;
   let failed: string | undefined;
   let messages = 0;
+  let lastKind = "none";
   let streamEnded = false;
   let messageChain = Promise.resolve();
   let resolveEnded: () => void = () => {};
@@ -369,10 +417,11 @@ export async function fetchLiveAis(options: {
 
   const handleMessage = async (ev: { data?: unknown } | string) => {
     if (messages >= maxMessages) return;
-    const raw = typeof ev === "string" ? ev : ev?.data;
+    messages += 1;
+    const raw = eventPayload(ev);
+    lastKind = describePayload(raw);
     const text = await socketMessageTextAsync(raw);
     if (!text) return;
-    messages += 1;
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -407,17 +456,17 @@ export async function fetchLiveAis(options: {
   };
 
   const openedWait = new Promise<void>((resolve) => {
-    socket!.addEventListener("open", () => {
+    listen(socket!, "open", () => {
       subscribe();
       resolve();
     });
-    socket!.addEventListener("message", onMessage);
-    socket!.addEventListener("error", () => {
+    listen(socket!, "message", onMessage);
+    listen(socket!, "error", () => {
       if (!targets.size && !failed) failed = "ais: websocket failed — live miss";
       finish();
       resolve();
     });
-    socket!.addEventListener("close", () => {
+    listen(socket!, "close", () => {
       finish();
       resolve();
     });
@@ -458,7 +507,8 @@ export async function fetchLiveAis(options: {
 
   if (!targets.size) {
     const frames = `${messages} frame${messages === 1 ? "" : "s"}`;
-    options.errors.push(failed ?? `ais: no positions in snapshot (${frames}) — live miss`);
+    const kind = lastKind !== "none" ? `, last=${lastKind}` : "";
+    options.errors.push(failed ?? `ais: no positions in snapshot (${frames}${kind}) — live miss`);
     return undefined;
   }
 

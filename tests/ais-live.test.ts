@@ -89,6 +89,7 @@ function mockOpen(
     };
     const sock = {
       readyState: opts?.alreadyOpen ? 1 : 0,
+      needsAccept: true,
       send(_data: string) {
         opts?.onSend?.();
       },
