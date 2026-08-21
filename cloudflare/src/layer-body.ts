@@ -1,12 +1,14 @@
 /**
  * Serve the same layer bytes GET /api/packs just hashed.
- * Isolate cache first, then R2 by the stored manifest r2Key / latest alias.
- * Rebuild NOAA only when both miss — a second NDBC snapshot would otherwise
- * hash differently from the helm's manifest.
+ * Isolate cache first (must match requested hash when present), then R2
+ * by hash key / stored manifest r2Key / latest alias.
+ * A pinned packId or hash must not rebuild NOAA — a second NDBC snapshot
+ * would hash differently from the helm's stored manifest.
  */
 import { specForLayer, type BBox } from "./ingest/pack";
 import {
   buildTripPack,
+  hashesMatch,
   packIdFor,
   peekBuiltPack,
   rememberBuiltPack,
@@ -14,7 +16,7 @@ import {
   type BuiltPack,
 } from "../../src/lib/ahanu/pack";
 import { NOAA_GRID_TIMEOUT_MS } from "../../src/lib/ahanu/noaa-http";
-import { latestLayerR2Key, packManifestR2Key } from "./ingest/run";
+import { hashedLayerR2Key, latestLayerR2Key, packManifestR2Key } from "./ingest/run";
 
 export interface LayerBodyEnv {
   PACKS?: {
@@ -58,6 +60,20 @@ async function r2Text(bucket: LayerBodyEnv["PACKS"], key: string): Promise<strin
   }
 }
 
+async function r2IfHash(
+  env: LayerBodyEnv,
+  key: string,
+  packId: string,
+  contentType: string,
+  wantHash?: string,
+): Promise<LayerBodyResult | null> {
+  const body = await r2Text(env.PACKS, key);
+  if (!body) return null;
+  const hash = await sha256Hex(body);
+  if (wantHash && !hashesMatch(hash, wantHash)) return null;
+  return { body, hash, contentType, source: "r2", r2Key: key, packId };
+}
+
 export async function layerBody(
   env: LayerBodyEnv,
   bbox: BBox,
@@ -67,21 +83,35 @@ export async function layerBody(
   opts?: {
     skipCache?: boolean;
     packId?: string;
+    hash?: string;
     fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
   },
 ): Promise<LayerBodyResult | null> {
   const spec = specForLayer(layerId);
   if (!spec) return null;
   const skipCache = opts?.skipCache === true;
+  const wantHash = (opts?.hash ?? "").trim().toLowerCase() || undefined;
+  const pinned = Boolean(opts?.packId || wantHash);
+
   const cached = peekBuiltPack({ bbox, start, hours, packId: opts?.packId });
   const cacheOk = Boolean(cached) && (!skipCache || Boolean(opts?.packId && cached?.manifest.packId === opts.packId));
   if (cacheOk && cached) {
     const hit = layerFromBuilt(cached, layerId);
-    if (hit) return hit;
+    if (hit && (!wantHash || hashesMatch(hit.hash, wantHash))) return hit;
   }
 
   if (!skipCache) {
     const packId = opts?.packId || (await packIdFor(bbox, start, hours));
+    if (wantHash) {
+      const hashed = await r2IfHash(
+        env,
+        hashedLayerR2Key(packId, spec.id, wantHash, spec.ext),
+        packId,
+        spec.contentType,
+        wantHash,
+      );
+      if (hashed) return hashed;
+    }
     const manText = await r2Text(env.PACKS, packManifestR2Key(packId));
     if (manText) {
       try {
@@ -89,36 +119,20 @@ export async function layerBody(
           layers?: { id: string; hash: string; r2Key: string; contentType: string; source?: string }[];
         };
         const rec = man.layers?.find((l) => l.id === layerId);
-        if (rec?.r2Key) {
-          const body = await r2Text(env.PACKS, rec.r2Key);
-          if (body) {
-            return {
-              body,
-              hash: rec.hash,
-              contentType: rec.contentType,
-              source: "r2",
-              r2Key: rec.r2Key,
-              packId,
-            };
-          }
+        if (rec?.r2Key && (!wantHash || hashesMatch(rec.hash, wantHash))) {
+          const fromMan = await r2IfHash(env, rec.r2Key, packId, rec.contentType, wantHash);
+          if (fromMan) return { ...fromMan, hash: rec.hash };
         }
       } catch {
         /* fall through */
       }
     }
-    const latestKey = latestLayerR2Key(packId, spec.id);
-    const latest = await r2Text(env.PACKS, latestKey);
-    if (latest) {
-      return {
-        body: latest,
-        hash: await sha256Hex(latest),
-        contentType: spec.contentType,
-        source: "r2",
-        r2Key: latestKey,
-        packId,
-      };
-    }
+    const latest = await r2IfHash(env, latestLayerR2Key(packId, spec.id), packId, spec.contentType, wantHash);
+    if (latest) return latest;
+    if (pinned) return null;
   }
+
+  if (pinned && !skipCache) return null;
 
   const built = await buildTripPack({
     bbox,
@@ -133,6 +147,7 @@ export async function layerBody(
   const rec = built.manifest.layers.find((l) => l.id === layerId);
   const body = built.bodies[layerId];
   if (!rec || !body) return null;
+  if (wantHash && !hashesMatch(rec.hash, wantHash)) return null;
   return {
     body,
     hash: rec.hash,

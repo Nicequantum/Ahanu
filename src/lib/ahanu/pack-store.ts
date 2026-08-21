@@ -67,12 +67,28 @@ function idbReq<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+export async function deleteObject(r2Key: string): Promise<void> {
+  memory.objects.delete(r2Key);
+  if (!hasIdb()) return;
+  const db = await openDb();
+  const tx = db.transaction("objects", "readwrite");
+  await idbReq(tx.objectStore("objects").delete(r2Key));
+  db.close();
+}
+
 export async function putObject(obj: StoredObject): Promise<void> {
+  const extras = (await listObjects(obj.packId)).filter(
+    (row) => row.layerId === obj.layerId && row.r2Key !== obj.r2Key,
+  );
   memory.objects.set(obj.r2Key, obj);
+  for (const old of extras) memory.objects.delete(old.r2Key);
   if (!hasIdb()) return;
   const db = await openDb();
   const tx = db.transaction("objects", "readwrite");
   await idbReq(tx.objectStore("objects").put(obj));
+  for (const old of extras) {
+    await idbReq(tx.objectStore("objects").delete(old.r2Key));
+  }
   db.close();
 }
 
@@ -148,4 +164,9 @@ export function resetPackMemory(): void {
   memory.objects.clear();
   memory.manifests.clear();
   memory.current = null;
+}
+
+/** Test helper — extra IDB row without replacing the current layer. */
+export function seedObjectMemory(obj: StoredObject): void {
+  memory.objects.set(obj.r2Key, obj);
 }

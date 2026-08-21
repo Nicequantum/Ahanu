@@ -22,7 +22,7 @@ const {
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
 const { restorePackedSession } = await import("../src/lib/ahanu/pack-client.ts");
 const { hashedPackCount, readyOffshoreBadge } = await import("../src/lib/ahanu/pack.ts");
-const { putObject, saveManifest, resetPackMemory, loadCurrentManifest, bodiesForPack } =
+const { putObject, saveManifest, resetPackMemory, loadCurrentManifest, bodiesForPack, seedObjectMemory } =
   await import("../src/lib/ahanu/pack-store.ts");
 const { buildFixturePack, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
 const { clearPackedOcean, getPackedOcean } = await import("../src/lib/ahanu/packed-fields.ts");
@@ -604,5 +604,77 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     assert.equal(count.hashed, 12);
     assert.equal(count.stale, 1);
     assert.deepEqual(count.misses, []);
+  });
+
+  it("restore uses manifest r2Key so leftover buoys/tides snapshots do not hash-miss", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    const first = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const second = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: {
+        buoys: `${first.bodies.buoys.slice(0, -1)},"x":1}`,
+        tides: `${first.bodies.tides.slice(0, -1)},"x":1}`,
+      },
+    });
+    assert.equal(first.manifest.packId, second.manifest.packId);
+    const buoys1 = first.manifest.layers.find((l) => l.id === "buoys")!;
+    const buoys2 = second.manifest.layers.find((l) => l.id === "buoys")!;
+    const tides1 = first.manifest.layers.find((l) => l.id === "tides")!;
+    const tides2 = second.manifest.layers.find((l) => l.id === "tides")!;
+    assert.notEqual(buoys1.hash, buoys2.hash);
+    assert.notEqual(tides1.hash, tides2.hash);
+    assert.notEqual(buoys1.r2Key, buoys2.r2Key);
+
+    for (const layer of second.manifest.layers) {
+      const body = second.bodies[layer.id];
+      await putObject({
+        r2Key: layer.r2Key,
+        layerId: layer.id,
+        packId: second.manifest.packId,
+        hash: layer.hash,
+        contentType: layer.contentType,
+        body,
+        storedAt: START,
+      });
+    }
+    // Leftover earlier snapshots (same packId, older r2Key) — the sea-trial miss.
+    seedObjectMemory({
+      r2Key: buoys1.r2Key,
+      layerId: "buoys",
+      packId: first.manifest.packId,
+      hash: buoys1.hash,
+      contentType: buoys1.contentType,
+      body: first.bodies.buoys,
+      storedAt: START,
+    });
+    seedObjectMemory({
+      r2Key: tides1.r2Key,
+      layerId: "tides",
+      packId: first.manifest.packId,
+      hash: tides1.hash,
+      contentType: tides1.contentType,
+      body: first.bodies.tides,
+      storedAt: START,
+    });
+    await saveManifest(second.manifest);
+
+    const restored = await restorePackedSession({ now: START, sstOverride: true });
+    assert.ok(restored);
+    const count = hashedPackCount(restored.layers);
+    assert.equal(count.hashed, 12, `miss ${count.misses.join(",")}`);
+    assert.deepEqual(count.misses, []);
+    assert.equal(restored.layers.find((l) => l.id === "buoys")?.verified, true);
+    assert.equal(restored.layers.find((l) => l.id === "tides")?.verified, true);
+    assert.ok(!restored.ready.failures.some((f) => f.includes("hash mismatch")));
+    assert.ok(!restored.ready.warnings.some((w) => w.includes("hash mismatch")));
   });
 });

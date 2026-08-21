@@ -126,4 +126,54 @@ describe("layerBody vs pack manifest hash", () => {
     assert.equal(obj.source, "noaa");
     assert.ok(obj.body.includes("21.6") || obj.body.includes("7.1"));
   });
+
+  it("pinned packId+hash serves R2 after isolate miss and does not rebuild NOAA", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      tryLive: true,
+      skipCache: true,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    await persistBuiltPack(env, built);
+    const rec = built.manifest.layers.find((l) => l.id === "buoys");
+    assert.ok(rec);
+    assert.ok(store.has(rec.r2Key));
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const obj = await layerBody(env, POINT_JUDITH_CANYON_BBOX, START, HOURS, "buoys", {
+      packId: built.manifest.packId,
+      hash: rec.hash,
+      fetchImpl: async (url) => {
+        fetches += 1;
+        return ndbcFetch(NDBC_N1)(url);
+      },
+    });
+    assert.ok(obj);
+    assert.equal(fetches, 0, "must not rebuild NOAA when helm pins packId+hash");
+    assert.equal(obj.hash, rec.hash);
+    assert.equal(await sha256Hex(obj.body), rec.hash);
+    assert.equal(obj.source, "r2");
+  });
+
+  it("pinned packId+hash returns missing instead of a new NOAA snapshot when R2 is empty", async () => {
+    const { env } = mockEnv();
+    let fetches = 0;
+    const obj = await layerBody(env, POINT_JUDITH_CANYON_BBOX, START, HOURS, "buoys", {
+      packId: "deadbeefdeadbeef",
+      hash: "a".repeat(64),
+      fetchImpl: async (url) => {
+        fetches += 1;
+        return ndbcFetch(NDBC_N1)(url);
+      },
+    });
+    assert.equal(obj, null);
+    assert.equal(fetches, 0);
+  });
 });

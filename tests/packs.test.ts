@@ -646,6 +646,8 @@ describe("downloadTripPack live query", () => {
     const objects = urls.filter((u) => u.includes("/api/objects?"));
     assert.ok(objects.length > 0);
     assert.ok(objects.every((u) => u.includes("live=1") && !u.includes("skipCache=")));
+    assert.ok(objects.every((u) => u.includes("packId=")), "objects must pin the pack just hashed");
+    assert.ok(objects.every((u) => u.includes("hash=")), "objects must pin the stored layer hash");
   });
 
   it("keeps fixture download without live", async () => {

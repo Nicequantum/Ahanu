@@ -163,8 +163,18 @@ export async function handlePacksRequest(
     if (!spec) return json({ error: "unknown layer", layer }, 404);
     const skipCache = wantSkipCache(url);
     const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+    const hash = (url.searchParams.get("hash") ?? "").trim().toLowerCase() || undefined;
     const cached = peekBuiltPack({ bbox, start: win.start, hours: win.hours, packId });
-    const reuse = Boolean(cached) && (!skipCache || Boolean(packId && cached?.manifest.packId === packId));
+    const cachedRec = cached?.manifest.layers.find((l) => l.id === spec.id);
+    const hashOk = !hash || Boolean(cachedRec && cachedRec.hash === hash);
+    const reuse =
+      Boolean(cached) &&
+      hashOk &&
+      (!skipCache || Boolean(packId && cached?.manifest.packId === packId));
+    const pinned = Boolean(packId || hash);
+    if (!reuse && pinned && !skipCache) {
+      return json({ error: "layer body missing", layer }, 404);
+    }
     const built =
       reuse && cached
         ? cached

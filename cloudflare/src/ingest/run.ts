@@ -77,6 +77,10 @@ export function latestLayerR2Key(packId: string, layerId: string): string {
   return `packs/${packId}/${layerId}`;
 }
 
+export function hashedLayerR2Key(packId: string, layerId: string, hash: string, ext: string): string {
+  return `packs/${packId}/${layerId}/${hash.slice(0, 12)}.${ext}`;
+}
+
 export function packManifestR2Key(packId: string): string {
   return `packs/${packId}/manifest.json`;
 }

@@ -685,9 +685,11 @@ export default {
         const objSkipRaw = (url.searchParams.get("skipCache") ?? "").trim().toLowerCase();
         const objSkipCache = objSkipRaw === "1" || objSkipRaw === "true" || objSkipRaw === "yes";
         const packId = (url.searchParams.get("packId") ?? "").trim() || undefined;
+        const hash = (url.searchParams.get("hash") ?? "").trim() || undefined;
         const obj = await layerBody(env, bboxOrErr, start, Math.round(hours), spec.id, {
           skipCache: objSkipCache,
           packId,
+          hash,
         });
         if (!obj) return error(404, "layer body missing", { layer });
         if (obj.persist && env.PACKS && typeof env.PACKS.put === "function") {

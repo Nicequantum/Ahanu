@@ -76,9 +76,13 @@ export async function fetchLayerBody(
   hours: number,
   layerId: string,
   base = packsApiBase(),
-  opts?: { live?: boolean },
+  opts?: { live?: boolean; packId?: string; hash?: string },
 ): Promise<string> {
-  const url = `${base}/api/objects?${packQuery(bbox, start, hours, opts)}&layer=${encodeURIComponent(layerId)}`;
+  const q = new URLSearchParams(packQuery(bbox, start, hours, opts));
+  q.set("layer", layerId);
+  if (opts?.packId) q.set("packId", opts.packId);
+  if (opts?.hash) q.set("hash", opts.hash);
+  const url = `${base}/api/objects?${q.toString()}`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`GET /api/objects ${layerId} ${res.status}`);
@@ -132,12 +136,13 @@ export async function downloadTripPack(options: {
     let hashActual = "";
     let present = false;
     try {
-      body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, q);
+      const objectQ = { ...q, packId: manifest.packId, hash: layer.hash };
+      body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, objectQ);
       hashActual = await sha256Hex(body);
       present = true;
       if (!hashesMatch(hashActual, layer.hash)) {
         // DATA_PACKS: delete, retry once, then fail the layer.
-        body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, q);
+        body = await fetchLayerBody(manifest.bbox, manifest.start, manifest.hours, layer.id, base, objectQ);
         hashActual = await sha256Hex(body);
       }
       const hashOk = hashesMatch(hashActual, layer.hash);
@@ -283,17 +288,19 @@ export async function restorePackedSession(opts?: {
   now?: string;
   sstOverride?: boolean;
 }): Promise<RestoredPackSession | null> {
-  const { loadCurrentManifest, listObjects } = await import("./pack-store");
+  const { loadCurrentManifest, getObject } = await import("./pack-store");
   const manifest = await loadCurrentManifest();
   if (!manifest) return null;
 
-  const objects = await listObjects(manifest.packId);
+  // Manifest r2Key is the IDB key. Listing by packId can pick a leftover
+  // buoys/tides snapshot from an earlier download in the same 6 h cycle.
   const bodies: Record<string, string> = {};
   const actualHashes: Record<string, string> = {};
-  for (const o of objects) {
-    if (!o.body) continue;
-    bodies[o.layerId] = o.body;
-    actualHashes[o.layerId] = await sha256Hex(o.body);
+  for (const layer of manifest.layers) {
+    const o = await getObject(layer.r2Key);
+    if (!o?.body) continue;
+    bodies[layer.id] = o.body;
+    actualHashes[layer.id] = await sha256Hex(o.body);
   }
   if (Object.keys(bodies).length) {
     setPackedOcean(packedOceanFromBodies(bodies, sourceFromManifest(manifest)));
