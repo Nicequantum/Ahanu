@@ -21,6 +21,8 @@ const {
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   leftoverWw3WaveLabel,
+  leftoverBathyCogLabel,
+  leftoverCanyonAxesLabel,
   packIdFor,
   peekBuiltPack,
   resetBuiltPackCache,
@@ -872,6 +874,108 @@ describe("GET /api/packs R2 manifest", () => {
     assert.ok(headWaves);
     assert.equal(leftoverWw3WaveLabel(headWaves.label), false);
     assert.doesNotMatch(headWaves.label, /WW3/);
+  });
+
+  it("GET/HEAD persist drops leftover COG bathymetry labels when ETOPO already landed", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const bathy = built.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(bathy);
+    bathy.source = "noaa";
+    bathy.label = "Bathymetry (COG)";
+    assert.equal(leftoverBathyCogLabel(bathy.label), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    const storedBathy = stored.layers.find((l) => l.id === "bathymetry");
+    storedBathy.source = "noaa";
+    storedBathy.label = "Bathymetry (COG)";
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: { id: string; label: string; source?: string }[] };
+    const liveBathy = man.layers.find((l) => l.id === "bathymetry");
+    assert.ok(liveBathy);
+    assert.equal(leftoverBathyCogLabel(liveBathy.label), false);
+    assert.doesNotMatch(liveBathy.label, /COG/);
+    assert.match(liveBathy.label, /ETOPO/);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    const headBathy = headed.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(headBathy);
+    assert.equal(leftoverBathyCogLabel(headBathy.label), false);
+    assert.doesNotMatch(headBathy.label, /COG/);
+  });
+
+  it("GET/HEAD persist drops leftover canyon axes labels when heads-only already landed", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const canyons = built.manifest.layers.find((l) => l.id === "canyons");
+    assert.ok(canyons);
+    canyons.source = "noaa";
+    canyons.label = "Canyon axes & heads";
+    assert.equal(leftoverCanyonAxesLabel(canyons.label), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    const storedCanyons = stored.layers.find((l) => l.id === "canyons");
+    storedCanyons.source = "noaa";
+    storedCanyons.label = "Canyon axes & heads";
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: { id: string; label: string; source?: string }[] };
+    const liveCanyons = man.layers.find((l) => l.id === "canyons");
+    assert.ok(liveCanyons);
+    assert.equal(leftoverCanyonAxesLabel(liveCanyons.label), false);
+    assert.doesNotMatch(liveCanyons.label, /axes/i);
+    assert.match(liveCanyons.label, /heads/i);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    const headCanyons = headed.manifest.layers.find((l) => l.id === "canyons");
+    assert.ok(headCanyons);
+    assert.equal(leftoverCanyonAxesLabel(headCanyons.label), false);
+    assert.doesNotMatch(headCanyons.label, /axes/i);
   });
 });
 

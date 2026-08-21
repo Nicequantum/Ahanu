@@ -54,9 +54,9 @@ export interface PackLayerSpec {
  */
 export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "enc", label: "NOAA ENC cells (clipped)", hours: 0, baseMb: 52, format: "s57-zip", contentType: "application/zip", ext: "zip" },
-  { id: "bathymetry", label: "Bathymetry (COG)", hours: 0, baseMb: 38, format: "cog", contentType: "image/tiff", ext: "tif" },
+  { id: "bathymetry", label: "ETOPO bathymetry", hours: 0, baseMb: 38, format: "cog", contentType: "image/tiff", ext: "tif" },
   { id: "contours", label: "Depth contours", hours: 0, baseMb: 6.4, format: "geojsonseq", contentType: "application/geo+json-seq", ext: "geojsonl" },
-  { id: "canyons", label: "Canyon axes & heads", hours: 0, baseMb: 0.28, format: "geojson", contentType: "application/geo+json", ext: "geojson" },
+  { id: "canyons", label: "Canyon heads", hours: 0, baseMb: 0.28, format: "geojson", contentType: "application/geo+json", ext: "geojson" },
   { id: "sst", label: "SST composite (public ERDDAP)", hours: 24, baseMb: 14.2, format: "cog", contentType: "image/tiff", ext: "tif" },
   { id: "chlorophyll", label: "Aqua MODIS chlorophyll", hours: 24, baseMb: 5.6, format: "cog", contentType: "image/tiff", ext: "tif" },
   { id: "altimetry", label: "SSH anomaly", hours: 24, baseMb: 2.1, format: "cog", contentType: "image/tiff", ext: "tif" },

@@ -37,9 +37,9 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | Layer               | Bytes                                                         | Window                   | Why it is in the pack                                        |
 | ------------------- | ------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
 | NOAA ENC            | Official S-57 zips when they fetch (ISO 8211 .000 plus .00n updates when present); else catalog cell list | static, weekly refresh   | Client extract applies base + packed updates (coast/shore/depth/wrecks when present). Not an ECDIS. Cells with no .001 stay base .000 only. |
-| Bathymetry COG      | raster (live: NCEI ETOPO 2022 ~0.033° via ERDDAP)             | static                   | Canyon walls, 100-fathom curve, heads. Not official ENC.     |
+| ETOPO bathymetry    | JSON grid (live: NCEI ETOPO 2022 ~0.033° via ERDDAP; not a COG) | static                   | Canyon walls, 100-fathom curve, heads. Not official ENC.     |
 | Depth contours      | vector (live: cheap 100/200 fm from the packed grid)          | static                   | Fast drawing, night-readable.                                |
-| Canyon axes & heads | GeoJSON (live: MarineCadastre named heads)                    | static                   | Live: named heads only. Fixture still has synthetic axes.    |
+| Canyon heads        | GeoJSON (live: MarineCadastre named heads)                    | static                   | Live: named heads only — no invented axes. Fixture still has synthetic axes. |
 | SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
 | Aqua MODIS chlorophyll | PFEG Aqua MODIS L3SMI 8-day 4 km (CMEMS L4 not fetched)     | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
 | SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |

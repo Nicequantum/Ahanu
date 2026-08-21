@@ -18,6 +18,8 @@ import {
   sstStaleReadyCue,
   wavePackRowLabel,
   windPackRowLabel,
+  bathyPackRowLabel,
+  canyonPackRowLabel,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import {
@@ -315,7 +317,18 @@ export function PacksPanel() {
                               source: p.source,
                               note: getPackedOcean()?.waveFt?.note,
                             })
-                          : p.label}
+                          : p.id === "bathymetry"
+                            ? bathyPackRowLabel({
+                                stored: p.label,
+                                source: p.source,
+                                note: getPackedOcean()?.depth?.note,
+                              })
+                            : p.id === "canyons"
+                              ? canyonPackRowLabel({
+                                  stored: p.label,
+                                  source: p.source,
+                                })
+                              : p.label}
               </p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}

@@ -35,7 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
-import { chlLabelFromLanded, encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, waveLabelFromLanded, windLabelFromLanded } from "./pack-sources";
+import { bathyLabelFromLanded, canyonLabelFromLanded, chlLabelFromLanded, encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, waveLabelFromLanded, windLabelFromLanded } from "./pack-sources";
 
 export {
   bboxKey,
@@ -64,12 +64,16 @@ export {
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   leftoverWw3WaveLabel,
+  leftoverBathyCogLabel,
+  leftoverCanyonAxesLabel,
   rewriteLandedManifest,
   sstLabelFromLanded,
   sstLandedName,
   windLabelFromLanded,
   waveLabelFromLanded,
   chlLabelFromLanded,
+  bathyLabelFromLanded,
+  canyonLabelFromLanded,
   type PackSourceRef,
 } from "./pack-sources";
 
@@ -219,11 +223,41 @@ export function wavePackRowLabel(input: {
   return waveLabelFromLanded(input);
 }
 
+/** Pack row: name ETOPO. Do not claim a COG — that file is not packed. */
+export function bathyPackRowLabel(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  return bathyLabelFromLanded(input);
+}
+
+/** Pack row: name canyon heads. Do not claim axes on live heads-only. */
+export function canyonPackRowLabel(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  return canyonLabelFromLanded(input);
+}
+
 function overlayGridNote(overlay?: string): string | undefined {
   if (!overlay) return undefined;
   const parsed = parseLayerBody(overlay);
   if (!parsed || parsed.kind !== "grid") return undefined;
   return typeof parsed.note === "string" && parsed.note.trim() ? parsed.note.trim() : undefined;
+}
+
+function overlayPayloadNote(overlay?: string): string | undefined {
+  if (!overlay) return undefined;
+  const parsed = parseLayerBody(overlay);
+  if (!parsed) return undefined;
+  if ("note" in parsed && typeof parsed.note === "string" && parsed.note.trim()) return parsed.note.trim();
+  if ("payload" in parsed && parsed.payload && typeof parsed.payload === "object") {
+    const n = (parsed.payload as { note?: unknown }).note;
+    if (typeof n === "string" && n.trim()) return n.trim();
+  }
+  return undefined;
 }
 
 function overlaySstMeta(overlay?: string): { dataset?: string; note?: string } {
@@ -274,6 +308,20 @@ function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
   if (spec.id === "waves") {
     return wavePackRowLabel({
       note: overlayGridNote(overlay),
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  if (spec.id === "bathymetry") {
+    return bathyPackRowLabel({
+      note: overlayGridNote(overlay),
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  if (spec.id === "canyons") {
+    return canyonPackRowLabel({
+      note: overlayPayloadNote(overlay),
       source: overlay ? "noaa" : "fixture",
       stored: spec.label,
     });

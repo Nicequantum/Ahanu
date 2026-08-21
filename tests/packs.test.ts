@@ -27,10 +27,14 @@ const {
   leftoverL4ChlLabel,
   leftoverNdfdWindLabel,
   leftoverWw3WaveLabel,
+  leftoverBathyCogLabel,
+  leftoverCanyonAxesLabel,
   rewriteLandedManifest,
   windPackRowLabel,
   wavePackRowLabel,
   chlPackRowLabel,
+  bathyPackRowLabel,
+  canyonPackRowLabel,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
@@ -1378,6 +1382,228 @@ describe("wavePackRowLabel", () => {
     );
     assert.equal(next.layers.find((l) => l.id === "waves")?.label, "GFS-Wave waves");
     assert.doesNotMatch(next.layers.find((l) => l.id === "waves")?.label ?? "", /WW3/);
+  });
+});
+
+describe("bathyPackRowLabel", () => {
+  it("names ETOPO bathymetry and remaps leftover COG catalog copy", () => {
+    assert.equal(leftoverBathyCogLabel("Bathymetry (COG)"), true);
+    assert.equal(leftoverBathyCogLabel("ETOPO bathymetry"), false);
+    assert.equal(bathyPackRowLabel({ source: "fixture" }), "ETOPO bathymetry (fixture)");
+    assert.equal(
+      bathyPackRowLabel({
+        source: "noaa",
+        stored: "Bathymetry (COG)",
+        note: "NOAA NCEI ETOPO 2022 subsampled to ~0.033° (stride 8) — not native 15 arc-second.",
+      }),
+      "ETOPO bathymetry",
+    );
+    assert.equal(
+      bathyPackRowLabel({
+        source: "noaa",
+        stored: "Bathymetry (COG)",
+      }),
+      "ETOPO bathymetry",
+    );
+    assert.doesNotMatch(
+      bathyPackRowLabel({ source: "noaa", stored: "Bathymetry (COG)" }),
+      /COG/,
+    );
+  });
+
+  it("writes ETOPO on the fixture-pack row, not leftover COG", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fixtureBathy = fixture.manifest.layers.find((l) => l.id === "bathymetry")!;
+    assert.equal(fixtureBathy.label, "ETOPO bathymetry (fixture)");
+    assert.doesNotMatch(fixtureBathy.label, /COG/);
+
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "bathymetry",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 0,
+      unit: "m",
+      values: [[-80, -120, -40, 10]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "NOAA NCEI ETOPO 2022 subsampled to ~0.033° (stride 8) — not native 15 arc-second. 121×64.",
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { bathymetry: overlay },
+    });
+    const bathy = live.manifest.layers.find((l) => l.id === "bathymetry")!;
+    assert.equal(bathy.source, "noaa");
+    assert.equal(bathy.label, "ETOPO bathymetry");
+    assert.doesNotMatch(bathy.label, /COG/);
+  });
+
+  it("rewriteLandedManifest replaces a leftover COG label from an ETOPO body", () => {
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "bathymetry",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 0,
+      unit: "m",
+      values: [[-80, -120, -40, 10]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "NOAA NCEI ETOPO 2022 subsampled to ~0.033° (stride 8) — not native 15 arc-second.",
+    });
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "bathymetry", label: "Bathymetry (COG)", source: "noaa" }],
+      },
+      { bathymetry: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "bathymetry")?.label, "ETOPO bathymetry");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "bathymetry")?.label ?? "", /COG/);
+  });
+
+  it("rewriteLandedManifest remaps leftover COG without a bathymetry overlay", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "bathymetry", label: "Bathymetry (COG)", source: "noaa" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "bathymetry")?.label, "ETOPO bathymetry");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "bathymetry")?.label ?? "", /COG/);
+  });
+});
+
+describe("canyonPackRowLabel", () => {
+  it("names canyon heads and remaps leftover axes catalog copy", () => {
+    assert.equal(leftoverCanyonAxesLabel("Canyon axes & heads"), true);
+    assert.equal(leftoverCanyonAxesLabel("Canyon axes & heads", "fixture"), false);
+    assert.equal(leftoverCanyonAxesLabel("Canyon axes & heads", "noaa"), true);
+    assert.equal(leftoverCanyonAxesLabel("Canyon heads"), false);
+    assert.equal(canyonPackRowLabel({ source: "fixture" }), "Canyon axes & heads");
+    assert.equal(
+      canyonPackRowLabel({
+        source: "noaa",
+        stored: "Canyon axes & heads",
+        note: "MarineCadastre undersea feature place names (GeoJSON) — 14 named head(s) in box. Heads only — no invented axes.",
+      }),
+      "Canyon heads",
+    );
+    assert.equal(
+      canyonPackRowLabel({
+        source: "noaa",
+        stored: "Canyon axes & heads",
+      }),
+      "Canyon heads",
+    );
+    assert.doesNotMatch(
+      canyonPackRowLabel({ source: "noaa", stored: "Canyon axes & heads" }),
+      /axes/i,
+    );
+  });
+
+  it("keeps fixture axes and names live heads only", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fixtureCanyons = fixture.manifest.layers.find((l) => l.id === "canyons")!;
+    assert.equal(fixtureCanyons.label, "Canyon axes & heads");
+
+    const overlay = encodeLayerBody({
+      kind: "geojson",
+      layer: "canyons",
+      payload: {
+        type: "FeatureCollection",
+        source: "noaa",
+        live: true,
+        fixture: false,
+        note: "MarineCadastre undersea feature place names (GeoJSON) — 14 named head(s) in box. Heads only — no invented axes. Not official ENC.",
+        features: [
+          {
+            type: "Feature",
+            properties: { name: "Veatch", kind: "head" },
+            geometry: { type: "Point", coordinates: [-69.6, 39.87] },
+          },
+        ],
+      },
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { canyons: overlay },
+    });
+    const canyons = live.manifest.layers.find((l) => l.id === "canyons")!;
+    assert.equal(canyons.source, "noaa");
+    assert.equal(canyons.label, "Canyon heads");
+    assert.doesNotMatch(canyons.label, /axes/i);
+  });
+
+  it("rewriteLandedManifest replaces leftover axes from a heads-only body", () => {
+    const overlay = encodeLayerBody({
+      kind: "geojson",
+      layer: "canyons",
+      payload: {
+        type: "FeatureCollection",
+        source: "noaa",
+        live: true,
+        fixture: false,
+        note: "MarineCadastre undersea feature place names (GeoJSON) — 14 named head(s) in box. Heads only — no invented axes.",
+        features: [],
+      },
+    });
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "canyons", label: "Canyon axes & heads", source: "noaa" }],
+      },
+      { canyons: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "canyons")?.label, "Canyon heads");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "canyons")?.label ?? "", /axes/i);
+  });
+
+  it("rewriteLandedManifest remaps leftover axes without a canyons overlay", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "canyons", label: "Canyon axes & heads", source: "noaa" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "canyons")?.label, "Canyon heads");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "canyons")?.label ?? "", /axes/i);
+  });
+
+  it("rewriteLandedManifest keeps fixture axes honest", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "canyons", label: "Canyon axes & heads", source: "fixture" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "canyons")?.label, "Canyon axes & heads");
   });
 });
 

@@ -301,6 +301,19 @@ export function leftoverWw3WaveLabel(label?: string | null): boolean {
   return /WW3/i.test(label);
 }
 
+/** Leftover fixture/catalog copy. Live bathy is an NCEI ETOPO JSON grid, not a COG. */
+export function leftoverBathyCogLabel(label?: string | null): boolean {
+  if (!label) return false;
+  return /\bCOG\b/i.test(label);
+}
+
+/** Leftover fixture/catalog copy on a live row. Live canyons are named heads only — no axes. Fixture still has synthetic axes. */
+export function leftoverCanyonAxesLabel(label?: string | null, source?: string): boolean {
+  if (!label) return false;
+  if (source === "fixture") return false;
+  return /axes/i.test(label);
+}
+
 /** Pack row from the landed Aqua MODIS / VIIRS body. Leftover L4 catalog copy does not win. */
 export function chlLabelFromLanded(input: {
   note?: string | null;
@@ -332,6 +345,36 @@ export function windLabelFromLanded(input: {
   }
   if (input.stored && !leftoverNdfdWindLabel(input.stored)) return input.stored;
   return "GFS-Wave wind";
+}
+
+/** Pack row from the landed ETOPO grid. Leftover COG catalog copy does not win. */
+export function bathyLabelFromLanded(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  if (input.source === "fixture") return "ETOPO bathymetry (fixture)";
+  const note = input.note ?? "";
+  if (/ETOPO/i.test(note) || leftoverBathyCogLabel(input.stored)) {
+    return "ETOPO bathymetry";
+  }
+  if (input.stored && !leftoverBathyCogLabel(input.stored)) return input.stored;
+  return "ETOPO bathymetry";
+}
+
+/** Pack row from the landed MarineCadastre heads. Leftover axes catalog copy does not win. */
+export function canyonLabelFromLanded(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  if (input.source === "fixture") return "Canyon axes & heads";
+  const note = input.note ?? "";
+  if (/heads only|named head/i.test(note) || leftoverCanyonAxesLabel(input.stored)) {
+    return "Canyon heads";
+  }
+  if (input.stored && !leftoverCanyonAxesLabel(input.stored)) return input.stored;
+  return "Canyon heads";
 }
 
 /** Pack row from the landed GFS-Wave body. Leftover WW3 GRIB catalog copy does not win. */
@@ -375,9 +418,11 @@ function overlayIsOfficialEnc(overlay?: string): boolean {
  * Persist-time rewrite. layer.label / sources[] follow the landed body so
  * R2 cannot keep a MUR label on an ACSPO object, an NDFD label on a
  * GFS-Wave wind object, an L4 label on an Aqua MODIS chlorophyll
- * object, or a WW3 GRIB label on a GFS-Wave waves object. ENC sources
- * include cell/update counts when official. Does not invent products.
- * NDFD, CMEMS L4, and WW3 GRIB files are not fetched.
+ * object, a WW3 GRIB label on a GFS-Wave waves object, a COG label on
+ * an ETOPO bathymetry grid, or an axes label on heads-only canyons.
+ * ENC sources include cell/update counts when official. Does not invent
+ * products. NDFD, CMEMS L4, WW3 GRIB, and COG bathymetry files are not
+ * fetched. Live canyons are named heads only — no invented axes.
  */
 export function rewriteLandedManifest<
   T extends {
@@ -432,6 +477,26 @@ export function rewriteLandedManifest<
         ...layer,
         label: waveLabelFromLanded({
           note: overlayNote(overlays.waves),
+          source: layer.source,
+          stored: layer.label,
+        }),
+      };
+    }
+    if (layer.id === "bathymetry" && leftoverBathyCogLabel(layer.label)) {
+      return {
+        ...layer,
+        label: bathyLabelFromLanded({
+          note: overlayNote(overlays.bathymetry),
+          source: layer.source,
+          stored: layer.label,
+        }),
+      };
+    }
+    if (layer.id === "canyons" && leftoverCanyonAxesLabel(layer.label, layer.source)) {
+      return {
+        ...layer,
+        label: canyonLabelFromLanded({
+          note: overlayNote(overlays.canyons),
           source: layer.source,
           stored: layer.label,
         }),

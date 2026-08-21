@@ -69,7 +69,7 @@ export interface PackLayerSpec {
 
 export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "enc", label: "NOAA ENC (catalog aid)", hours: 0, format: "enc-clip", contentType: "application/json", ext: "json", required: true },
-  { id: "bathymetry", label: "Bathymetry (COG)", hours: 0, format: "grid", contentType: "application/json", ext: "json", required: true },
+  { id: "bathymetry", label: "ETOPO bathymetry", hours: 0, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "contours", label: "Depth contours", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "canyons", label: "Canyon axes & heads", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "sst", label: "SST composite (public ERDDAP)", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: true },
