@@ -29,13 +29,12 @@ import {
   encSoundingsForChart,
   hmsForChart,
   aisForChart,
+  communityForChart,
 } from "@/lib/ahanu/packed-chart";
 import { applyEncLayerPaint, encLayerPaint } from "@/lib/ahanu/enc-paint";
 import { ensureMaplibreWorker } from "@/lib/ahanu/maplibre-worker";
 import { applyHmsLayerPaint, hmsLayerPaint } from "@/lib/ahanu/hms-paint";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
-import { COMMUNITY_REPORTS } from "@/lib/data/community";
-
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
@@ -630,14 +629,7 @@ export function ChartMap() {
 
         map.addSource("community", {
           type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: COMMUNITY_REPORTS.map((r) => ({
-              type: "Feature" as const,
-              properties: { who: r.who, note: r.note },
-              geometry: { type: "Point" as const, coordinates: [r.lon, r.lat] },
-            })),
-          },
+          data: communityForChart(),
         });
         map.addLayer({
           id: "community",

@@ -51,6 +51,22 @@ export function aisForChart(_clockMs?: number, _hour?: number): GeoJSON.FeatureC
   return livePackedAis() ?? emptyFc();
 }
 
+/**
+ * Leftover invented community freeze is not a pack layer and not live radio.
+ * Helm paints nothing — same fail-closed as the AIS demo fleet.
+ */
+export function communityForChart(): GeoJSON.FeatureCollection {
+  return emptyFc();
+}
+
+/** Skipper list: empty until a real packed community exists. Never leftover demo rows. */
+export function communityHelmReports(): readonly [] {
+  return [];
+}
+
+export const COMMUNITY_HELM_LINE =
+  "No packed community — leftover demo reports are not live radio.";
+
 function seedCanyons(): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",

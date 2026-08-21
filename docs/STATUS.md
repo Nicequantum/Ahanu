@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (leftover community freeze, 2026-08-21)
+
+Helm Log said **Frozen reports packed with the trip** and the plotter painted leftover invented community dots (Mike / Relentless, etc.). Community is not a pack layer. GET /api/community is 404. Those rows are leftover demo — not packed, not live radio. Same class as leftover AIS demo fleet. Helm now paints an empty overlay and lists no leftover reports. Demo file stays marked DEMO for tests only. Does not invent community. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (onboarding ENC copy, 2026-08-21)
 
 Helm first-run still said **Charts are an aid, not ENC** after official S-57 (20 cells) landed. Honest line is aid / not ECDIS, not no ENC. Relabeled: official S-57 extract is an aid, not ECDIS, not a paper-chart substitute. Does not claim full ENC coverage or leftover cells US4RI1EB etc. Brief key bumped to ahanu-briefed-v2 so skippers who already dismissed see it. DATA_PACKS inventory no longer lists SST as MUR L4 + COG — live is ACSPO L3S-LEO NRT JSON grid and ETOPO JSON, not a COG. STATUS is inventory, not helm. No AIS ingest edit. No Flutter. PR #1 not merged.

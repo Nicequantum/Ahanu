@@ -9,7 +9,7 @@ import { formatLat, formatLon, metersToFathoms } from "@/lib/ahanu/geo";
 import { sstC } from "@/lib/ahanu/ocean";
 import { markFishHere, useAhanu } from "@/lib/ahanu/store";
 import type { SpeciesId } from "@/lib/ahanu/types";
-import { COMMUNITY_REPORTS } from "@/lib/data/community";
+import { COMMUNITY_HELM_LINE } from "@/lib/ahanu/packed-chart";
 import { SPECIES_LABELS, speciesColor } from "@/lib/data/species";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -248,24 +248,7 @@ export function LogPanel() {
 
       <Separator className="my-4" />
       <h3 className="mb-2 text-sm font-medium">Community snapshot</h3>
-      <p className="mb-2 text-[11px] text-muted">Frozen reports packed with the trip. Not live radio.</p>
-      <div className="space-y-2">
-        {COMMUNITY_REPORTS.slice(0, 5).map((r) => (
-          <article key={r.id} className="rounded-lg bg-elevated px-3 py-2">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium" style={{ color: speciesColor(r.species) }}>
-                {SPECIES_LABELS[r.species]}
-              </span>
-              <span className="text-[11px] text-muted tabular">{r.at.slice(5, 16)}</span>
-            </div>
-            <p className="text-[11px] text-muted">
-              <span className="text-lagoon">{r.who}</span>
-              {r.size ? ` · ${r.size}` : ""}
-            </p>
-            <p className="mt-1 text-xs text-foam/90">{r.note}</p>
-          </article>
-        ))}
-      </div>
+      <p className="mb-2 text-[11px] text-muted">{COMMUNITY_HELM_LINE}</p>
     </Pane>
   );
 }
