@@ -673,3 +673,61 @@ describe("ENC official S-57 helm", () => {
     assert.ok(hazards.features.some((f) => (f.properties as { kind?: string })?.kind === "enc-s57-wreck"));
   });
 });
+
+const { ENC_PAINT_LAYERS, applyEncLayerPaint, encLayerPaint } = await import("../src/lib/ahanu/enc-paint.ts");
+const { DEFAULT_LAYERS } = await import("../src/lib/ahanu/constants.ts");
+
+describe("encLayerPaint — skipper toggle", () => {
+  it("toggle on → every ENC paint opacity > 0 at the slider", () => {
+    const paint = encLayerPaint(true, 0.95);
+    for (const id of ENC_PAINT_LAYERS) {
+      assert.ok(paint[id].opacity > 0, `${id} should paint when ENC is on`);
+    }
+    assert.equal(paint.enc.opacity, 0.95);
+    assert.ok(paint["enc-outline"].opacity > 0);
+    assert.ok(paint["enc-aids"].opacity > 0);
+    assert.ok(paint["enc-soundings"].opacity > 0);
+    assert.ok(paint["enc-coast"].opacity > 0);
+    assert.ok(paint["enc-depth-areas"].opacity > 0);
+    assert.ok(paint["enc-hazards"].opacity > 0);
+  });
+
+  it("toggle off → every ENC paint opacity 0 even at a high slider", () => {
+    const paint = encLayerPaint(false, 0.95);
+    for (const id of ENC_PAINT_LAYERS) {
+      assert.equal(paint[id].opacity, 0, `${id} must stay 0 when ENC is off`);
+    }
+  });
+
+  it("default helm ENC (on, 0.32) paints; does not stay at the old addLayer 0", () => {
+    const d = DEFAULT_LAYERS.enc;
+    assert.equal(d.visible, true);
+    const paint = encLayerPaint(d.visible, d.opacity);
+    assert.equal(paint.enc.opacity, 0.32);
+    for (const id of ENC_PAINT_LAYERS) {
+      assert.ok(paint[id].opacity > 0, `${id} default on must not be 0`);
+    }
+  });
+
+  it("applyEncLayerPaint writes on/off onto existing layers only", () => {
+    const set: Record<string, Record<string, number>> = {};
+    const layers = new Set(["enc", "enc-outline", "enc-aids", "enc-soundings"]);
+    const map = {
+      getLayer: (id: string) => (layers.has(id) ? {} : undefined),
+      setPaintProperty: (id: string, prop: string, value: number) => {
+        set[id] = { ...(set[id] ?? {}), [prop]: value };
+      },
+    };
+    applyEncLayerPaint(map, true, 0.95);
+    assert.equal(set.enc?.["fill-opacity"], 0.95);
+    assert.ok((set["enc-outline"]?.["line-opacity"] ?? 0) > 0);
+    assert.ok((set["enc-aids"]?.["circle-opacity"] ?? 0) > 0);
+    assert.ok((set["enc-soundings"]?.["circle-opacity"] ?? 0) > 0);
+    assert.equal(set["enc-coast"], undefined, "missing layer is not invented");
+    applyEncLayerPaint(map, false, 0.95);
+    assert.equal(set.enc?.["fill-opacity"], 0);
+    assert.equal(set["enc-outline"]?.["line-opacity"], 0);
+    assert.equal(set["enc-aids"]?.["circle-opacity"], 0);
+    assert.equal(set["enc-soundings"]?.["circle-opacity"], 0);
+  });
+});
