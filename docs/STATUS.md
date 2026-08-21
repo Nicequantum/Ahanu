@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (dock-to-canyon ENC picker, 2026-08-21)
+
+ENCProdCat 2026-08-21: 237 usage 3–5 cells in the Point Judith box (~20.7 MB). The 8-cell clip already had PJ harbor + pond (**US5PVDBB** / **US5PVDCB**), Montauk, Newport, and the four coastal cells that cover Veatch / Atlantis / Hydrographer. No usage-4/5 cell covers those canyon heads. Missing were Block Island harbor-scale cells and Narragansett approach cells. Picker now ranks official inlets (Great Salt Pond **US5RI1CD**, Old Harbor **US5RI1BD**, Block Island SE **US5RI1BE**, West Pass **US5PVDCC**, East Passage **US5PVDCD**) then usage-4 approaches (**US4CN22M**, **US4NY1CY**, **US4RI1EA**). Cap 16 cells / 400 KB each / 3.2 MB catalog (~2.19 MB zip for this set). Did not pull all 237. Did not invent cells. Not an ECDIS. Official zips only from NOAA. UWTROC paint, updates, GFS, R2, rate limits unchanged. Helm cell list is pack `s57.cellIds` — PWA not redeployed. No Worker scoring. No Flutter.
+
 ## This pass (leftover S-57 skipper classes, 2026-08-21)
 
 Re-counted leftover classes on real NOAA bytes: harbor **US5PVDCB** `.000` + applied `.001`, neighbor **US5PVDBB** base `.000` only (no `.00n` in that zip). Leftover names were wrong for three present classes: the 28 “TS_PRH” are **UWTROC** (objl 153, covers-and-uncovers rocks); the 12 “SBDARE” are **SEAARE** named coves; the 5 “ROADWY” are **RIVERS**. Real **SBDARE** is objl 121 (19 harbor / 50 approach). **TS_PRH** and **ROADWY** are absent. Extract now paints reconstructable skipper geometry only: **UWTROC** as obstructions (28 / 162), **SBDARE** points+areas (19 / 50), **LAKARE** lake polygons (16 / 18), **SLOTOP** cliff lines CATSLO 6 (14 / 12), **LNDRGN** area land/marsh only (56 of 57 / 64 of 65 — the one point is a place name, no fake polygon). Still skipped: **BUISGL** buildings (47 / 246), **SEAARE** named water (would cover depth), **RIVERS**, **ROADWY** (absent), **TS_PRH** (absent; no harmonic series the helm can show). LIGHTS/WRECKS still absent in harbor, already painted on US5PVDBB. Did not invent S-57. Not an ECDIS. MapLibre worker, ENC update apply, security headers unchanged. No Worker scoring. No Flutter.
@@ -236,7 +240,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.
-- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC ~3.4 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
+- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
 
 ## What works now (finish-pack-loop)
 

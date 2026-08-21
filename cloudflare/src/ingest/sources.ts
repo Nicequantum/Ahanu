@@ -59,10 +59,10 @@ function meta(
  * production as NOAA issues the same Northeast cells under the IHO S-100
  * framework. The pack is a clip, not the US catalog.
  *
- * Harbor / Approach (usage 5 / 4) around Point Judith, Newport, and Montauk,
- * plus Coastal (usage 3) out to the 100-fathom curve covering Hudson, Veatch,
- * Atlantis, and Hydrographer. Official ENC remains the legal chart; Ahanu is
- * an aid to navigation.
+ * Harbor / Approach (usage 5 / 4) around Point Judith, Newport, Montauk,
+ * Block Island, and Narragansett approaches, plus Coastal (usage 3) out to
+ * the 100-fathom curve covering Hudson, Veatch, Atlantis, and Hydrographer.
+ * Official ENC remains the legal chart; Ahanu is an aid to navigation.
  *
  *   Product catalog:  https://charts.noaa.gov/ENCs/ENCProdCat.xml
  *   Cell zips (S-57): https://charts.noaa.gov/ENCs/{CELL}.zip   e.g. US5RI10M.zip
@@ -74,11 +74,12 @@ function meta(
  *   Raster tiles (aid only, not a substitute for ENC):
  *                     https://tileservice.charts.noaa.gov/tiles/encdirect/{z}/{x}/{y}.png
  *
- * Adapter honesty: live Worker fetches a dock-to-offshore S-57 subset
- * (harbor at PJ/Montauk/Newport + coastal + approach) when those zips are
- * public and the .000 is ISO 8211. .00n update files in the zip are packed
- * with the cell; helm extract applies them. Full-box 237 cells / ~21 MB is
- * too many subrequests for one pack GET. S-101 dual-issue later, same layer id.
+ * Adapter honesty: live Worker fetches a dock-to-canyon S-57 subset
+ * (harbor at PJ/Montauk/Newport + Block Island / Narragansett inlets +
+ * coastal + approach) when those zips are public and the .000 is ISO 8211.
+ * .00n update files in the zip are packed with the cell; helm extract
+ * applies them. Full-box 237 cells / ~21 MB is too many subrequests for one
+ * pack GET. S-101 dual-issue later, same layer id.
  */
 export function noaaEnc(): IngestMeta {
   return meta({
@@ -108,7 +109,7 @@ export function noaaEnc(): IngestMeta {
       },
     ],
     notes:
-      "Live packs a dock-to-offshore S-57 subset (≤8 cells, ≤1.8 MB catalog size) when NOAA zips fetch and parse ISO 8211. .00n updates in those zips stay packed; extract applies them. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
+      "Live packs a dock-to-canyon S-57 subset (≤16 cells, ≤3.2 MB catalog size) when NOAA zips fetch and parse ISO 8211. .00n updates in those zips stay packed; extract applies them. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
   });
 }
 

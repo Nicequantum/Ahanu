@@ -1993,13 +1993,94 @@ describe("official S-57 pack", () => {
   });
 
   it("pickOfficialEncCells takes harbor then coastal then approach and does not invent", async () => {
-    const { pickOfficialEncCells, parseEncProductCatalog } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const { pickOfficialEncCells, parseEncProductCatalog, ENC_S57_MAX_CELLS } = await import("../src/lib/ahanu/noaa-enc.ts");
     const cells = parseEncProductCatalog(ENC_SAMPLE, POINT_JUDITH_CANYON_BBOX);
     const picks = pickOfficialEncCells(cells);
     assert.ok(picks.some((c) => c.id === "US5PVDBB"), "Point Judith harbor");
     assert.ok(picks.some((c) => c.id === "US3NY01M"), "coastal");
     assert.ok(!picks.some((c) => c.id === "US5CA99M"));
-    assert.ok(picks.length <= 8);
+    assert.ok(picks.length <= ENC_S57_MAX_CELLS);
+  });
+
+  it("pickOfficialEncCells adds Block Island and Narragansett approach cells without inventing", async () => {
+    const { pickOfficialEncCells, ENC_S57_MAX_CELLS } = await import("../src/lib/ahanu/noaa-enc.ts");
+    const cell = (
+      id: string,
+      usage: number,
+      name: string,
+      scale: number,
+      zipBytes: number,
+      west: number,
+      south: number,
+      east: number,
+      north: number,
+    ) => ({ id, usage, name, scale, zipBytes, west, south, east, north, status: "Active" });
+    // Official ENCProdCat 2026-08-21 bounds / zipfile_size. Not invented.
+    const cells = [
+      cell("US5PVDBB", 5, "Block Island Sound - From Matunuck Point to Point Judith", 12000, 291358, -71.55, 41.325, -71.475, 41.4),
+      cell("US5PVDCB", 5, "Point Judith Harbor", 12000, 114301, -71.55, 41.4, -71.475, 41.475),
+      cell("US5NY2GL", 5, "Long Island - Montauk Harbor Entrance", 12000, 106892, -72.0, 41.025, -71.925, 41.1),
+      cell("US5PVDDD", 5, "Narragansett Bay - East Pass and Conanicut Island", 22000, 186263, -71.4, 41.475, -71.325, 41.55),
+      cell("US5RI1CD", 5, "Block Island Sound - North Block Island", 12000, 132657, -71.625, 41.175, -71.55, 41.25),
+      cell("US5RI1BD", 5, "Block Island", 12000, 91709, -71.625, 41.1, -71.55, 41.175),
+      cell("US5RI1BE", 5, "Block Island Sound", 12000, 52114, -71.55, 41.1, -71.475, 41.175),
+      cell("US5PVDCC", 5, "Rhode Island Sound to West Pass", 22000, 114530, -71.475, 41.4, -71.4, 41.475),
+      cell("US5PVDCD", 5, "Rhode Island Sound to East Passage", 22000, 146388, -71.4, 41.4, -71.325, 41.475),
+      cell("US5MA1CL", 5, "Martha's Vineyard - Edgartown Great Pond and Edgartown Harbor", 12000, 99208, -70.52, 41.36, -70.48, 41.4),
+      cell("US3NY01M", 3, "Approaches to New York, Nantucket Shoals to Five Fathom Bank", 350000, 179183, -74.7, 38.7667, -69.2667, 41.5833),
+      cell("US3RI1AA", 3, "Rhode Island", 350000, 227577, -72.0, 40.8, -70.8, 42.0),
+      cell("US3MA1AD", 3, "Massachusetts", 180000, 80045, -69.6, 39.6, -68.4, 40.8),
+      cell("US3MA1AC", 3, "Massachusetts", 350000, 60971, -70.8, 39.6, -69.6, 40.8),
+      cell("US4CN22M", 4, "Block Island Sound and Approaches", 80000, 36143, -72.0, 40.6668, -71.4662, 40.8),
+      cell("US4NY1CY", 4, "New York", 45000, 237503, -71.7, 41.1, -71.4, 41.4),
+      cell("US4RI1EA", 4, "Rhode Island", 45000, 131608, -71.7, 41.4, -71.4, 41.7),
+      cell("US4MA1BD", 4, "Southern Massachusetts", 45000, 14684, -70.8, 40.5, -70.5, 40.8),
+    ];
+    const picks = pickOfficialEncCells(cells);
+    const ids = picks.map((c) => c.id);
+    for (const id of [
+      "US5PVDBB",
+      "US5PVDCB",
+      "US5NY2GL",
+      "US5PVDDD",
+      "US5RI1CD",
+      "US5RI1BD",
+      "US5RI1BE",
+      "US5PVDCC",
+      "US5PVDCD",
+      "US3NY01M",
+      "US3RI1AA",
+      "US3MA1AD",
+      "US3MA1AC",
+      "US4CN22M",
+      "US4NY1CY",
+      "US4RI1EA",
+    ]) {
+      assert.ok(ids.includes(id), `expected ${id} in ${ids.join(",")}`);
+    }
+    assert.ok(!ids.includes("US5MA1CL"), "Edgartown Pond is not the dock-to-canyon set");
+    assert.ok(!ids.includes("US4MA1BD"), "south-of-MA approach is not the dock-to-canyon set");
+    assert.ok(!ids.includes("US5FAKE1"), "must not invent cells");
+    assert.ok(picks.length <= ENC_S57_MAX_CELLS);
+    assert.ok(picks.length <= 16);
+    const zipSum = picks.reduce((s, c) => s + (c.zipBytes ?? 0), 0);
+    assert.ok(zipSum < 3_200_000, `catalog zip sum ${zipSum}`);
+    const pond = { lat: 41.395, lon: -71.518 };
+    assert.ok(
+      picks.some(
+        (c) =>
+          c.usage >= 5 &&
+          c.west != null &&
+          c.south != null &&
+          c.east != null &&
+          c.north != null &&
+          pond.lat >= c.south &&
+          pond.lat <= c.north &&
+          pond.lon >= c.west &&
+          pond.lon <= c.east,
+      ),
+      "Point Judith Pond still covered by packed harbor cells",
+    );
   });
 
   it("live NOAA packs official S-57 when the zip is ISO 8211", async () => {

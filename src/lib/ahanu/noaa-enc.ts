@@ -24,10 +24,10 @@ export const ENC_S57_NOTE =
 /** Packed zip has no .001/.002 cell updates. Not a currency claim. */
 export const ENC_S57_BASE_ONLY_NOTE = "base .000 only — no update files in this exchange set";
 
-/** Dock-to-offshore clip: harbor at PJ/Montauk/Newport + coastal + approach. */
-export const ENC_S57_MAX_CELLS = 8;
+/** Dock-to-canyon clip: harbor + inlet/island + coastal + approach. */
+export const ENC_S57_MAX_CELLS = 16;
 export const ENC_S57_MAX_CELL_BYTES = 400_000;
-export const ENC_S57_MAX_TOTAL_BYTES = 1_800_000;
+export const ENC_S57_MAX_TOTAL_BYTES = 3_200_000;
 export const ENC_S57_FETCH_MAX_BYTES = 600_000;
 
 const HARBOR_POINTS = [
@@ -36,11 +36,35 @@ const HARBOR_POINTS = [
   { name: "Newport", lat: 41.49, lon: -71.327 },
 ] as const;
 
+/**
+ * Harbor-scale inlets the departure-harbor clip misses.
+ * Coordinates sit inside official NOAA usage-5 cells (ENCProdCat 2026-08-21).
+ * Point Judith Pond is already US5PVDBB + US5PVDCB. Do not invent cells.
+ */
+const INLET_POINTS = [
+  { name: "Block Island Great Salt Pond", lat: 41.196, lon: -71.591 },
+  { name: "Block Island Old Harbor", lat: 41.173, lon: -71.557 },
+  { name: "Block Island southeast", lat: 41.15, lon: -71.53 },
+  { name: "Narragansett West Pass", lat: 41.43, lon: -71.44 },
+  { name: "Narragansett East Passage", lat: 41.43, lon: -71.36 },
+] as const;
+
 /** Named heads already inside POINT_JUDITH_CANYON_BBOX. Used only to rank coastal cells. */
 const CANYON_HEAD_POINTS = [
   { name: "Veatch", lat: 39.9, lon: -69.62 },
   { name: "Atlantis", lat: 39.85, lon: -70.22 },
   { name: "Hydrographer", lat: 40.15, lon: -69.0 },
+] as const;
+
+/**
+ * Usage-4 approach points: steam PJ–Block Island, Narragansett approaches,
+ * and Block Island Sound approaches toward the canyon heads.
+ * ENCProdCat 2026-08-21 has no usage-4 cell on Veatch / Atlantis / Hydrographer.
+ */
+const APPROACH_POINTS = [
+  { name: "Block Island Sound approaches", lat: 40.73, lon: -71.55 },
+  { name: "Point Judith to Block Island", lat: 41.25, lon: -71.55 },
+  { name: "Narragansett approaches", lat: 41.45, lon: -71.55 },
 ] as const;
 
 export interface EncCatalogCell {
@@ -238,8 +262,10 @@ function coversPoint(cell: EncCatalogCell, lat: number, lon: number, pad = 0): b
 /**
  * Harbor cells covering PJ / Montauk / Newport, a nearby Harbor-named
  * usage-5 neighbor (inner basin can sit just outside the inlet point),
+ * then harbor-scale inlets (Block Island, Narragansett approaches),
  * then usage-3 coastal that cover those harbors or canyon heads,
- * then usage-4 approach. Caps keep the Worker/R2 body small. Does not invent cells.
+ * then usage-4 approach (steam / sound, then harbor, then inlet).
+ * Caps keep the Worker/R2 body small. Does not invent cells.
  */
 export function pickOfficialEncCells(
   cells: EncCatalogCell[],
@@ -266,6 +292,10 @@ export function pickOfficialEncCells(
       .sort(byDetail);
     addOfficialCell(out, used, neighbor[0], maxCells, maxTotal, maxEach);
   }
+  for (const h of INLET_POINTS) {
+    const hits = cells.filter((c) => c.usage >= 5 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
+    addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
+  }
   const coastal = cells.filter((c) => c.usage === 3);
   const coastalHarbor = coastal
     .filter((c) => HARBOR_POINTS.some((h) => coversPoint(c, h.lat, h.lon)))
@@ -276,7 +306,7 @@ export function pickOfficialEncCells(
   for (const c of [...coastalHarbor, ...coastalCanyon, ...coastal.sort(byDetail)]) {
     addOfficialCell(out, used, c, maxCells, maxTotal, maxEach);
   }
-  for (const h of HARBOR_POINTS) {
+  for (const h of [...APPROACH_POINTS, ...HARBOR_POINTS, ...INLET_POINTS]) {
     const hits = cells.filter((c) => c.usage === 4 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
     addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
   }
