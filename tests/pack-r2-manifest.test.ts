@@ -232,6 +232,42 @@ describe("GET /api/packs R2 manifest", () => {
     assert.equal(await sha256Hex(obj.body), buoys.hash);
   });
 
+  it("GET /api/packs with no bbox serves the helm PJ pack, not the leftover Northeast REGION_* box", async () => {
+    const { env } = mockEnv();
+    env.REGION_WEST = "-75.4";
+    env.REGION_SOUTH = "36.4";
+    env.REGION_EAST = "-66.4";
+    env.REGION_NORTH = "42.6";
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      tryLive: true,
+      skipCache: true,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    await persistBuiltPack(env, built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    env.fetchImpl = async () => {
+      throw new Error("bare GET must hit the cron PJ pack, not rebuild Northeast");
+    };
+
+    const res = await worker.fetch(
+      new Request(`http://ahanu.test/api/packs?hours=72&start=${START}`),
+      env,
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("X-Ahanu-Source"), "r2");
+    const man = (await res.json()) as {
+      packId: string;
+      bbox: { west: number; south: number; east: number; north: number };
+    };
+    assert.deepEqual(man.bbox, { west: -72.8, south: 39.4, east: -68.8, north: 41.5 });
+    assert.equal(man.packId, built.manifest.packId);
+  });
+
   it("worker GET /api/packs sources and notes name ACSPO when that grid landed", async () => {
     const { env } = mockEnv();
     const built = await buildTripPack({

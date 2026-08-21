@@ -14,11 +14,12 @@ enabled = true
 
 [vars]
 SERVICE = "ahanu-packs"
-# Default operating box: Northeast U.S. shelf + canyons (see src/lib/ahanu/constants.ts).
-REGION_WEST = "-75.4"
-REGION_SOUTH = "36.4"
-REGION_EAST = "-66.4"
-REGION_NORTH = "42.6"
+# Default operating box: Point Judith canyon overnight (see src/lib/ahanu/constants.ts).
+# Helm always sends this box. Cron ingestFixturePack uses the same default.
+REGION_WEST = "-72.8"
+REGION_SOUTH = "39.4"
+REGION_EAST = "-68.8"
+REGION_NORTH = "41.5"
 # GFS-Wave 72 h / 3 h series on for GET /api/packs and cron.
 # Pace 0, 25 s budget. Set to "0" to force hour-0 only.
 GFS_WAVE_SERIES = "1"

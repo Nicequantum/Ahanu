@@ -16,7 +16,6 @@
 import { listIngestSources } from "./ingest/sources";
 import {
   clampBbox,
-  NORTHEAST,
   specForLayer,
   type BBox,
 } from "./ingest/pack";
@@ -272,16 +271,6 @@ function tooManyLiveRebuilds(retryAfter: number): Response {
   );
 }
 
-function envBbox(env: Env): BBox {
-  const west = Number(env.REGION_WEST);
-  const south = Number(env.REGION_SOUTH);
-  const east = Number(env.REGION_EAST);
-  const north = Number(env.REGION_NORTH);
-  if ([west, south, east, north].every((n) => Number.isFinite(n))) {
-    return clampBbox({ west, south, east, north });
-  }
-  return NORTHEAST;
-}
 
 function parseBboxCsv(raw: string | null, fallback: BBox): BBox | Response {
   if (!raw || raw.trim() === "") return fallback;
@@ -304,7 +293,7 @@ function parseCoord(raw: string | null): number | undefined {
 
 /**
  * Accepts `west`/`south`/`east`/`north` (preferred) or legacy `bbox=w,s,e,n`.
- * Empty individual params fall through to `bbox`, then to the Northeast default.
+ * Empty individual params fall through to `bbox`, then to the Point Judith default.
  */
 function parseBboxFromUrl(url: URL, fallback: BBox): BBox | Response {
   const west = parseCoord(url.searchParams.get("west"));
@@ -670,7 +659,7 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
       }
 
       if (isRead(request.method) && path === "/api/packs") {
-        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
         if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");
@@ -734,7 +723,7 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
       }
 
       if (isRead(request.method) && (path === "/api/objects" || path.startsWith("/api/objects/"))) {
-        const bboxOrErr = parseBboxFromUrl(url, envBbox(env));
+        const bboxOrErr = parseBboxFromUrl(url, ingestDefaultBbox(env));
         if (bboxOrErr instanceof Response) return maybeHead(request, bboxOrErr);
         const start = parseIso(url.searchParams.get("start"));
         const hoursRaw = url.searchParams.get("hours");

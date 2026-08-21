@@ -2,12 +2,11 @@ import "./register-alias.ts";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-const { ingestFixturePack, persistBuiltPack, persistLayerObject, latestLayerR2Key, R2_SINGLE_PUT_MAX_BYTES } =
+const { ingestFixturePack, persistBuiltPack, persistLayerObject, latestLayerR2Key, R2_SINGLE_PUT_MAX_BYTES, ingestDefaultBbox } =
   await import("../cloudflare/src/ingest/run.ts");
 const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const { resetLiveNoaaCache } = await import("../src/lib/ahanu/noaa-live.ts");
-const { resetBuiltPackCache } = await import("../src/lib/ahanu/pack.ts");
-const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
+const { resetBuiltPackCache, packIdFor, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
 
 afterEach(() => {
   resetLiveNoaaCache();
@@ -383,5 +382,50 @@ describe("ingest R2 persist", () => {
     assert.ok(viaLatest);
     assert.equal(viaLatest.body, body);
     assert.equal(viaLatest.source, "r2");
+  });
+});
+
+describe("cron / default bbox is helm Point Judith", () => {
+  it("ingestDefaultBbox is the helm PJ box even when REGION_* is Northeast", () => {
+    const ne = {
+      REGION_WEST: "-75.4",
+      REGION_SOUTH: "36.4",
+      REGION_EAST: "-66.4",
+      REGION_NORTH: "42.6",
+    };
+    assert.deepEqual(ingestDefaultBbox(ne), { west: -72.8, south: 39.4, east: -68.8, north: 41.5 });
+    assert.deepEqual(ingestDefaultBbox(ne), POINT_JUDITH_CANYON_BBOX);
+    assert.deepEqual(ingestDefaultBbox({}), POINT_JUDITH_CANYON_BBOX);
+  });
+
+  it("ingestFixturePack without bbox writes the helm PJ packId cron uses", async () => {
+    const store = new Map<string, string>();
+    const result = await ingestFixturePack(
+      {
+        PACKS: {
+          put: async (key, value) => {
+            store.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
+          },
+          get: async (key) => {
+            const text = store.get(key);
+            return text ? { text: async () => text } : null;
+          },
+        },
+        REGION_WEST: "-75.4",
+        REGION_SOUTH: "36.4",
+        REGION_EAST: "-66.4",
+        REGION_NORTH: "42.6",
+      },
+      {
+        start: START,
+        hours: 72,
+        fetchImpl: ndbcOnlyFetch,
+        skipCache: true,
+        timeoutMs: 50,
+      },
+    );
+    const wantId = await packIdFor(POINT_JUDITH_CANYON_BBOX, START, 72);
+    assert.equal(result.packId, wantId);
+    assert.ok(store.has(`packs/${wantId}/manifest.json`));
   });
 });
