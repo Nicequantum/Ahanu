@@ -109,7 +109,7 @@ export function noaaEnc(): IngestMeta {
       },
     ],
     notes:
-      "Live packs a dock-to-canyon S-57 subset (≤16 cells, ≤3.2 MB catalog size) when NOAA zips fetch and parse ISO 8211. .00n updates in those zips stay packed; extract applies them. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
+      "Live packs a dock-to-canyon S-57 subset (≤20 cells, ≤3.2 MB catalog size) when NOAA zips fetch and parse ISO 8211. .00n updates in those zips stay packed; extract applies them. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
   });
 }
 

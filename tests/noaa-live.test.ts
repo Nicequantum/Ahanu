@@ -2180,6 +2180,11 @@ describe("official S-57 pack", () => {
       cell("US4CN22M", 4, "Block Island Sound and Approaches", 80000, 36143, -72.0, 40.6668, -71.4662, 40.8),
       cell("US4NY1CY", 4, "New York", 45000, 237503, -71.7, 41.1, -71.4, 41.4),
       cell("US4RI1EA", 4, "Rhode Island", 45000, 131608, -71.7, 41.4, -71.4, 41.7),
+      cell("US5PVDAB", 5, "Block Island Sound", 22000, 23238, -71.55, 41.25, -71.475, 41.325),
+      cell("US5RI1CE", 5, "Block Island Sound", 12000, 28964, -71.55, 41.175, -71.475, 41.25),
+      cell("US5PVDAA", 5, "Block Island Sound", 22000, 23926, -71.625, 41.25, -71.55, 41.325),
+      cell("US4NY1BY", 4, "New York", 45000, 42513, -71.7, 40.8, -71.4, 41.1),
+      cell("US4RI1EB", 4, "Rhode Island", 45000, 358958, -71.4, 41.4, -71.1, 41.7),
       cell("US4MA1BD", 4, "Southern Massachusetts", 45000, 14684, -70.8, 40.5, -70.5, 40.8),
       cell("US3MA1BD", 3, "Massachusetts", 180000, 148781, -69.6, 40.8, -68.4, 42.0),
       cell("US3NY1AG", 3, "New York", 350000, 95346, -72.0, 39.6, -70.8, 40.8),
@@ -2204,17 +2209,23 @@ describe("official S-57 pack", () => {
       "US4CN22M",
       "US4NY1CY",
       "US4RI1EA",
+      "US5PVDAB",
+      "US5RI1CE",
+      "US5PVDAA",
+      "US4NY1BY",
     ]) {
       assert.ok(ids.includes(id), `expected ${id} in ${ids.join(",")}`);
     }
     assert.ok(!ids.includes("US5MA1CL"), "Edgartown Pond is not the dock-to-canyon set");
     assert.ok(!ids.includes("US4MA1BD"), "south-of-MA approach is not the dock-to-canyon set");
+    assert.ok(!ids.includes("US4RI1EB"), "Newport-east approach is not the dock-to-canyon steam");
     assert.ok(!ids.includes("US3MA1BD"), "leftover coastal must not crowd out approach cells");
     assert.ok(!ids.includes("US3NY1AG"), "leftover coastal must not crowd out approach cells");
     assert.ok(!ids.includes("US3CT1AA"), "leftover coastal must not crowd out approach cells");
     assert.ok(!ids.includes("US5FAKE1"), "must not invent cells");
     assert.ok(picks.length <= ENC_S57_MAX_CELLS);
-    assert.ok(picks.length <= 16);
+    assert.ok(picks.length <= 20);
+    assert.equal(picks.length, 20);
     const zipSum = picks.reduce((s, c) => s + (c.zipBytes ?? 0), 0);
     assert.ok(zipSum < 3_200_000, `catalog zip sum ${zipSum}`);
     const pond = { lat: 41.395, lon: -71.518 };
@@ -2235,7 +2246,7 @@ describe("official S-57 pack", () => {
     );
   });
 
-  it("packedEncNeedsRefresh is true for 8-cell official vs picker 16 and false when already 16", async () => {
+  it("packedEncNeedsRefresh is true for 16-cell official vs picker 20 and false when already 20", async () => {
     const { packedEncNeedsRefresh, ENC_S57_MAX_CELLS } = await import("../src/lib/ahanu/noaa-enc.ts");
     const old8 = [
       "US5PVDBB",
@@ -2258,12 +2269,13 @@ describe("official S-57 pack", () => {
       "US4NY1CY",
       "US4RI1EA",
     ];
+    const next20 = [...next16, "US5PVDAB", "US5RI1CE", "US5PVDAA", "US4NY1BY"];
     assert.equal(
-      packedEncNeedsRefresh({ official: true, s57: { cellIds: old8 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: next16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next20 }),
       true,
     );
     assert.equal(
-      packedEncNeedsRefresh({ official: true, s57: { cellIds: next16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: next20 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next20 }),
       false,
     );
     const leftover16 = [
@@ -2279,7 +2291,7 @@ describe("official S-57 pack", () => {
     ];
     assert.equal(leftover16.length, 16);
     assert.equal(
-      packedEncNeedsRefresh({ official: true, s57: { cellIds: leftover16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next16 }),
+      packedEncNeedsRefresh({ official: true, s57: { cellIds: leftover16 } }, { maxCells: ENC_S57_MAX_CELLS, pickerIds: next20 }),
       true,
       "16 leftover without a picker harbor/approach id must refresh",
     );

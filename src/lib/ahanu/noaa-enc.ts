@@ -24,8 +24,8 @@ export const ENC_S57_NOTE =
 /** Packed zip has no .001/.002 cell updates. Not a currency claim. */
 export const ENC_S57_BASE_ONLY_NOTE = "base .000 only — no update files in this exchange set";
 
-/** Dock-to-canyon clip: harbor + inlet/island + coastal + approach. */
-export const ENC_S57_MAX_CELLS = 16;
+/** Dock-to-canyon clip: harbor + inlet/steam + coastal + approach. */
+export const ENC_S57_MAX_CELLS = 20;
 export const ENC_S57_MAX_CELL_BYTES = 400_000;
 export const ENC_S57_MAX_TOTAL_BYTES = 3_200_000;
 export const ENC_S57_FETCH_MAX_BYTES = 600_000;
@@ -65,6 +65,19 @@ const APPROACH_POINTS = [
   { name: "Block Island Sound approaches", lat: 40.73, lon: -71.55 },
   { name: "Point Judith to Block Island", lat: 41.25, lon: -71.55 },
   { name: "Narragansett approaches", lat: 41.45, lon: -71.55 },
+] as const;
+
+/**
+ * Harbor-scale steam on the dock-to-canyon loop the inlet clip misses.
+ * Coordinates sit inside official NOAA cells (ENCProdCat 2026-08-21):
+ * US5PVDAB, US5RI1CE, US5PVDAA (usage 5) and US4NY1BY (usage 4).
+ * Do not invent cells. No usage-4/5 cell covers the canyon heads.
+ */
+const STEAM_POINTS = [
+  { name: "Point Judith steam south", lat: 41.29, lon: -71.51 },
+  { name: "Block Island Sound east", lat: 41.21, lon: -71.51 },
+  { name: "Great Salt Pond steam", lat: 41.29, lon: -71.59 },
+  { name: "South of Block Island", lat: 40.95, lon: -71.55 },
 ] as const;
 
 export interface EncCatalogCell {
@@ -263,9 +276,12 @@ function coversPoint(cell: EncCatalogCell, lat: number, lon: number, pad = 0): b
  * Harbor cells covering PJ / Montauk / Newport, a nearby Harbor-named
  * usage-5 neighbor (inner basin can sit just outside the inlet point),
  * then harbor-scale inlets (Block Island, Narragansett approaches),
+ * then the PJ–Block Island Sound steam (US5PVDAB / US5RI1CE / US5PVDAA),
  * then usage-3 coastal that cover those harbors or canyon heads,
- * then usage-4 approach (steam / sound, then harbor, then inlet).
+ * then usage-4 approach (sound, steam south of Block Island, harbor, inlet).
  * Caps keep the Worker/R2 body small. Does not invent cells.
+ * Leftover coastal (US3MA1BD / US3NY1AG / US3CT1AA) and Newport-east
+ * US4RI1EB must not crowd out the steam cells.
  */
 export function pickOfficialEncCells(
   cells: EncCatalogCell[],
@@ -296,6 +312,10 @@ export function pickOfficialEncCells(
     const hits = cells.filter((c) => c.usage >= 5 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
     addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
   }
+  for (const h of STEAM_POINTS) {
+    const hits = cells.filter((c) => c.usage >= 5 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
+    addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
+  }
   const coastal = cells.filter((c) => c.usage === 3);
   const coastalHarbor = coastal
     .filter((c) => HARBOR_POINTS.some((h) => coversPoint(c, h.lat, h.lon)))
@@ -308,7 +328,7 @@ export function pickOfficialEncCells(
   for (const c of [...coastalHarbor, ...coastalCanyon]) {
     addOfficialCell(out, used, c, maxCells, maxTotal, maxEach);
   }
-  for (const h of [...APPROACH_POINTS, ...HARBOR_POINTS, ...INLET_POINTS]) {
+  for (const h of [...APPROACH_POINTS, ...STEAM_POINTS, ...HARBOR_POINTS, ...INLET_POINTS]) {
     const hits = cells.filter((c) => c.usage === 4 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
     addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
   }
