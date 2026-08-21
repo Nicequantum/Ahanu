@@ -48,7 +48,7 @@ export function PacksPanel() {
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
   useAhanu((s) => s.packEpoch);
-  const { hashed: ok, total, stale } = hashedPackCount(packs);
+  const { hashed: ok, total, stale, misses } = hashedPackCount(packs);
   const noaaCount = packs.filter((p) => p.source === "noaa").length;
   const fixtureCount = packs.filter((p) => p.source === "fixture").length;
   const pct = total ? (ok / total) * 100 : 0;
@@ -206,6 +206,7 @@ export function PacksPanel() {
         <span>
           {ok}/{total || "—"} hashed
           {stale ? ` · ${stale} stale` : ""}
+          {misses.length ? ` · miss ${misses.join(", ")}` : ""}
           {total ? ` · ${noaaCount} NOAA / ${fixtureCount} fixture` : ""}
         </span>
         <span className="tabular">{pct.toFixed(0)}%</span>

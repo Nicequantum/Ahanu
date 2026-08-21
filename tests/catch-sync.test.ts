@@ -55,9 +55,13 @@ if (!globalThis.window.localStorage) {
 const { bindUnsyncedCatchRetry, hydrateAhanuStore, retryUnsyncedCatchesOnce, useAhanu } =
   await import("../src/lib/ahanu/store.ts");
 const { resetPackMemory, putObject, saveManifest } = await import("../src/lib/ahanu/pack-store.ts");
-const { buildFixturePack, POINT_JUDITH_CANYON_BBOX, readyOffshoreBadge } =
+const { buildFixturePack, hashedPackCount, POINT_JUDITH_CANYON_BBOX, readyOffshoreBadge } =
   await import("../src/lib/ahanu/pack.ts");
 const { clearPackedOcean } = await import("../src/lib/ahanu/packed-fields.ts");
+const {
+  SST_STALE_OVERRIDE_KEY,
+  writePersistedSstStaleOverride,
+} = await import("../src/lib/ahanu/sst-override.ts");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -461,5 +465,106 @@ describe("hydrateAhanuStore pack restore", () => {
     assert.equal(s.packLayers.length, 0);
     assert.equal(s.packReady, null);
     assert.equal(s.packManifest, null);
+  });
+});
+
+
+describe("hydrateAhanuStore SST override persist", () => {
+  async function seedAgedSstPack() {
+    resetPackMemory();
+    clearPackedOcean();
+    const now = new Date().toISOString();
+    const sstAt = new Date(Date.now() - 36 * 3_600_000).toISOString();
+    const { manifest, bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: now,
+      hours: 72,
+      createdAt: now,
+    });
+    const aged = {
+      ...manifest,
+      layers: manifest.layers.map((l) => (l.id === "sst" ? { ...l, updatedAt: sstAt } : l)),
+    };
+    for (const layer of aged.layers) {
+      const body = bodies[layer.id];
+      await putObject({
+        r2Key: layer.r2Key,
+        layerId: layer.id,
+        packId: aged.packId,
+        hash: layer.hash,
+        contentType: layer.contentType,
+        body,
+        storedAt: now,
+      });
+    }
+    await saveManifest(aged);
+    return aged;
+  }
+
+  afterEach(() => {
+    resetPackMemory();
+    clearPackedOcean();
+    globalThis.localStorage.removeItem(SST_STALE_OVERRIDE_KEY);
+    useAhanu.setState({
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      packError: null,
+      sstStaleOverride: false,
+      hydrated: false,
+    });
+  });
+
+  it("restores Accept stale SST and re-evaluates Ready from IDB", async () => {
+    await seedAgedSstPack();
+    writePersistedSstStaleOverride(true);
+    useAhanu.setState({
+      sstStaleOverride: false,
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      hydrated: false,
+    });
+    globalThis.localStorage.setItem(
+      "ahanu-bridge-v1",
+      JSON.stringify({ state: { sstStaleOverride: false, packLayers: [] }, version: 0 }),
+    );
+    await hydrateAhanuStore();
+    const s = useAhanu.getState();
+    assert.equal(s.sstStaleOverride, true);
+    assert.ok(s.packReady);
+    assert.equal(s.packReady.ready, true, s.packReady.failures.join("; "));
+    assert.equal(s.packReady.sstOverrideUsed, true);
+    assert.equal(readyOffshoreBadge(s.packReady).long, "Ready · stale SST");
+    const count = hashedPackCount(s.packLayers);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.total, 12);
+    assert.equal(count.stale, 1);
+    assert.deepEqual(count.misses, []);
+  });
+
+  it("does not auto-enable Accept if the skipper never flipped it", async () => {
+    await seedAgedSstPack();
+    useAhanu.setState({
+      sstStaleOverride: false,
+      packLayers: [],
+      packReady: null,
+      packManifest: null,
+      hydrated: false,
+    });
+    globalThis.localStorage.setItem(
+      "ahanu-bridge-v1",
+      JSON.stringify({ state: { packLayers: [] }, version: 0 }),
+    );
+    await hydrateAhanuStore();
+    const s = useAhanu.getState();
+    assert.equal(s.sstStaleOverride, false);
+    assert.ok(s.packReady);
+    assert.equal(s.packReady.ready, false);
+    assert.equal(s.packReady.sstOverrideUsed, false);
+    assert.equal(readyOffshoreBadge(s.packReady).long, "Not ready");
+    const count = hashedPackCount(s.packLayers);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.stale, 1);
   });
 });

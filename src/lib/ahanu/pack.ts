@@ -240,27 +240,38 @@ export function readyOffshoreBadge(result: ReadyOffshoreResult | null): {
   return { ready: false, caution: true, short: "Not ready", long: "Not ready" };
 }
 
+export type HashedLayer = {
+  id?: string;
+  verified?: boolean;
+  hashOk?: boolean;
+  status?: string;
+};
+
 /**
  * Hashed numerator is verify (SHA-256 ok), not Ready freshness.
- * Stale SST / hour-0 weather still count when hashOk. A real hash miss does not.
+ * Stale SST / hour-0 GFS cover < 72 h still count when hashOk. A real hash miss does not.
  */
-export function layerIsHashed(layer: { verified?: boolean; status?: string }): boolean {
-  if (layer.verified === true) return true;
-  if (layer.verified === false) return false;
+export function layerIsHashed(layer: HashedLayer): boolean {
+  if (layer.verified === true || layer.hashOk === true) return true;
+  if (layer.verified === false || layer.hashOk === false) return false;
   return layer.status === "ready" || layer.status === "stale";
 }
 
 export function hashedPackCount(
-  layers: readonly { verified?: boolean; status?: string }[],
-): { hashed: number; total: number; stale: number } {
+  layers: readonly HashedLayer[],
+): { hashed: number; total: number; stale: number; misses: string[] } {
   let hashed = 0;
   let stale = 0;
+  const misses: string[] = [];
   for (const layer of layers) {
-    if (!layerIsHashed(layer)) continue;
+    if (!layerIsHashed(layer)) {
+      if (layer.id) misses.push(layer.id);
+      continue;
+    }
     hashed += 1;
     if (layer.status === "stale") stale += 1;
   }
-  return { hashed, total: layers.length, stale };
+  return { hashed, total: layers.length, stale, misses };
 }
 
 /** Copy shown only when SST age is the sole Ready block (hash-ok, body present). */

@@ -560,4 +560,49 @@ describe("pack-store restore (IDB / memory source of truth)", () => {
     assert.equal(restored.ready.ready, false);
     assert.notEqual(readyOffshoreBadge(restored.ready).short, "No pack");
   });
+
+  it("re-evaluates Ready with persisted skipper override after restore", async () => {
+    resetPackMemory();
+    clearPackedOcean();
+    const { manifest, bodies } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const aged = {
+      ...manifest,
+      layers: manifest.layers.map((l) =>
+        l.id === "sst" ? { ...l, updatedAt: "2026-08-17T12:00:00.000Z" } : l,
+      ),
+    };
+    for (const layer of aged.layers) {
+      const body = bodies[layer.id];
+      await putObject({
+        r2Key: layer.r2Key,
+        layerId: layer.id,
+        packId: aged.packId,
+        hash: layer.hash,
+        contentType: layer.contentType,
+        body,
+        storedAt: START,
+      });
+    }
+    await saveManifest(aged);
+    const restored = await restorePackedSession({
+      now: "2026-08-20T12:00:00.000Z",
+      sstOverride: true,
+    });
+    assert.ok(restored);
+    assert.equal(restored.ready.ready, true, restored.ready.failures.join("; "));
+    assert.equal(restored.ready.sstOverrideUsed, true);
+    assert.equal(readyOffshoreBadge(restored.ready).long, "Ready · stale SST");
+    const sst = restored.layers.find((l) => l.id === "sst");
+    assert.equal(sst?.verified, true);
+    assert.equal(sst?.status, "stale");
+    const count = hashedPackCount(restored.layers);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.stale, 1);
+    assert.deepEqual(count.misses, []);
+  });
 });

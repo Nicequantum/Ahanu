@@ -832,5 +832,45 @@ describe("hashedPackCount", () => {
     assert.equal(count.hashed, 11);
     assert.equal(count.total, 12);
     assert.equal(count.stale, 0);
+    assert.deepEqual(count.misses, ["sst"]);
+  });
+
+  it("counts verified hour-0 GFS cover < 72 h as hashed and stale", async () => {
+    const { manifest } = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const evidence = manifest.layers.map((l) => ({
+      id: l.id,
+      present: true,
+      hashExpected: l.hash,
+      hashActual: l.hash,
+      updatedAt: l.id === "sst" ? "2026-08-19T06:00:00.000Z" : l.updatedAt,
+      hoursCovered: l.id === "wind" || l.id === "waves" ? 1 : l.hours || 72,
+      cycleAt: START,
+    }));
+    const ready = evaluateReadyForOffshore({
+      hours: 72,
+      start: START,
+      now: "2026-08-20T12:00:00.000Z",
+      layers: evidence,
+    });
+    const rows = tripPackLayersFromReady(manifest, ready);
+    const wind = rows.find((r) => r.id === "wind");
+    const waves = rows.find((r) => r.id === "waves");
+    const sst = rows.find((r) => r.id === "sst");
+    assert.equal(wind?.verified, true);
+    assert.equal(wind?.status, "stale");
+    assert.equal(waves?.verified, true);
+    assert.equal(waves?.status, "stale");
+    assert.equal(sst?.verified, true);
+    assert.equal(sst?.status, "stale");
+    const count = hashedPackCount(rows);
+    assert.equal(count.total, 12);
+    assert.equal(count.hashed, 12);
+    assert.equal(count.stale, 3);
+    assert.deepEqual(count.misses, []);
   });
 });

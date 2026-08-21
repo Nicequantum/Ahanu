@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (persist Accept stale SST + hashed verify, 2026-08-20)
+
+`sstStaleOverride` now uses a dedicated localStorage key (`ahanu-sst-stale-override`) the same way night-bridge and tide harbor do — written on Accept, read at store init and again after persist rehydrate, then passed into `restorePackedSession`. A 24–48 h SST pack stays Ready · stale SST after reload only if the skipper already accepted. The switch is not auto-flipped. Hashed numerator stays SHA-256 verify: stale SST and hour-0 GFS cover < 72 h count when hash-ok and are marked stale separately. A real hash miss stays N/12 and Packs names the layer id. Live cached PJ pack (2026-08-21): all 12 NOAA objects SHA-256 match the manifest. Helm 11/12 after a skipCache live download is kept honest — Packs now names the unverified id rather than inventing 12/12. Likely optional `buoys` (NDBC snapshot can change between manifest build and object GET). Stale SST and hour-0 GFS cover < 72 h are not that miss. No ENC/S-57 invented. No Worker scoring. No Flutter.
+
 ## This pass (offline pack chip + hashed count, 2026-08-20)
 
 `restorePackedSession` now rebuilds `packLayers` + on-device Ready from IndexedDB (`ahanu-packs` meta.current + objects). Helm hydrate runs persist first, then IDB, so the compact chip matches the stored pack after offline reload and does not invent a pack when IDB is empty. Hashed numerator is SHA-256 verify (`verified` / hashOk), not Ready freshness — stale SST still counts as hashed and is marked stale separately. A real hash miss stays 11/12. No ENC/S-57 invented. No Worker scoring. No Flutter.

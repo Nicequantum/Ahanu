@@ -48,6 +48,10 @@ import {
   readPersistedTideHarbor,
   writePersistedTideHarbor,
 } from "./tide-curve";
+import {
+  readPersistedSstStaleOverride,
+  writePersistedSstStaleOverride,
+} from "./sst-override";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -201,7 +205,7 @@ export const useAhanu = create<AhanuState>()(
       packEpoch: 0,
       packLive: false,
       packLiveErrors: [],
-      sstStaleOverride: false,
+      sstStaleOverride: readPersistedSstStaleOverride(),
       simT: 0.12,
       followShip: true,
       markRipple: null,
@@ -388,6 +392,7 @@ export const useAhanu = create<AhanuState>()(
       setPackWindow: (packStart, packHours) => set({ packStart, packHours }),
       setPackLive: (packLive) => set({ packLive }),
       setSstStaleOverride: (sstStaleOverride) => {
+        writePersistedSstStaleOverride(sstStaleOverride);
         const s = get();
         const next: Partial<AhanuState> = { sstStaleOverride };
         if (s.packManifest && s.packLayers.length) {
@@ -466,6 +471,9 @@ export const useAhanu = create<AhanuState>()(
           : readPersistedTideHarbor();
         writePersistedTideHarbor(harbor);
         if (harbor !== state.tideHarbor) state.tideHarbor = harbor;
+        const sstOn = readPersistedSstStaleOverride();
+        writePersistedSstStaleOverride(sstOn);
+        if (sstOn !== state.sstStaleOverride) state.sstStaleOverride = sstOn;
       },
       partialize: (s) => ({
         waypoints: s.waypoints,
@@ -526,10 +534,16 @@ export async function hydrateAhanuStore() {
   hydrateInflight = (async () => {
     try {
       await useAhanu.persist?.rehydrate?.();
+      // Dedicated key first (same as night-bridge / tide harbor). Do not
+      // invent true if the skipper never accepted.
+      const sstOverride = readPersistedSstStaleOverride();
+      if (useAhanu.getState().sstStaleOverride !== sstOverride) {
+        useAhanu.setState({ sstStaleOverride: sstOverride });
+      }
       // IDB is source of truth for a dock pack. Persist can be empty or
       // raced to [] if a parallel setState wrote before rehydrate.
       const restored = await restorePackedSession({
-        sstOverride: useAhanu.getState().sstStaleOverride,
+        sstOverride,
       });
       if (restored) {
         useAhanu.setState({
