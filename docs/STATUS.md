@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (custom hostnames on ahanu.dev, 2026-08-21)
+
+Zone `ahanu.dev` (569d9e656eb67216396642b55e340017) is active on this account. Apex was already a Workers custom domain for PWA `ahanu` (200 HTML). No MX. `www` and `api` were NXDOMAIN. Did not steal apex. Attached `ahanu.dev` + `www.ahanu.dev` to `ahanu` and `api.ahanu.dev` to `ahanu-packs` via wrangler `custom_domain = true` (Cloudflare creates the proxied DNS). `ahanu.app` / `api.ahanu.app` stay unattached — that zone is not here. CF/prod helm `VITE_AHANU_PACKS_URL` defaults to `https://api.ahanu.dev`; SW allowlists that origin and keeps workers.dev as fallback. Ingest stay fail-closed. GFS 72 h, SST honesty, AIS demo, S-57 unchanged. No Worker scoring. No Flutter.
+
 ## This pass (production secrets + ingest lock, 2026-08-21)
 
 PWA Worker `ahanu` had no secrets; Better Auth fell through to a hardcoded CF preview string. `BETTER_AUTH_SECRET` is now a Worker secret (value not in git). Packs Worker `ahanu-packs` had no secrets; HTTP `POST /api/ingest` accepted any non-empty Bearer. Ingest now fail-closes: missing/empty `INGEST_TOKEN` is 401, mismatch is 401, cron stays in-process (`scheduled` → `ingestFixturePack`) and does not HTTP. `POST /api/catches` still uses the skipper's device token only — ingest secret is not required and is not in `VITE_` public env. Zone `ahanu.app` is not on this account (owned zones: `ahanu.dev`, `clarityautoapex.com`); `api.ahanu.app` stays unattached, workers.dev only. No S-57 renderer change. No Worker scoring. No Flutter.
@@ -188,7 +192,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.
-- AIS demo gateway. Flutter helm. Custom domain `api.ahanu.app` still reserved (workers.dev only). GFS-Wave 72 h series still off. R2 exists but does not yet hold live ENC/GRIB/SST.
+- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 exists but does not yet hold live ENC/GRIB/SST for every layer.
 
 ## What works now (finish-pack-loop)
 

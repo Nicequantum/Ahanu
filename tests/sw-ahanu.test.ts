@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 const {
   CACHE_NAME,
   LIVE_MAX_AGE_MS,
+  PACKS_CUSTOM_ORIGIN,
   PACKS_WORKER_ORIGIN,
   isPackPath,
   isAllowedPackOrigin,
@@ -369,9 +370,11 @@ describe("respondToPackRequest", () => {
   it("treats the live CF packs origin as an allowlisted pack path and caches it", async () => {
     const url = `${PACKS_WORKER_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
     const parsed = new URL(url);
+    assert.equal(PACKS_CUSTOM_ORIGIN, "https://api.ahanu.dev");
     assert.equal(PACKS_WORKER_ORIGIN, "https://ahanu-packs.hombre3536.workers.dev");
     assert.equal(isPackPath(parsed.pathname), true);
     assert.equal(isAllowedPackOrigin(parsed.origin, ORIGIN), true);
+    assert.equal(isAllowedPackOrigin(PACKS_CUSTOM_ORIGIN, ORIGIN), true);
     assert.equal(isAllowedPackOrigin("https://other.example", ORIGIN), false);
     assert.equal(packFetchStrategy(parsed), "cache-first");
     assert.equal(packFetchStrategy(new URL(`${url}&live=1`)), "network-first");
@@ -406,6 +409,42 @@ describe("respondToPackRequest", () => {
     });
     assert.ok(offline);
     assert.equal(await offline.text(), "cf-pack");
+    assert.equal(fetches, 1);
+  });
+
+  it("treats api.ahanu.dev as an allowlisted pack path and caches it", async () => {
+    const url = `${PACKS_CUSTOM_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
+    const parsed = new URL(url);
+    assert.equal(isAllowedPackOrigin(parsed.origin, ORIGIN), true);
+    assert.equal(packFetchStrategy(parsed), "cache-first");
+
+    const caches = createMemoryCaches();
+    let fetches = 0;
+    const env = {
+      fetchImpl: async (input: Request) => {
+        fetches += 1;
+        return new Response("custom-pack", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    };
+    const first = await respondToPackRequest(new Request(url), env);
+    assert.ok(first);
+    assert.equal(await first.text(), "custom-pack");
+    assert.equal(fetches, 1);
+    assert.equal(caches._size(), 1);
+
+    const offline = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(offline);
+    assert.equal(await offline.text(), "custom-pack");
     assert.equal(fetches, 1);
   });
 

@@ -6,6 +6,10 @@
   "main": "@tanstack/react-start/server-entry",
   "workers_dev": true,
   "preview_urls": true,
+  "routes": [
+    { "pattern": "ahanu.dev", "custom_domain": true },
+    { "pattern": "www.ahanu.dev", "custom_domain": true }
+  ],
   "build": {
     "command": "AHANU_CF=1 npx vite build"
   },

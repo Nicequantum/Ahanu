@@ -32,8 +32,8 @@ function isCloudflareBuild(): boolean {
   );
 }
 
-/** Live ahanu-packs Worker. workers.dev only — api.ahanu.app is not provisioned. */
-const DEFAULT_PACKS_WORKER_URL = "https://ahanu-packs.hombre3536.workers.dev";
+/** Live ahanu-packs Worker on zone ahanu.dev. workers.dev remains the fallback. */
+const DEFAULT_PACKS_WORKER_URL = "https://api.ahanu.dev";
 
 /**
  * Finish PGLite bootstrap during dev-server setup (before traffic). Vite awaits

@@ -10,7 +10,9 @@
 export const CACHE_NAME = "ahanu-packs-v2";
 export const LIVE_MAX_AGE_MS = 30_000;
 
-/** Live packs Worker. Helm VITE_AHANU_PACKS_URL points here on CF/prod. */
+/** Live packs Worker on zone ahanu.dev. Helm VITE_AHANU_PACKS_URL points here on CF/prod. */
+export const PACKS_CUSTOM_ORIGIN = "https://api.ahanu.dev";
+/** workers.dev fallback — still allowlisted if helm overrides VITE_AHANU_PACKS_URL. */
 export const PACKS_WORKER_ORIGIN = "https://ahanu-packs.hombre3536.workers.dev";
 
 const extraPackOrigins = new Set();
@@ -45,6 +47,7 @@ export function applyPacksOriginMessage(data) {
 
 export function isAllowedPackOrigin(urlOrigin, selfOrigin) {
   if (selfOrigin && urlOrigin === selfOrigin) return true;
+  if (urlOrigin === PACKS_CUSTOM_ORIGIN) return true;
   if (urlOrigin === PACKS_WORKER_ORIGIN) return true;
   if (extraPackOrigins.has(urlOrigin)) return true;
   return false;

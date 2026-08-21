@@ -23,14 +23,11 @@ REGION_NORTH = "42.6"
 # Pace 0, 25 s budget. Set to "0" to force hour-0 only.
 GFS_WAVE_SERIES = "1"
 
-# ---------------------------------------------------------------------------
-# Reserved custom-domain route — zone ahanu.app is not provisioned.
-# Traffic is workers.dev only (workers_dev = true). Do not uncomment until
-# the domain is attached in the Cloudflare dashboard.
-# ---------------------------------------------------------------------------
-# [[routes]]
-# pattern = "api.ahanu.app/*"
-# zone_name = "ahanu.app"
+# Custom domain on zone ahanu.dev (active). ahanu.app is not on this account.
+# workers.dev stays enabled as fallback.
+[[routes]]
+pattern = "api.ahanu.dev"
+custom_domain = true
 
 [[r2_buckets]]
 binding = "PACKS"
@@ -55,7 +52,7 @@ new_sqlite_classes = ["CommunityHub"]
 
 # Ingest cron is on: builds a live PJ pack (tryLive, skipCache) and puts
 # layer bodies at manifest r2Key. NOAA bytes when they landed; hashed
-# fixtures otherwise. Custom domain still reserved; workers.dev only.
+# fixtures otherwise. Custom domain is api.ahanu.dev; workers.dev stays up.
 # GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1).
 # POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
 # Cron is in-process and does not HTTP POST /api/ingest.
