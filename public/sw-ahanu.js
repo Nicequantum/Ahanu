@@ -9,10 +9,19 @@
  * This worker is the HTTP fallback when those URLs are fetched again — same origin
  * (local Vite) and the live ahanu-packs Worker. Arbitrary cross-origin is not cached.
  * Airplane after dock download still uses IndexedDB + last successful SW cache.
+ *
+ * Shell precache (same-origin only): install fetches `/` (index), helm assets linked
+ * from that document, and `/sw-ahanu.js` (already versioned via this file / cache name).
+ * Documents are network-first with cache fallback so a dock visit can still take a
+ * newer helm. Hashed `/assets/*` are cache-first. Never cache-first api.ahanu.dev packs.
+ * A reload sea trial after a successful dock Download must still paint helm.
  */
 
 export const CACHE_NAME = "ahanu-packs-v2";
+export const SHELL_CACHE_NAME = "ahanu-shell-v1";
 export const LIVE_MAX_AGE_MS = 30_000;
+/** Index document + this worker. Helm JS/CSS come from the document at install. */
+export const SHELL_PRECACHE_PATHS = ["/", "/sw-ahanu.js"];
 
 /** Live packs Worker on zone ahanu.dev. Helm VITE_AHANU_PACKS_URL points here on CF/prod. */
 export const PACKS_CUSTOM_ORIGIN = "https://api.ahanu.dev";
@@ -80,6 +89,78 @@ export function packFetchStrategy(url, selfOrigin) {
   // Production helm Download talks to the Worker without live=1.
   if (isRemotePackOrigin(url.origin, selfOrigin)) return "network-first";
   return "cache-first";
+}
+
+export function isApiPath(pathname) {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+/** Same-origin helm document / versioned assets. Pack APIs are never shell. */
+export function isShellPath(pathname) {
+  if (isPackPath(pathname) || isApiPath(pathname)) return false;
+  if (pathname === "/" || pathname === "/index.html") return true;
+  if (pathname === "/login") return true;
+  if (pathname === "/sw-ahanu.js") return true;
+  if (pathname === "/manifest.webmanifest" || pathname === "/favicon.svg") return true;
+  if (pathname.startsWith("/assets/") || pathname.startsWith("/__grok/")) return true;
+  return /\.(?:js|mjs|css|woff2?|svg|png|webmanifest)$/.test(pathname);
+}
+
+export function isShellRequest(request, selfOrigin) {
+  const req = typeof request === "string" ? new Request(request) : request;
+  let url;
+  try {
+    url = new URL(requestUrl(req));
+  } catch {
+    return false;
+  }
+  if (selfOrigin && url.origin !== selfOrigin) return false;
+  if (isPackPath(url.pathname) || isApiPath(url.pathname)) return false;
+  if (req.mode === "navigate") return true;
+  return isShellPath(url.pathname);
+}
+
+/** @returns {"cache-first" | "network-first" | null} */
+export function shellFetchStrategy(request, selfOrigin) {
+  if (!isShellRequest(request, selfOrigin)) return null;
+  const req = typeof request === "string" ? new Request(request) : request;
+  const url = new URL(requestUrl(req));
+  if (req.mode === "navigate") return "network-first";
+  if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/login") {
+    return "network-first";
+  }
+  if (url.pathname === "/manifest.webmanifest") return "network-first";
+  return "cache-first";
+}
+
+export function helmAssetUrlsFromHtml(html, origin) {
+  if (typeof html !== "string" || !html || !origin) return [];
+  let base;
+  try {
+    base = new URL(origin);
+  } catch {
+    return [];
+  }
+  const found = [];
+  const seen = new Set();
+  const re = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const raw = (m[1] ?? "").trim();
+    if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) continue;
+    try {
+      const u = new URL(raw, base);
+      if (u.origin !== base.origin) continue;
+      if (isPackPath(u.pathname) || isApiPath(u.pathname)) continue;
+      if (!isShellPath(u.pathname)) continue;
+      if (seen.has(u.href)) continue;
+      seen.add(u.href);
+      found.push(u.href);
+    } catch {
+      /* ignore bad URLs */
+    }
+  }
+  return found;
 }
 
 /**
@@ -183,6 +264,118 @@ export async function respondToPackRequest(request, env) {
   }
 }
 
+function shellCacheKey(request, origin) {
+  const url = new URL(requestUrl(request));
+  if (origin) return new URL(url.pathname + url.search, origin).href;
+  return url.href;
+}
+
+async function matchShell(cache, request, origin) {
+  const direct = await cache.match(request);
+  if (direct) return direct;
+  const key = shellCacheKey(request, origin);
+  const byKey = await cache.match(key);
+  if (byKey) return byKey;
+  const url = new URL(requestUrl(request));
+  if (url.pathname === "/" || url.pathname === "/index.html" || request.mode === "navigate") {
+    const index = await cache.match(new URL("/", origin).href);
+    if (index) return index;
+  }
+  return undefined;
+}
+
+/**
+ * Precache the helm document, assets it links, and sw-ahanu.js.
+ * Partial success is kept — a failed asset must not abort install.
+ *
+ * @param {{
+ *   fetchImpl: (input: Request) => Promise<Response>,
+ *   cacheStore: { open: (name: string) => Promise<{ match: Function, put: Function }> },
+ *   origin: string,
+ *   waitUntil?: (p: Promise<unknown>) => void,
+ *   now?: number,
+ * }} env
+ */
+export async function precacheShell(env) {
+  if (!env?.origin) return [];
+  const cache = await env.cacheStore.open(SHELL_CACHE_NAME);
+  const now = env.now ?? Date.now();
+  const stored = [];
+  const seen = new Set();
+
+  const putOk = async (url) => {
+    if (seen.has(url)) return null;
+    seen.add(url);
+    try {
+      const res = await env.fetchImpl(new Request(url));
+      if (canCachePackResponse(res)) {
+        await remember(cache, url, res, "cache-first", now, env.waitUntil);
+        stored.push(url);
+        return res;
+      }
+    } catch {
+      /* dock Wi-Fi glitch — keep going */
+    }
+    return null;
+  };
+
+  for (const path of SHELL_PRECACHE_PATHS) {
+    const url = new URL(path, env.origin).href;
+    const res = await putOk(url);
+    if (res && (path === "/" || path === "/index.html")) {
+      try {
+        const html = await res.text();
+        for (const asset of helmAssetUrlsFromHtml(html, env.origin)) {
+          await putOk(asset);
+        }
+      } catch {
+        /* document body unreadable — index is still cached */
+      }
+    }
+  }
+  return stored;
+}
+
+/**
+ * Same-origin helm GET. Returns null when this worker should not claim the request.
+ * Never claims pack /api paths — those stay on respondToPackRequest.
+ */
+export async function respondToShellRequest(request, env) {
+  if (request.method !== "GET") return null;
+  if (!isShellRequest(request, env.origin)) return null;
+  const strategy = shellFetchStrategy(request, env.origin);
+  if (!strategy) return null;
+
+  const fetchImpl = env.fetchImpl;
+  const now = env.now ?? Date.now();
+  const cache = await env.cacheStore.open(SHELL_CACHE_NAME);
+  const cached = await matchShell(cache, request, env.origin);
+  const storeKey = shellCacheKey(request, env.origin);
+  const network = () => fetchImpl(typeof request === "string" ? new Request(request) : request);
+
+  if (strategy === "cache-first") {
+    if (cached) return cached;
+    try {
+      const res = await network();
+      if (canCachePackResponse(res)) await remember(cache, storeKey, res, strategy, now, env.waitUntil);
+      return res;
+    } catch {
+      return cached || Response.error();
+    }
+  }
+
+  try {
+    const res = await network();
+    if (canCachePackResponse(res)) {
+      await remember(cache, storeKey, res, strategy, now, env.waitUntil);
+      return res;
+    }
+    return cached || res;
+  } catch {
+    return cached || Response.error();
+  }
+}
+
 function runningAsServiceWorker() {
   return (
     typeof self !== "undefined" &&
@@ -194,7 +387,16 @@ function runningAsServiceWorker() {
 
 if (runningAsServiceWorker()) {
   self.addEventListener("install", (event) => {
-    event.waitUntil(self.skipWaiting());
+    event.waitUntil(
+      (async () => {
+        await precacheShell({
+          fetchImpl: (input) => fetch(input),
+          cacheStore: caches,
+          origin: self.location.origin,
+        });
+        await self.skipWaiting();
+      })(),
+    );
   });
 
   self.addEventListener("activate", (event) => {
@@ -203,7 +405,11 @@ if (runningAsServiceWorker()) {
         const keys = await caches.keys();
         await Promise.all(
           keys
-            .filter((k) => k.startsWith("ahanu-packs") && k !== CACHE_NAME)
+            .filter(
+              (k) =>
+                (k.startsWith("ahanu-packs") && k !== CACHE_NAME) ||
+                (k.startsWith("ahanu-shell") && k !== SHELL_CACHE_NAME),
+            )
             .map((k) => caches.delete(k)),
         );
         await self.clients.claim();
@@ -224,10 +430,21 @@ if (runningAsServiceWorker()) {
     } catch {
       return;
     }
-    if (!isAllowedPackOrigin(url.origin, self.location.origin)) return;
-    if (!isPackPath(url.pathname)) return;
+    if (isAllowedPackOrigin(url.origin, self.location.origin) && isPackPath(url.pathname)) {
+      event.respondWith(
+        respondToPackRequest(req, {
+          fetchImpl: (input) => fetch(input),
+          cacheStore: caches,
+          origin: self.location.origin,
+          waitUntil: (p) => event.waitUntil(p),
+        }),
+      );
+      return;
+    }
+    if (url.origin !== self.location.origin) return;
+    if (!isShellRequest(req, self.location.origin)) return;
     event.respondWith(
-      respondToPackRequest(req, {
+      respondToShellRequest(req, {
         fetchImpl: (input) => fetch(input),
         cacheStore: caches,
         origin: self.location.origin,

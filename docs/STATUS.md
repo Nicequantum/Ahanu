@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (PWA shell precache, 2026-08-21)
+
+SW cached pack GETs (network-first on api.ahanu.dev) but did not precache the helm document or versioned assets. Airplane after dock Download still had IndexedDB + last pack GET; a reload could blank the app. Install now precaches `/`, helm assets parsed from that document, and `/sw-ahanu.js` (already versioned). Same-origin documents are network-first with cache fallback; hashed assets are cache-first. Production pack APIs stay network-first — not cache-first. Does not invent NOAA. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (production Download keeps Worker liveErrors, 2026-08-21)
 
 Production Download with Live NOAA off dropped helm `liveErrors` until IDB restore. API still had the SST age keep-line and AIS miss — skipper lost the honest cues after marina-Wi-Fi Download. Production Download already hits the live Worker (`tryLive`; `?live=1` is preview-only). Helm now keeps Worker `liveErrors` the same way restore does. Does not invent errors. Does not auto-flip Accept stale. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.

@@ -4,6 +4,8 @@ import { afterEach, describe, it } from "node:test";
 
 const {
   CACHE_NAME,
+  SHELL_CACHE_NAME,
+  SHELL_PRECACHE_PATHS,
   LIVE_MAX_AGE_MS,
   PACKS_CUSTOM_ORIGIN,
   PACKS_WORKER_ORIGIN,
@@ -19,6 +21,12 @@ const {
   packNetworkRequest,
   isLiveCacheFresh,
   respondToPackRequest,
+  isShellPath,
+  isShellRequest,
+  shellFetchStrategy,
+  helmAssetUrlsFromHtml,
+  precacheShell,
+  respondToShellRequest,
 } = await import("../public/sw-ahanu.js");
 
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
@@ -71,6 +79,7 @@ function createMemoryCaches() {
     },
     keys: async () => [...buckets.keys()],
     _size: (name = CACHE_NAME) => bucket(name).size,
+    _urls: (name = CACHE_NAME) => [...bucket(name).keys()],
   };
 }
 
@@ -576,6 +585,187 @@ describe("respondToPackRequest", () => {
     });
     assert.equal(await res!.text(), "extra-pack");
     assert.equal(caches._size(), 1);
+  });
+});
+
+describe("SW shell precache", () => {
+  const HELM_JS = "/assets/index-helmtest.js";
+  const HELM_CSS = "/assets/styles-helmtest.css";
+  const helmHtml = `<!doctype html><html><head>
+<link rel="stylesheet" href="${HELM_CSS}">
+<link rel="modulepreload" href="${HELM_JS}">
+<script type="module" src="${HELM_JS}"></script>
+</head><body>Ahanu helm</body></html>`;
+
+  function shellBodies() {
+    return new Map<string, string>([
+      [`${ORIGIN}/`, helmHtml],
+      [`${ORIGIN}${HELM_JS}`, "window.ahanuHelm=1"],
+      [`${ORIGIN}${HELM_CSS}`, "html{color:foam}"],
+      [`${ORIGIN}/sw-ahanu.js`, "/* sw */"],
+    ]);
+  }
+
+  function fetchFrom(bodies: Map<string, string>, hits: { n: number }) {
+    return async (input: Request | string) => {
+      hits.n += 1;
+      const url = typeof input === "string" ? input : input.url;
+      const body = bodies.get(url);
+      if (body == null) return new Response("missing", { status: 404 });
+      const type = url.endsWith(".css")
+        ? "text/css"
+        : url.endsWith(".js")
+          ? "text/javascript"
+          : "text/html";
+      return new Response(body, { status: 200, headers: { "content-type": type } });
+    };
+  }
+
+  it("claims index, helm assets, and sw-ahanu.js — never pack APIs", () => {
+    assert.deepEqual(SHELL_PRECACHE_PATHS, ["/", "/sw-ahanu.js"]);
+    assert.equal(SHELL_CACHE_NAME, "ahanu-shell-v1");
+    assert.equal(isShellPath("/"), true);
+    assert.equal(isShellPath("/index.html"), true);
+    assert.equal(isShellPath("/sw-ahanu.js"), true);
+    assert.equal(isShellPath(HELM_JS), true);
+    assert.equal(isShellPath(HELM_CSS), true);
+    assert.equal(isShellPath("/api/packs"), false);
+    assert.equal(isShellPath("/api/objects"), false);
+    assert.equal(isShellPath("/api/objects/sst"), false);
+    assert.equal(isShellPath("/health"), false);
+    assert.equal(isShellRequest(new Request(`${PACKS_CUSTOM_ORIGIN}/api/packs`), ORIGIN), false);
+    assert.equal(isShellRequest(new Request(`${ORIGIN}/api/packs`), ORIGIN), false);
+    assert.equal(shellFetchStrategy(new Request(`${ORIGIN}/`), ORIGIN), "network-first");
+    assert.equal(shellFetchStrategy(new Request(`${ORIGIN}${HELM_JS}`), ORIGIN), "cache-first");
+    assert.equal(shellFetchStrategy(new Request(`${ORIGIN}/sw-ahanu.js`), ORIGIN), "cache-first");
+    assert.equal(shellFetchStrategy(new Request(`${PACKS_CUSTOM_ORIGIN}/api/packs`), ORIGIN), null);
+  });
+
+  it("parses helm script/link URLs from the index document", () => {
+    const urls = helmAssetUrlsFromHtml(helmHtml, ORIGIN);
+    assert.ok(urls.includes(`${ORIGIN}${HELM_JS}`));
+    assert.ok(urls.includes(`${ORIGIN}${HELM_CSS}`));
+    assert.equal(
+      helmAssetUrlsFromHtml(
+        `<script src="${PACKS_CUSTOM_ORIGIN}/api/packs"></script><script src="https://evil.example/x.js"></script>`,
+        ORIGIN,
+      ).length,
+      0,
+    );
+  });
+
+  it("install precaches index, linked helm assets, and sw-ahanu.js", async () => {
+    const caches = createMemoryCaches();
+    const hits = { n: 0 };
+    const stored = await precacheShell({
+      fetchImpl: fetchFrom(shellBodies(), hits),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    assert.ok(stored.includes(`${ORIGIN}/`));
+    assert.ok(stored.includes(`${ORIGIN}/sw-ahanu.js`));
+    assert.ok(stored.includes(`${ORIGIN}${HELM_JS}`));
+    assert.ok(stored.includes(`${ORIGIN}${HELM_CSS}`));
+    assert.equal(caches._size(SHELL_CACHE_NAME), 4);
+    assert.equal(caches._size(CACHE_NAME), 0);
+    const index = await (await caches.open(SHELL_CACHE_NAME)).match(`${ORIGIN}/`);
+    assert.ok(index);
+    assert.match(await index.text(), /Ahanu helm/);
+  });
+
+  it("airplane reload after dock download still paints helm from the precache", async () => {
+    const caches = createMemoryCaches();
+    const hits = { n: 0 };
+    await precacheShell({
+      fetchImpl: fetchFrom(shellBodies(), hits),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    const afterInstall = hits.n;
+    const offline = async () => {
+      throw new Error("offline");
+    };
+    const env = { fetchImpl: offline, cacheStore: caches, origin: ORIGIN, now: 99_999 };
+    const reload = await respondToShellRequest(new Request(`${ORIGIN}/`), env);
+    assert.ok(reload);
+    assert.match(await reload.text(), /Ahanu helm/);
+    const js = await respondToShellRequest(new Request(`${ORIGIN}${HELM_JS}`), env);
+    assert.ok(js);
+    assert.equal(await js.text(), "window.ahanuHelm=1");
+    const css = await respondToShellRequest(new Request(`${ORIGIN}${HELM_CSS}`), env);
+    assert.ok(css);
+    assert.equal(await css.text(), "html{color:foam}");
+    const sw = await respondToShellRequest(new Request(`${ORIGIN}/sw-ahanu.js`), env);
+    assert.ok(sw);
+    assert.equal(await sw.text(), "/* sw */");
+    assert.equal(hits.n, afterInstall, "airplane reload must not hit the network");
+  });
+
+  it("online document GET is network-first so a dock visit can take a newer helm", async () => {
+    const caches = createMemoryCaches();
+    await precacheShell({
+      fetchImpl: fetchFrom(shellBodies(), { n: 0 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    let fetches = 0;
+    const res = await respondToShellRequest(new Request(`${ORIGIN}/`), {
+      fetchImpl: async () => {
+        fetches += 1;
+        return new Response("<html>newer helm</html>", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 2_000,
+    });
+    assert.ok(res);
+    assert.equal(await res.text(), "<html>newer helm</html>");
+    assert.equal(fetches, 1);
+  });
+
+  it("does not claim production pack GETs and does not cache-first api.ahanu.dev", async () => {
+    const caches = createMemoryCaches();
+    const url = `${PACKS_CUSTOM_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
+    const skip = `${url}&skipCache=1`;
+    const env = {
+      fetchImpl: async () => new Response("should-not-run", { status: 200 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    };
+    assert.equal(await respondToShellRequest(new Request(url), env), null);
+    assert.equal(await respondToShellRequest(new Request(skip), env), null);
+    assert.equal(await respondToShellRequest(new Request(`${ORIGIN}/api/packs`), env), null);
+    assert.equal(caches._size(SHELL_CACHE_NAME), 0);
+    assert.equal(packFetchStrategy(new URL(url), ORIGIN), "network-first");
+    assert.equal(packFetchStrategy(new URL(skip), ORIGIN), "network-first");
+
+    let packFetches = 0;
+    const pack = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => {
+        packFetches += 1;
+        return new Response("fresh-worker", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    assert.equal(await pack!.text(), "fresh-worker");
+    assert.equal(packFetches, 1);
+    const again = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => {
+        packFetches += 1;
+        return new Response("newer-worker", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000 + LIVE_MAX_AGE_MS + 1,
+    });
+    assert.equal(await again!.text(), "newer-worker");
+    assert.equal(packFetches, 2);
   });
 });
 
