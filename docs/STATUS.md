@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (HEAD /health for load balancers, 2026-08-21)
+
+`GET /health` and `GET /` were 200 with `Cache-Control: no-store` + `X-Ahanu-Ndbc` + packs security headers. `HEAD` of the same paths was 404 because the router only matched GET. HEAD now returns 200 with those same headers (empty body). PWA `HEAD /` was already 200. NDBC probe cache, skipCache limit, catch bind, ENC, GFS, security header values unchanged. No Worker scoring. No Flutter.
+
 ## This pass (HTTP security headers on both Workers, 2026-08-21)
 
 PWA Worker now sends production-sane headers on documents: CSP (MapLibre `worker-src 'self' blob:`, packs `connect-src` to api.ahanu.dev + workers.dev, `frame-ancestors 'none'` on prod hosts), nosniff, Referrer-Policy, X-Frame-Options DENY on prod, HSTS on ahanu.dev / www, Permissions-Policy, COOP same-origin-allow-popups. Grok preview hosts skip XFO / frame-ancestors so the iframe still embeds. Packs CORS is reflected helm origin (ahanu.dev / www / ahanu workers.dev aliases) — no `*`. nosniff + HSTS on api.ahanu.dev. skipCache Cache-Control, SW cache, NDBC probe cache, skipCache limit, catch bind, ENC, GFS, ingest lock unchanged. No Worker scoring. No Flutter.

@@ -228,6 +228,16 @@ function json(data: unknown, status = 200, extra: Record<string, string> = {}): 
   });
 }
 
+/** HEAD keeps GET status + headers; body may be empty (LB / uptime probes). */
+function maybeHead(request: Request, response: Response): Response {
+  if (request.method !== "HEAD") return response;
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 function error(status: number, message: string, extra?: Record<string, unknown>): Response {
   return json({ error: message, ...extra }, status, { "Cache-Control": "no-store" });
 }
@@ -620,18 +630,21 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     try {
-      if (request.method === "GET" && (path === "/health" || path === "/")) {
+      if ((request.method === "GET" || request.method === "HEAD") && (path === "/health" || path === "/")) {
         const resolved = await resolveNdbcHealth({ env, fetchImpl: env.fetchImpl });
-        return json(
-          {
-            ok: true,
-            service: env.SERVICE ?? "ahanu-packs",
-            ts: new Date().toISOString(),
-            scoring: "on-device-only",
-            noaa: resolved.noaa,
-          },
-          200,
-          { "Cache-Control": "no-store", "X-Ahanu-Ndbc": resolved.source },
+        return maybeHead(
+          request,
+          json(
+            {
+              ok: true,
+              service: env.SERVICE ?? "ahanu-packs",
+              ts: new Date().toISOString(),
+              scoring: "on-device-only",
+              noaa: resolved.noaa,
+            },
+            200,
+            { "Cache-Control": "no-store", "X-Ahanu-Ndbc": resolved.source },
+          ),
         );
       }
 

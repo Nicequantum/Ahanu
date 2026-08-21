@@ -113,6 +113,13 @@ describe("NDBC probe cache", () => {
     assert.equal(b.noaa.bytes, a.noaa.bytes);
     assert.ok(b.noaa.ageSec >= 0);
     assert.equal(ndbc.calls(), 1, "second /health must not probe NDBC");
+
+    const head = await worker.fetch(new Request("http://ahanu.test/health", { method: "HEAD" }), env);
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("X-Ahanu-Ndbc"), "cached");
+    assert.equal(head.headers.get("Cache-Control"), "no-store");
+    assert.equal(await head.text(), "");
+    assert.equal(ndbc.calls(), 1, "HEAD /health must reuse last-successful NDBC");
   });
 
   it("stale last-good keeps /health 200 without a live NDBC trip after a miss", async () => {

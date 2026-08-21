@@ -209,4 +209,29 @@ describe("packs CORS + security headers", () => {
     );
     assert.equal(preflight.headers.get("X-Content-Type-Options"), "nosniff");
   });
+
+  it("HEAD /health and HEAD / are 200 with the same security/cache/Ndbc headers as GET", async () => {
+    const env = healthEnv();
+    const headers = { Origin: HELM_WWW_ORIGIN, host: "api.ahanu.dev" };
+    const get = await worker.fetch(new Request("http://api.ahanu.dev/health", { headers }), env);
+    assert.equal(get.status, 200);
+    const getBody = await get.text();
+    assert.ok(getBody.includes('"ok": true'));
+
+    for (const path of ["/health", "/"] as const) {
+      const head = await worker.fetch(
+        new Request(`http://api.ahanu.dev${path}`, { method: "HEAD", headers }),
+        env,
+      );
+      assert.equal(head.status, 200, `HEAD ${path}`);
+      assert.equal(head.headers.get("Access-Control-Allow-Origin"), HELM_WWW_ORIGIN);
+      assert.equal(head.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.equal(head.headers.get("X-Ahanu-Ndbc"), get.headers.get("X-Ahanu-Ndbc"));
+      assert.equal(head.headers.get("Cache-Control"), "no-store");
+      assert.ok(head.headers.get("Strict-Transport-Security")?.includes("max-age=31536000"));
+      assert.equal(head.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin");
+      assert.notEqual(head.headers.get("Access-Control-Allow-Origin"), "*");
+      assert.equal(await head.text(), "");
+    }
+  });
 });
