@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (honest SST spacing + helm age, 2026-08-21)
+
+No public ERDDAP SST for the Point Judith box was <=24 h tonight. Live last cells (~2026-08-21T01:10Z): PFEG `jplMURSST41` 2026-08-19T09:00Z (~40 h); CoastWatch GeoPolar `noaacwBLENDEDsstDNDaily` 2026-08-19T12:00Z (~37 h); CoralTemp 2026-08-18T12:00Z (~61 h); GOES-16 id still 404. Do not fake freshness — Ready still needs Accept stale SST when age is 24–48 h. MUR stride dropped 5 → 2 (~0.02°, ~869 KB PJ CSV, under 2 MB). That is not native 1 km. GeoPolar 5 km is the next in-window fallback. Helm `sstHelmLine` shows source, age hours, stale band, analysis time, and the real spacing note. Packs no longer says CoralTemp 5 km as the live SST. No Worker scoring. No Flutter.
+
 ## This pass (live 72 h GFS-Wave series, 2026-08-21)
 
 Worker GET /api/packs and cron now fetch NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). NOAA served those hours here (~3 KB, ~300 ms each; 25 sequential ~8 s). The old 10 s pace was politeness, not a NOAA or Worker hard limit. HTTP has no wall-clock cap if the client stays connected; CPU default 30 s; paid subrequests 10k; simultaneous connections 6 — series stays sequential so other overlays keep slots. A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail; liveErrors name the hours. Ready still does not fail on a live hour-0 / fixture tail. Helm gfsHelmLine shows the real note and does not claim 72 h live unless it is. Preview stays series-off unless ?gfsSeries=1. Set GFS_WAVE_SERIES=0 to force hour-0 only. No ENC/S-57 invented. No Worker scoring. No Flutter.
@@ -20,7 +24,7 @@ Worker GET /api/packs and cron now fetch NOMADS atlocn.0p16 f000–f072 / 3 h (p
 
 ## This pass (prefer in-window public SST, 2026-08-20)
 
-`fetchLiveSst` still uses ERDDAP `last`. CoralTemp `noaacrwsstDaily` last cell here is 2026-08-18T12:00:00Z (~60 h). PFEG `jplMURSST41` last cell is 2026-08-19T09:00:00Z (~39 h), inside the 48 h Ready window. Probe order now tries MUR first. A parseable grid older than 48 h is skipped when a later public grid is in-window; timestamps stay honest. MUR is subsampled stride 5 to ~0.05° — not native 1 km. GOES-16 dataset id 404s here. Helm **Accept stale SST** remains the path if every public grid is older than 48 h. No Worker scoring. No Flutter.
+`fetchLiveSst` still uses ERDDAP `last`. CoralTemp `noaacrwsstDaily` last cell here is 2026-08-18T12:00:00Z (~60 h). PFEG `jplMURSST41` last cell is 2026-08-19T09:00:00Z (~39 h), inside the 48 h Ready window. Probe order now tries MUR first. A parseable grid older than 48 h is skipped when a later public grid is in-window; timestamps stay honest. MUR was subsampled stride 5 to ~0.05° on that pass — later dropped to stride 2. GOES-16 dataset id 404s here. Helm **Accept stale SST** remains the path if every public grid is older than 48 h. No Worker scoring. No Flutter.
 
 ## This pass (helm to live Worker, 2026-08-20)
 

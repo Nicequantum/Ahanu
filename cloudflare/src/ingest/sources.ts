@@ -231,6 +231,10 @@ export function ghrsstCoastwatchSst(): IngestMeta {
         url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41",
       },
       {
+        label: "GeoPolar blended SST day+night (ERDDAP)",
+        url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsstDNDaily",
+      },
+      {
         label: "GOES-16 SST (ERDDAP)",
         url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwGEOHIRRSSTGoes16NRT.html",
       },
@@ -244,7 +248,7 @@ export function ghrsstCoastwatchSst(): IngestMeta {
       },
     ],
     notes:
-      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. The no-key live path that returned a Point Judith grid inside 48 h here is PFEG jplMURSST41 subsampled to ~0.05° (stride 5) — not native 1 km. CoralTemp daily last cell can sit past 48 h; GOES-16 id is a documented 404 here. Do not invent GHRSST if a probe fails.",
+      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. Night of 2026-08-20 ET no public grid for this box was <=24 h. The no-key live path that returned a Point Judith grid inside 48 h is PFEG jplMURSST41 subsampled to ~0.02° (stride 2, ~869 KB) — not native 1 km. GeoPolar blended day+night 5 km is the next in-window fallback; CoralTemp can sit past 48 h; GOES-16 id is a documented 404 here. Do not invent GHRSST if a probe fails.",
   });
 }
 

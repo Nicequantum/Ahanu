@@ -11,6 +11,7 @@ const {
   REQUIRED_OFFSHORE_LAYERS,
   sha256Hex,
   sstStaleReadyCue,
+  sstHelmLine,
   SST_STALE_FLIP_COPY,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
@@ -774,6 +775,33 @@ describe("live ingest errors on pack session", () => {
       }),
       false,
     );
+  });
+});
+
+describe("sstHelmLine", () => {
+  it("names source, age, and subsampled resolution without claiming 1 km", () => {
+    const line = sstHelmLine({
+      source: "noaa",
+      updatedAt: "2026-08-19T09:00:00.000Z",
+      note: "JPL MUR L4 (ERDDAP) subsampled to ~0.02° (stride 2) — not native 1 km / 0.01°. 201×106 at 2026-08-19T09:00:00.000Z.",
+      nowMs: Date.parse("2026-08-21T01:00:00.000Z"),
+    });
+    assert.match(line, /SST noaa/);
+    assert.match(line, /40 h/);
+    assert.match(line, /stale/);
+    assert.match(line, /2026-08-19T09:00:00Z/);
+    assert.match(line, /stride 2/);
+    assert.match(line, /not native 1 km/);
+    assert.doesNotMatch(line, /native 1 km MUR/);
+  });
+
+  it("does not invent live NOAA on a fixture layer", () => {
+    const line = sstHelmLine({
+      source: "fixture",
+      updatedAt: START,
+      nowMs: Date.parse(START),
+    });
+    assert.equal(line, "SST fixture — not live NOAA.");
   });
 });
 

@@ -12,8 +12,10 @@ import {
   hashedPackCount,
   PACK_BUILDER_REV,
   readyOffshoreBadge,
+  sstHelmLine,
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
+import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import { ENC_AID_DISCLAIMER, packedEncCells } from "@/lib/ahanu/packed-chart";
 
 /** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC catalog boxes paint on ChartMap from cell west/south/east/north — aid overlay, not official S-57. GFS line comes from liveErrors / layer hours. */
@@ -82,7 +84,7 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (CoralTemp 5 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC catalog when those fetches parse. Failed fetches stay fixture.
+            SST (public ERDDAP — MUR L4 subsampled when it parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC catalog when those fetches parse. Failed fetches stay fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -119,6 +121,13 @@ export function PacksPanel() {
           liveErrors,
           wind: packs.find((layer) => layer.id === "wind"),
           waves: packs.find((layer) => layer.id === "waves"),
+        })}
+      </p>
+      <p className="mb-3 text-[11px] text-muted">
+        {sstHelmLine({
+          source: packs.find((layer) => layer.id === "sst")?.source,
+          updatedAt: packs.find((layer) => layer.id === "sst")?.updatedAt,
+          note: getPackedOcean()?.sst?.note,
         })}
       </p>
 
@@ -251,6 +260,7 @@ export function PacksPanel() {
                   ? `${p.sizeBytes} B`
                   : `${p.sizeMb} MB`}
                 {p.hours ? ` · ${p.hours}h` : ""}
+                {p.id === "sst" && p.updatedAt ? ` · ${p.updatedAt}` : ""}
                 {p.hash ? ` · ${p.hash.slice(0, 12)}` : ""}
                 {p.verified ? " · verified" : ""}
               </p>

@@ -20,6 +20,8 @@ const {
   sampleCsvForTests,
   SST_ENDPOINTS,
   sstEndpointById,
+  effectiveSstDeg,
+  sstResolutionNote,
   erddapChlCsvUrl,
   parseErddapChlCsv,
   chlTableToPacked,
@@ -615,6 +617,25 @@ describe("ERDDAP SST parse", () => {
     assert.match(url, /39\.4/);
     assert.match(url, /-72\.8/);
   });
+
+  it("subsamples MUR at stride 2 and keeps GeoPolar as a native 5 km fallback", () => {
+    const mur = murL4();
+    assert.equal(mur.stride, 2);
+    assert.ok(Math.abs(effectiveSstDeg(mur) - 0.02) < 1e-9);
+    assert.match(sstResolutionNote(mur), /stride 2/);
+    assert.match(sstResolutionNote(mur), /not native 1 km/);
+    assert.match(erddapSstCsvUrl(mur, POINT_JUDITH_CANYON_BBOX), /\):2:\(/);
+    const geo = sstEndpointById("noaacwBLENDEDsstDNDaily");
+    assert.ok(geo);
+    assert.equal(geo.stride, 1);
+    assert.ok(Math.abs(effectiveSstDeg(geo) - 0.05) < 1e-9);
+    assert.match(sstResolutionNote(geo), /5 km/);
+    assert.match(sstResolutionNote(geo), /not 1 km MUR/);
+    assert.equal(SST_ENDPOINTS[0]!.id, "jplMURSST41");
+    assert.equal(SST_ENDPOINTS[1]!.id, "noaacwBLENDEDsstDNDaily");
+    assert.equal(SST_ENDPOINTS[2]!.id, "noaacrwsstDaily");
+    assert.equal(SST_ENDPOINTS[3]!.id, "noaacwGEOHIRRSSTGoes16NRT");
+  });
 });
 
 describe("tryLiveNoaa SST overlay", () => {
@@ -826,7 +847,11 @@ describe("optional live SST probe", () => {
     assert.equal(sst.source, "noaa");
     assert.ok(sst.grid.nx >= 2 && sst.grid.ny >= 2);
     assert.equal(sst.grid.unit, "degC");
-    if (sst.dataset === "noaacrwsstDaily") {
+    if (sst.dataset === "jplMURSST41") {
+      assert.ok(Math.abs(sst.effectiveDeg - 0.02) < 1e-6);
+      assert.match(sst.note, /stride 2/);
+      assert.match(sst.note, /not native 1 km/);
+    } else if (sst.dataset === "noaacrwsstDaily" || sst.dataset === "noaacwBLENDEDsstDNDaily") {
       assert.ok(Math.abs(sst.effectiveDeg - 0.05) < 1e-6);
       assert.match(sst.note, /5 km|0\.05/);
       assert.match(sst.note, /not 1 km MUR/);

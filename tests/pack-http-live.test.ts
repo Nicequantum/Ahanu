@@ -220,6 +220,7 @@ function isSstUrl(url: string): boolean {
     url.includes("analysed_sst") ||
     url.includes("noaacrwsst") ||
     url.includes("MURSST") ||
+    url.includes("BLENDEDsst") ||
     url.includes("GEOHIRR")
   );
 }

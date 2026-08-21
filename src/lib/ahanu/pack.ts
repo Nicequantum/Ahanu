@@ -145,6 +145,44 @@ export function gfsHelmLine(input: {
   return "GFS-Wave: hour-0 live when it parses; 72 h series on the Worker when NOMADS serves it.";
 }
 
+function sstAgeBand(ageH: number): "fresh" | "stale" | "missing-band" {
+  if (ageH > SST_MISSING_H) return "missing-band";
+  if (ageH > SST_STALE_H) return "stale";
+  return "fresh";
+}
+
+/**
+ * Helm copy: real SST source, analysis age, and packed spacing.
+ * Does not claim 1 km unless the note says native 1 km arrived.
+ */
+export function sstHelmLine(input: {
+  source?: string;
+  updatedAt?: string;
+  note?: string;
+  nowMs?: number;
+}): string {
+  const now = input.nowMs ?? Date.now();
+  const age = ageHours(input.updatedAt, now);
+  const known = Number.isFinite(age) && age < 1e8;
+  const band = known ? sstAgeBand(age) : "age unknown";
+  const ageBit = known ? `${Math.round(age)} h` : null;
+  const when = input.updatedAt
+    ? input.updatedAt.replace(/\.\d{3}Z$/, "Z")
+    : null;
+  const note = (input.note ?? "").replace(/\s+\d+[×x]\d+ at \S+\.?$/, "").trim();
+  if (input.source !== "noaa" && input.source !== "r2") {
+    return "SST fixture — not live NOAA.";
+  }
+  const bits = [
+    `SST ${input.source}`,
+    ageBit,
+    band,
+    when,
+    note || null,
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
 /** liveErrors that are real overlay misses (honesty notes stripped). */
 export function blockingLiveErrors(errors: readonly string[] | undefined | null): string[] {
   return capLiveErrors(errors).filter((line) => !isHonestyLiveError(line));

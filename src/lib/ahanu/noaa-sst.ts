@@ -27,10 +27,14 @@ export interface SstEndpoint {
 
 /**
  * Probe order. Prefer a public grid whose analysis time is inside the
- * 48 h Ready window. On 2026-08-20 evening ET, PFEG jplMURSST41 last
- * cell was 2026-08-19T09:00:00Z; CoralTemp last cell was
- * 2026-08-18T12:00:00Z. MUR is subsampled (stride 5) — not native 1 km.
- * GOES-16 id stays a documented probe (404 here).
+ * 48 h Ready window. Night of 2026-08-20 ET (probe ~2026-08-21T01:10Z):
+ *   jplMURSST41 last cell 2026-08-19T09:00Z (~40 h)
+ *   noaacwBLENDEDsstDNDaily last cell 2026-08-19T12:00Z (~37 h)
+ *   noaacrwsstDaily last cell 2026-08-18T12:00Z (~61 h)
+ *   GOES-16 id still 404
+ * No public grid for this box was <=24 h. Keep the stale band.
+ * MUR stride 2 (~0.02 deg, ~869 KB PJ CSV) — not native 1 km. Stride 1
+ * exceeds SST_MAX_BYTES. GeoPolar is native 5 km fallback.
  */
 export const SST_ENDPOINTS: readonly SstEndpoint[] = [
   {
@@ -40,7 +44,16 @@ export const SST_ENDPOINTS: readonly SstEndpoint[] = [
     variable: "analysed_sst",
     nativeDeg: 0.01,
     nativeLabel: "1 km / 0.01°",
-    stride: 5,
+    stride: 2,
+  },
+  {
+    id: "noaacwBLENDEDsstDNDaily",
+    name: "NOAA GeoPolar blended SST day+night",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsstDNDaily",
+    variable: "analysed_sst",
+    nativeDeg: 0.05,
+    nativeLabel: "5 km / 0.05°",
+    stride: 1,
   },
   {
     id: "noaacrwsstDaily",
