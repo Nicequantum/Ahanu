@@ -4,7 +4,9 @@ import { afterEach, describe, it } from "node:test";
 
 const { LIVE_REBUILD_LIMIT, resetLiveRebuildLimit, takeLiveRebuildSlot } =
   await import("../cloudflare/src/live-rebuild-limit.ts");
-const { headPackManifest, persistBuiltPack } = await import("../cloudflare/src/ingest/run.ts");
+const { headPackManifest, persistBuiltPack, packManifestR2Key, loadPersistedManifest } = await import(
+  "../cloudflare/src/ingest/run.ts"
+);
 const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const worker = (await import("../cloudflare/src/index.ts")).default;
 const { buildTripPack, resetBuiltPackCache, POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
@@ -28,6 +30,29 @@ const NDBC = `#STN LAT LON YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES PT
 `;
 
 function ndbcFetch(url: string): Promise<Response> {
+  if (url.includes("latest_obs")) return Promise.resolve(new Response(NDBC, { status: 200 }));
+  return Promise.resolve(new Response("no", { status: 404 }));
+}
+
+function sstCsv(iso: string, variable = "analysed_sst"): string {
+  const rows = [`time,latitude,longitude,${variable}`, "UTC,degrees_north,degrees_east,degree_C"];
+  const lats = [39.4, 40.0, 40.6, 41.2];
+  const lons = [-72.8, -71.6, -70.4, -69.2];
+  for (const lat of lats) {
+    for (const lon of lons) {
+      const t = 22.4 - (lat - 39.6) * 0.8 + (lon + 70.6) * 0.1;
+      rows.push(`${iso},${lat},${lon},${t.toFixed(2)}`);
+    }
+  }
+  return rows.join("\n") + "\n";
+}
+
+function acspoFetch(url: string): Promise<Response> {
+  if (url.includes("noaacwLEOACSPOSSTL3SnrtKDaily")) {
+    return Promise.resolve(
+      new Response(sstCsv("2026-08-20T12:00:00Z", "sea_surface_temperature"), { status: 200 }),
+    );
+  }
   if (url.includes("latest_obs")) return Promise.resolve(new Response(NDBC, { status: 200 }));
   return Promise.resolve(new Response("no", { status: 404 }));
 }
@@ -126,6 +151,58 @@ describe("HEAD GET-only packs routes", () => {
     assert.equal(await head.text(), "");
     assert.equal(head.headers.get("X-Ahanu-Pack-Id"), built.manifest.packId);
     assert.equal(head.headers.get("ETag"), `"${built.manifest.packId}"`);
+  });
+
+  it("HEAD /api/packs rewrites leftover MUR labels from an ACSPO body without NOAA", async () => {
+    const { env, store } = mockEnv(acspoFetch);
+    const nowFresh = new Date("2026-08-20T19:00:00.000Z");
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: nowFresh,
+      timeoutMs: 50,
+      fetchImpl: acspoFetch,
+    });
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key)!);
+    stored.layers.find((l: { id: string }) => l.id === "sst").label = "SST composite (MUR / CoastWatch)";
+    stored.sources = [
+      { id: "noaa-sst", name: "SST MUR" },
+      { id: "ghrsst-coastwatch-sst", name: "GHRSST / CoastWatch SST" },
+    ];
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    env.fetchImpl = throwingNoaa();
+
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.equal(headed.source, "r2");
+    assert.ok(headed.manifest);
+    assert.ok(headed.built);
+    assert.match(headed.manifest.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+    assert.match((headed.manifest.sources ?? []).find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.doesNotMatch(headed.manifest.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
+    assert.ok(!(headed.manifest.sources ?? []).some((s) => s.id === "ghrsst-coastwatch-sst"));
+
+    const head = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`, { method: "HEAD" }), env);
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("X-Ahanu-Source"), "r2");
+    assert.equal(await head.text(), "");
+    const loaded = await loadPersistedManifest(env, built.manifest.packId);
+    assert.ok(loaded);
+    assert.match(loaded.layers.find((l) => l.id === "sst")?.label ?? "", /ACSPO/);
+    assert.match((loaded.sources ?? []).find((s) => s.id === "noaa-sst")?.name ?? "", /ACSPO/);
+    assert.doesNotMatch(loaded.layers.find((l) => l.id === "sst")?.label ?? "", /MUR \/ CoastWatch/);
+    assert.ok(!(loaded.sources ?? []).some((s) => s.id === "ghrsst-coastwatch-sst"));
   });
 
   it("HEAD /api/packs?skipCache=1 serves last R2 and does not take a live-rebuild slot", async () => {

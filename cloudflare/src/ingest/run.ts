@@ -24,9 +24,9 @@
  * skipCache=1 or a total miss is a live build + persist.
  * Persist (full, SST refresh, ENC refresh) rewrites layer.label / sources[]
  * from the landed body so R2 cannot keep a MUR label on an ACSPO object.
- * Official ENC persist includes cellIds + updateCount. Serving R2 also
- * rewrites a leftover MUR label when the stored SST body is already ACSPO
- * (no NOAA fetch).
+ * Official ENC persist includes cellIds + updateCount. Serving R2 (GET and
+ * HEAD) also rewrites a leftover MUR label when the stored SST body is
+ * already ACSPO (no NOAA fetch). HEAD persist writes that catalog rewrite.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -224,12 +224,14 @@ export interface ResolvedPack {
 }
 
 export type HeadPackResult =
-  | { manifest: BuiltPack["manifest"]; source: "r2" }
+  | { manifest: BuiltPack["manifest"]; source: "r2"; built?: BuiltPack }
   | { manifest: null; source: "no-rebuild" };
 
 /**
  * HEAD /api/packs: last R2 only. Never buildTripPack, never take a
  * skipCache live-rebuild slot. skipCache on the query is ignored.
+ * Serving leftover MUR labels on an already-landed ACSPO body is the
+ * same catalog rewrite GET persist uses — no NOAA.
  */
 export async function headPackManifest(
   env: IngestEnv,
@@ -237,8 +239,10 @@ export async function headPackManifest(
 ): Promise<HeadPackResult> {
   const packId = (opts.packId ?? "").trim() || (await packIdFor(opts.bbox, opts.start, opts.hours));
   const stored = await loadPersistedManifest(env, packId);
-  if (stored) return { manifest: stored, source: "r2" };
-  return { manifest: null, source: "no-rebuild" };
+  if (!stored) return { manifest: null, source: "no-rebuild" };
+  const leftover = await rewriteLeftoverR2Labels(env, stored);
+  if (leftover.built) return { manifest: leftover.manifest, source: "r2", built: leftover.built };
+  return { manifest: stored, source: "r2" };
 }
 
 /**

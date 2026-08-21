@@ -687,6 +687,13 @@ async function packsFetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Re
           if (headed.source === "no-rebuild") {
             return maybeHead(request, headNoRebuild("no cached pack"));
           }
+          if (headed.built) {
+            try {
+              await persistBuiltPack(env, headed.built);
+            } catch {
+              schedulePersist(ctx, persistBuiltPack(env, headed.built));
+            }
+          }
           const manifest = workerManifest(headed.manifest);
           return maybeHead(
             request,
