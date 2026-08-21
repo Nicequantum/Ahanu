@@ -40,7 +40,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "enc-s57-updates-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "sst-acspo-nrt-enc-updates-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];

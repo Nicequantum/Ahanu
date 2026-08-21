@@ -57,7 +57,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "enc-s57-updates-2026-08-21";
+export const PACK_BUILDER_REV = "sst-acspo-nrt-enc-updates-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;

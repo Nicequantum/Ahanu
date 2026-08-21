@@ -17,6 +17,7 @@ const {
   parseErddapSstCsv,
   sstTableToPacked,
   fetchLiveSst,
+  sstAgeHours,
   sampleCsvForTests,
   SST_ENDPOINTS,
   sstEndpointById,
@@ -618,7 +619,16 @@ describe("ERDDAP SST parse", () => {
     assert.match(url, /-72\.8/);
   });
 
-  it("subsamples MUR at stride 2 and keeps GeoPolar as a native 5 km fallback", () => {
+  it("prefers ACSPO 0.02 NRT then MUR stride 2, with GeoPolar as 5 km fallback", () => {
+    const acspo = sstEndpointById("noaacwLEOACSPOSSTL3SnrtKDaily");
+    assert.ok(acspo);
+    assert.equal(acspo.variable, "sea_surface_temperature");
+    assert.equal(acspo.stride, 1);
+    assert.ok(Math.abs(effectiveSstDeg(acspo) - 0.02) < 1e-9);
+    assert.match(sstResolutionNote(acspo), /2 km \/ 0\.02/);
+    assert.match(sstResolutionNote(acspo), /not 1 km MUR/);
+    assert.match(erddapSstCsvUrl(acspo, POINT_JUDITH_CANYON_BBOX), /sea_surface_temperature/);
+    assert.match(erddapSstCsvUrl(acspo, POINT_JUDITH_CANYON_BBOX), /\):1:\(/);
     const mur = murL4();
     assert.equal(mur.stride, 2);
     assert.ok(Math.abs(effectiveSstDeg(mur) - 0.02) < 1e-9);
@@ -631,10 +641,34 @@ describe("ERDDAP SST parse", () => {
     assert.ok(Math.abs(effectiveSstDeg(geo) - 0.05) < 1e-9);
     assert.match(sstResolutionNote(geo), /5 km/);
     assert.match(sstResolutionNote(geo), /not 1 km MUR/);
-    assert.equal(SST_ENDPOINTS[0]!.id, "jplMURSST41");
-    assert.equal(SST_ENDPOINTS[1]!.id, "noaacwBLENDEDsstDNDaily");
-    assert.equal(SST_ENDPOINTS[2]!.id, "noaacrwsstDaily");
-    assert.equal(SST_ENDPOINTS[3]!.id, "noaacwGEOHIRRSSTGoes16NRT");
+    assert.equal(SST_ENDPOINTS[0]!.id, "noaacwLEOACSPOSSTL3SnrtKDaily");
+    assert.equal(SST_ENDPOINTS[1]!.id, "jplMURSST41");
+    assert.equal(SST_ENDPOINTS[2]!.id, "noaacwBLENDEDsstDNDaily");
+    assert.equal(SST_ENDPOINTS[3]!.id, "noaacrwsstDaily");
+    assert.equal(SST_ENDPOINTS[4]!.id, "noaacwGEOHIRRSSTGoes16NRT");
+  });
+
+  it("parses ACSPO sea_surface_temperature Kelvin into degC", () => {
+    const rows = ["time,latitude,longitude,sea_surface_temperature", "UTC,degrees_north,degrees_east,kelvin"];
+    const lats = [39.4, 40.0, 40.6, 41.2];
+    const lons = [-72.8, -71.6, -70.4, -69.2];
+    for (const lat of lats) {
+      for (const lon of lons) {
+        const c = 22.4 - (lat - 39.6) * 0.8 + (lon + 70.6) * 0.1;
+        rows.push(`2026-08-20T12:00:00Z,${lat},${lon},${(c + 273.15).toFixed(2)}`);
+      }
+    }
+    const table = parseErddapSstCsv(rows.join("\n") + "\n");
+    assert.ok(table);
+    const ep = sstEndpointById("noaacwLEOACSPOSSTL3SnrtKDaily");
+    assert.ok(ep);
+    const grid = sstTableToPacked(table!, ep, POINT_JUDITH_CANYON_BBOX);
+    assert.ok(grid);
+    assert.equal(grid.updatedAt, "2026-08-20T12:00:00.000Z");
+    const v = grid.values[0]![0]!;
+    assert.ok(v > 15 && v < 30, `expected degC, got ${v}`);
+    assert.match(grid.note ?? "", /2 km|0\.02/);
+    assert.match(grid.note ?? "", /not 1 km MUR/);
   });
 });
 
@@ -768,6 +802,26 @@ describe("buildTripPack SST overlay", () => {
 describe("fetchLiveSst 48 h picker", () => {
   const now = new Date("2026-08-20T23:40:00.000Z");
 
+  it("selects ACSPO when that public grid is inside 24 h", async () => {
+    const acspo = sstCsvAt("2026-08-20T12:00:00Z").replaceAll("analysed_sst", "sea_surface_temperature");
+    const mur = sstCsvAt("2026-08-19T09:00:00Z");
+    const sst = await fetchLiveSst({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      now: new Date("2026-08-21T06:00:00.000Z"),
+      fetchImpl: async (url: string) => {
+        if (url.includes("noaacwLEOACSPOSSTL3SnrtKDaily")) return new Response(acspo, { status: 200 });
+        if (url.includes("jplMURSST41")) return new Response(mur, { status: 200 });
+        return new Response("no", { status: 404 });
+      },
+    });
+    assert.ok(sst);
+    assert.equal(sst.dataset, "noaacwLEOACSPOSSTL3SnrtKDaily");
+    assert.equal(sst.analysedAt, "2026-08-20T12:00:00.000Z");
+    assert.ok(sstAgeHours(sst.analysedAt, Date.parse("2026-08-21T06:00:00.000Z")) <= 24);
+    assert.match(sst.note, /2 km|0\.02/);
+  });
+
+
   it("selects a later public SST when the first parseable grid is older than 48 h", async () => {
     const stale = sstCsvAt("2026-08-18T12:00:00Z");
     const fresh = sstCsvAt("2026-08-19T09:00:00Z");
@@ -847,7 +901,11 @@ describe("optional live SST probe", () => {
     assert.equal(sst.source, "noaa");
     assert.ok(sst.grid.nx >= 2 && sst.grid.ny >= 2);
     assert.equal(sst.grid.unit, "degC");
-    if (sst.dataset === "jplMURSST41") {
+    if (sst.dataset === "noaacwLEOACSPOSSTL3SnrtKDaily") {
+      assert.ok(Math.abs(sst.effectiveDeg - 0.02) < 1e-6);
+      assert.match(sst.note, /2 km|0\.02/);
+      assert.match(sst.note, /not 1 km MUR/);
+    } else if (sst.dataset === "jplMURSST41") {
       assert.ok(Math.abs(sst.effectiveDeg - 0.02) < 1e-6);
       assert.match(sst.note, /stride 2/);
       assert.match(sst.note, /not native 1 km/);
@@ -1787,8 +1845,10 @@ describe("NOAA fetch timeout + retry", () => {
       fetchImpl: async (url: string) => {
         if (
           url.includes("analysed_sst") ||
+          url.includes("sea_surface_temperature") ||
           url.includes("noaacrwsst") ||
           url.includes("MURSST") ||
+          url.includes("ACSPOSST") ||
           url.includes("GEOHIRR")
         ) {
           n += 1;

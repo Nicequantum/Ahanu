@@ -226,6 +226,51 @@ describe("S-57 extract applies recorded official US5PVDCB.001", () => {
 });
 
 const approach000 = join(here, "fixtures/US5PVDBB.000");
+const approachNew000 = join(here, "fixtures/US4CN22M.000");
+const approachNew001 = join(here, "fixtures/US4CN22M.001");
+
+describe("S-57 extract applies recorded official US4CN22M.001", () => {
+  it("is ISO 8211 and applies the new-cell update the same as US5PVDCB.001", async () => {
+    const base = new Uint8Array(readFileSync(approachNew000));
+    const upd = new Uint8Array(readFileSync(approachNew001));
+    assert.equal(isIso8211(base), true);
+    assert.equal(isIso8211(upd), true);
+    assert.match(new TextDecoder("latin1").decode(base.subarray(0, 24)), /^015823LE1/);
+    assert.match(new TextDecoder("latin1").decode(upd.subarray(0, 24)), /^017903LE1/);
+    const meta = parseS57DsidMeta(upd);
+    assert.equal(meta.edition, "20");
+    assert.equal(meta.update, "1");
+    const before = extractS57FromDot000(base, "US4CN22M");
+    assert.ok(before);
+    const zip = makeStoredZip([
+      { name: "ENC_ROOT/US4CN22M/US4CN22M.000", data: base },
+      { name: "ENC_ROOT/US4CN22M/US4CN22M.001", data: upd },
+    ]);
+    const parsed = await parseS57ExchangeSet(zip);
+    assert.ok(parsed);
+    assert.equal(parsed.updateCount, 1);
+    assert.equal(parsed.baseOnly, false);
+    assert.equal(parsed.updates[0]?.file, "US4CN22M.001");
+    assert.equal(parsed.updates[0]?.bytes, upd.byteLength);
+    const extracted = await extractS57FromZip(zip, "US4CN22M");
+    assert.ok(extracted);
+    assert.equal(extracted.applyNote, S57_UPDATES_APPLIED_NOTE);
+    assert.equal(extracted.updatesApplied, 1);
+    assert.deepEqual(extracted.updateFiles, ["US4CN22M.001"]);
+    assert.equal(extracted.edition, "20");
+    assert.equal(extracted.updn, "1");
+    assert.equal(extracted.baseOnly, false);
+    const baseZip = makeStoredZip([{ name: "ENC_ROOT/US4CN22M/US4CN22M.000", data: base }]);
+    const baseOnly = await extractS57FromZip(baseZip, "US4CN22M");
+    assert.ok(baseOnly);
+    assert.equal(baseOnly.updatesApplied, 0);
+    assert.equal(baseOnly.baseOnly, true);
+    assert.equal(baseOnly.applyNote, S57_BASE_ONLY_NOTE);
+    // Usage-4 sounding cap can hide a count delta; apply still records the official .001.
+
+  });
+});
+
 
 describe("S-57 leftover classes — recount and skipper paint", () => {
   it("paints harbor LNDRGN areas / LAKARE / SLOTOP / SBDARE / UWTROC from real bytes", () => {

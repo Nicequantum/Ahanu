@@ -88,7 +88,7 @@ function mockNoaaSuccess(): (url: string) => Promise<Response> {
     if (url.includes("filter_gfswave") || url.includes("atlocn")) {
       return new Response(grib, { status: 200, headers: { "Content-Type": "application/octet-stream" } });
     }
-    if (url.includes("noaacrwsstDaily") || url.includes("analysed_sst")) {
+    if (url.includes("noaacrwsstDaily") || url.includes("analysed_sst") || url.includes("sea_surface_temperature") || url.includes("ACSPOSST")) {
       return new Response(sst, { status: 200, headers: { "Content-Type": "text/csv" } });
     }
     if (url.includes("chlorophyll") || url.includes("chlor_a") || url.includes("VIIRSchla") || url.includes("erdMH1")) {
@@ -218,9 +218,11 @@ function abortErr(): DOMException {
 function isSstUrl(url: string): boolean {
   return (
     url.includes("analysed_sst") ||
+    url.includes("sea_surface_temperature") ||
     url.includes("noaacrwsst") ||
     url.includes("MURSST") ||
     url.includes("BLENDEDsst") ||
+    url.includes("ACSPOSST") ||
     url.includes("GEOHIRR")
   );
 }

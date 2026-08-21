@@ -27,16 +27,26 @@ export interface SstEndpoint {
 
 /**
  * Probe order. Prefer a public grid whose analysis time is inside the
- * 48 h Ready window. Night of 2026-08-20 ET (probe ~2026-08-21T01:10Z):
- *   jplMURSST41 last cell 2026-08-19T09:00Z (~40 h)
- *   noaacwBLENDEDsstDNDaily last cell 2026-08-19T12:00Z (~37 h)
- *   noaacrwsstDaily last cell 2026-08-18T12:00Z (~61 h)
- *   GOES-16 id still 404
- * No public grid for this box was <=24 h. Keep the stale band.
- * MUR stride 2 (~0.02 deg, ~869 KB PJ CSV) — not native 1 km. Stride 1
- * exceeds SST_MAX_BYTES. GeoPolar is native 5 km fallback.
+ * 48 h Ready window. Morning of 2026-08-21 ET (probe ~2026-08-21T06:00Z):
+ *   noaacwLEOACSPOSSTL3SnrtKDaily last 2026-08-20T12:00Z (~18 h) —
+ *     PJ CSV 867 KB, 93% fill, native 0.02°. Ready without skipper override.
+ *   noaacwBLENDEDsstDNDaily last 2026-08-19T12:00Z (~42 h)
+ *   noaacrwsstDaily last 2026-08-19T12:00Z (~42 h)
+ *   jplMURSST41 last 2026-08-19T09:00Z (~45 h)
+ *   GOES-16 id still 404 (noaacwGEOHIRRSSTGoes16NRT / Daily)
+ * ACSPO is L3S-LEO NRT 0.02° — not 1 km MUR / GHRSST L4, not GOES-16.
+ * MUR stride 2 (~0.02°) stays the L4 fallback. GeoPolar is native 5 km.
  */
 export const SST_ENDPOINTS: readonly SstEndpoint[] = [
+  {
+    id: "noaacwLEOACSPOSSTL3SnrtKDaily",
+    name: "NOAA ACSPO L3S-LEO NRT daily",
+    base: "https://coastwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+    variable: "sea_surface_temperature",
+    nativeDeg: 0.02,
+    nativeLabel: "2 km / 0.02°",
+    stride: 1,
+  },
   {
     id: "jplMURSST41",
     name: "JPL MUR L4 (ERDDAP)",
@@ -158,7 +168,11 @@ export function parseErddapSstCsv(text: string): ErddapSstTable | null {
   const iLat = header.findIndex((c) => c === "latitude" || c === "lat");
   const iLon = header.findIndex((c) => c === "longitude" || c === "lon");
   const iVal = header.findIndex(
-    (c) => c.includes("sst") || c === "temperature" || c === "analysed_sst",
+    (c) =>
+      c.includes("sst") ||
+      c.includes("sea_surface_temp") ||
+      c === "temperature" ||
+      c === "analysed_sst",
   );
   if (iLat < 0 || iLon < 0 || iVal < 0) return null;
   const lats: number[] = [];

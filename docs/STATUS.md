@@ -2,6 +2,12 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (ACSPO ≤24 h SST + new-cell ENC updates, 2026-08-21)
+
+Re-probed public ERDDAP for POINT_JUDITH_CANYON_BBOX at ~2026-08-21T06:00Z. **ACSPO L3S-LEO NRT daily** `noaacwLEOACSPOSSTL3SnrtKDaily` last cell **2026-08-20T12:00Z (~18 h)** — HTTP 200, 867 KB PJ CSV, 93% fill, native 0.02° / ~2 km, Kelvin→°C. That is ≤24 h and fetchable, so Ready does not need Accept stale SST. Not 1 km MUR / GHRSST L4. **GOES-16 still 404** (`noaacwGEOHIRRSSTGoes16NRT` and Daily unknown datasetID). Other last cells: GeoPolar DN / CoralTemp **2026-08-19T12:00Z (~42 h)**; JPL MUR **2026-08-19T09:00Z (~45 h)** — not newer than the previous MUR stamp. MUR stride 1 still exceeds 2 MB; stride 2 stays the L4 fallback.
+
+New packed cells probed from charts.noaa.gov (HTTP 200, application/zip). Extract already applies ISO 8211 `.00n` in order (same RUIN path as US5PVDCB.001). **Updates present:** US5RI1BD `.001` 6506 B edition 3 UPDN 1; US5PVDCC `.001` 14339 B edition 4 UPDN 1; US5PVDCD `.001` 14026 B edition 3 UPDN 1; US4CN22M `.001` 27098 B edition 20 UPDN 1; US4NY1CY `.001` 41324 / `.002` 2983 / `.003` 3686 / `.004` 2991 B edition 3 UPDN 1–4; US4RI1EA `.001` 2467 / `.002` 6825 / `.003` 15957 B edition 1 UPDN 1–3. **Base .000 only (no cell .00n):** US5RI1CD (398380 B, edition 4); US5RI1BE (122946 B, edition 3). CATALOG.031 is the exchange catalog, not an update. Did not invent updates. Not an ECDIS. GFS complete-cycle, R2, rate limits, security headers, 16-cell picker, UWTROC paint, ingest lock unchanged. No Worker scoring. No Flutter.
+
 ## This pass (dock-to-canyon ENC picker, 2026-08-21)
 
 ENCProdCat 2026-08-21: 237 usage 3–5 cells in the Point Judith box (~20.7 MB). The 8-cell clip already had PJ harbor + pond (**US5PVDBB** / **US5PVDCB**), Montauk, Newport, and the four coastal cells that cover Veatch / Atlantis / Hydrographer. No usage-4/5 cell covers those canyon heads. Missing were Block Island harbor-scale cells and Narragansett approach cells. Picker now ranks official inlets (Great Salt Pond **US5RI1CD**, Old Harbor **US5RI1BD**, Block Island SE **US5RI1BE**, West Pass **US5PVDCC**, East Passage **US5PVDCD**) then usage-4 approaches (**US4CN22M**, **US4NY1CY**, **US4RI1EA**). Cap 16 cells / 400 KB each / 3.2 MB catalog (~2.19 MB zip for this set). Did not pull all 237. Did not invent cells. Not an ECDIS. Official zips only from NOAA. UWTROC paint, updates, GFS, R2, rate limits unchanged. Helm cell list is pack `s57.cellIds` — PWA not redeployed. No Worker scoring. No Flutter.

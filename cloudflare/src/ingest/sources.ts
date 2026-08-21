@@ -230,6 +230,10 @@ export function ghrsstCoastwatchSst(): IngestMeta {
     layerIds: ["sst"],
     endpoints: [
       {
+        label: "ACSPO L3S-LEO NRT daily 0.02 (ERDDAP)",
+        url: "https://coastwatch.noaa.gov/erddap/griddap/noaacwLEOACSPOSSTL3SnrtKDaily",
+      },
+      {
         label: "MUR L4 1 km (ERDDAP)",
         url: "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41",
       },
@@ -251,7 +255,7 @@ export function ghrsstCoastwatchSst(): IngestMeta {
       },
     ],
     notes:
-      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. Night of 2026-08-20 ET no public grid for this box was <=24 h. The no-key live path that returned a Point Judith grid inside 48 h is PFEG jplMURSST41 subsampled to ~0.02° (stride 2, ~869 KB) — not native 1 km. GeoPolar blended day+night 5 km is the next in-window fallback; CoralTemp can sit past 48 h; GOES-16 id is a documented 404 here. Do not invent GHRSST if a probe fails.",
+      "Write a Cloud-Optimized GeoTIFF clipped to the trip bbox, plus a 1-byte quantized PNG for the plotter. Composite age >24 h is stale; >48 h is missing for Ready-for-offshore. Morning of 2026-08-21 ET (~06:00Z) CoastWatch ACSPO L3S-LEO NRT daily (noaacwLEOACSPOSSTL3SnrtKDaily) last cell 2026-08-20T12:00Z (~18 h) fetched for the Point Judith box (867 KB CSV, 93% fill, native 0.02°) — Ready without skipper override. That is not 1 km MUR / GHRSST L4 and not GOES-16 (id still 404). MUR L4 last cell stayed 2026-08-19T09:00Z (~45 h, stride 2 fallback). GeoPolar / CoralTemp last 2026-08-19T12:00Z (~42 h). Do not invent GHRSST if a probe fails.",
   });
 }
 

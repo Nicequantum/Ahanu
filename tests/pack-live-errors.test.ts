@@ -85,7 +85,7 @@ function mockNoaa(sstOk: boolean) {
   const canyons = sampleCanyonsGeojsonForTests();
   const grib = encodeHour0Sample();
   return async (url: string) => {
-    if (url.includes("analysed_sst") || url.includes("noaacrwsst") || url.includes("MURSST") || url.includes("GEOHIRR")) {
+    if (url.includes("analysed_sst") || url.includes("sea_surface_temperature") || url.includes("noaacrwsst") || url.includes("MURSST") || url.includes("ACSPOSST") || url.includes("GEOHIRR")) {
       if (!sstOk) return new Response("no", { status: 503 });
       return new Response(sst, { status: 200, headers: { "Content-Type": "text/csv" } });
     }
