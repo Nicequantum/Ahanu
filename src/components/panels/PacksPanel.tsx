@@ -13,6 +13,7 @@ import {
   PACK_BUILDER_REV,
   readyOffshoreBadge,
   sstHelmLine,
+  sstPackRowLabel,
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
@@ -84,7 +85,7 @@ export function PacksPanel() {
         <div>
           <p className="text-sm">Live NOAA</p>
           <p className="text-[11px] text-muted">
-            SST (public ERDDAP — MUR L4 subsampled when it parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay fixture.
+            SST (public ERDDAP — ACSPO / MUR / GeoPolar / CoralTemp when that grid parses; not claimed 1 km), chlorophyll, SSH, HMS reminder, ETOPO bathy, GFS-Wave, plus buoys, tides, and ENC (official S-57 zips when they fetch, else the catalog). Failed fetches stay fixture.
           </p>
         </div>
         <Switch checked={Boolean(live)} onCheckedChange={setLive} disabled={downloading} />
@@ -128,6 +129,7 @@ export function PacksPanel() {
           source: packs.find((layer) => layer.id === "sst")?.source,
           updatedAt: packs.find((layer) => layer.id === "sst")?.updatedAt,
           note: getPackedOcean()?.sst?.note,
+          dataset: getPackedOcean()?.sst?.dataset,
         })}
       </p>
 
@@ -254,7 +256,18 @@ export function PacksPanel() {
         {packs.map((p) => (
           <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-elevated px-3 py-2">
             <div>
-              <p className="text-sm">{p.id === "enc" ? encPackRowLabel(p.label) : p.label}</p>
+              <p className="text-sm">
+                {p.id === "enc"
+                  ? encPackRowLabel(p.label)
+                  : p.id === "sst"
+                    ? sstPackRowLabel({
+                        stored: p.label,
+                        source: p.source,
+                        dataset: getPackedOcean()?.sst?.dataset,
+                        note: getPackedOcean()?.sst?.note,
+                      })
+                    : p.label}
+              </p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes
                   ? `${p.sizeBytes} B`

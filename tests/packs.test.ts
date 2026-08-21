@@ -12,11 +12,13 @@ const {
   sha256Hex,
   sstStaleReadyCue,
   sstHelmLine,
+  sstLandedName,
+  sstPackRowLabel,
   SST_STALE_FLIP_COPY,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
-const { hashesMatch, generateLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
+const { hashesMatch, generateLayerBody, encodeLayerBody } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { habitatScore } = await import("../src/lib/ahanu/scoring.ts");
 const { sstC } = await import("../src/lib/ahanu/ocean.ts");
 const { gribAt, scoreGoNoGo } = await import("../src/lib/ahanu/grib.ts");
@@ -40,7 +42,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "sst-acspo-first-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "sst-landed-name-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -791,20 +793,71 @@ describe("live ingest errors on pack session", () => {
 });
 
 describe("sstHelmLine", () => {
-  it("names source, age, and subsampled resolution without claiming 1 km", () => {
+  it("names MUR, age, and subsampled resolution without claiming 1 km", () => {
     const line = sstHelmLine({
       source: "noaa",
+      dataset: "jplMURSST41",
       updatedAt: "2026-08-19T09:00:00.000Z",
       note: "JPL MUR L4 (ERDDAP) subsampled to ~0.02° (stride 2) — not native 1 km / 0.01°. 201×106 at 2026-08-19T09:00:00.000Z.",
       nowMs: Date.parse("2026-08-21T01:00:00.000Z"),
     });
-    assert.match(line, /SST noaa/);
+    assert.match(line, /SST MUR/);
+    assert.match(line, /noaa/);
     assert.match(line, /40 h/);
     assert.match(line, /stale/);
     assert.match(line, /2026-08-19T09:00:00Z/);
     assert.match(line, /stride 2/);
     assert.match(line, /not native 1 km/);
     assert.doesNotMatch(line, /native 1 km MUR/);
+    assert.doesNotMatch(line, /ACSPO/);
+  });
+
+  it("names ACSPO when that grid landed and does not claim MUR", () => {
+    const line = sstHelmLine({
+      source: "noaa",
+      dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+      updatedAt: "2026-08-20T12:00:00.000Z",
+      note: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4. 93×51 at 2026-08-20T12:00:00.000Z.",
+      nowMs: Date.parse("2026-08-21T06:00:00.000Z"),
+    });
+    assert.match(line, /SST ACSPO/);
+    assert.match(line, /18 h/);
+    assert.match(line, /fresh/);
+    assert.doesNotMatch(line, /^SST MUR/);
+    assert.equal(sstLandedName("noaacwLEOACSPOSSTL3SnrtKDaily", line), "ACSPO");
+  });
+
+  it("names GeoPolar and CoralTemp from the landed id", () => {
+    assert.match(
+      sstHelmLine({
+        source: "noaa",
+        dataset: "noaacwBLENDEDsstDNDaily",
+        updatedAt: "2026-08-19T12:00:00.000Z",
+        nowMs: Date.parse("2026-08-21T06:00:00.000Z"),
+      }),
+      /SST GeoPolar/,
+    );
+    assert.match(
+      sstHelmLine({
+        source: "noaa",
+        dataset: "noaacrwsstDaily",
+        updatedAt: "2026-08-19T12:00:00.000Z",
+        nowMs: Date.parse("2026-08-21T06:00:00.000Z"),
+      }),
+      /SST CoralTemp/,
+    );
+  });
+
+  it("does not invent freshness when analysis time is missing", () => {
+    const line = sstHelmLine({
+      source: "noaa",
+      dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+      nowMs: Date.parse("2026-08-21T06:00:00.000Z"),
+    });
+    assert.match(line, /SST ACSPO/);
+    assert.match(line, /age unknown/);
+    assert.doesNotMatch(line, /\bfresh\b/);
+    assert.doesNotMatch(line, /\d+ h/);
   });
 
   it("does not invent live NOAA on a fixture layer", () => {
@@ -814,6 +867,74 @@ describe("sstHelmLine", () => {
       nowMs: Date.parse(START),
     });
     assert.equal(line, "SST fixture — not live NOAA.");
+  });
+});
+
+describe("sstPackRowLabel", () => {
+  it("names the landed product and remaps leftover MUR catalog copy", () => {
+    assert.equal(sstPackRowLabel({ source: "fixture" }), "SST composite (fixture)");
+    assert.equal(
+      sstPackRowLabel({
+        source: "noaa",
+        dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+        stored: "SST composite (MUR / CoastWatch)",
+      }),
+      "SST ACSPO",
+    );
+    assert.equal(sstPackRowLabel({ source: "noaa", dataset: "jplMURSST41" }), "SST MUR");
+    assert.equal(sstPackRowLabel({ source: "noaa", dataset: "noaacwBLENDEDsstDNDaily" }), "SST GeoPolar");
+    assert.equal(sstPackRowLabel({ source: "noaa", dataset: "noaacrwsstDaily" }), "SST CoralTemp");
+    assert.equal(
+      sstPackRowLabel({
+        source: "noaa",
+        note: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4.",
+        stored: "SST composite (MUR / CoastWatch)",
+      }),
+      "SST ACSPO",
+    );
+    assert.doesNotMatch(
+      sstPackRowLabel({ source: "noaa", dataset: "noaacwLEOACSPOSSTL3SnrtKDaily" }),
+      /MUR/,
+    );
+  });
+
+  it("writes the landed name on the fixture-pack row, not the MUR catalog label", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    assert.equal(fixture.manifest.layers.find((l) => l.id === "sst")!.label, "SST composite (fixture)");
+    assert.doesNotMatch(fixture.manifest.layers.find((l) => l.id === "sst")!.label, /MUR/);
+
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "sst",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 24,
+      unit: "degC",
+      values: [[20, 21, 22, 23]],
+      live: true,
+      source: "noaa",
+      updatedAt: "2026-08-20T12:00:00.000Z",
+      dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+      note: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4.",
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { sst: overlay },
+    });
+    const sst = live.manifest.layers.find((l) => l.id === "sst")!;
+    assert.equal(sst.source, "noaa");
+    assert.equal(sst.label, "SST ACSPO");
+    assert.doesNotMatch(sst.label, /MUR/);
   });
 });
 

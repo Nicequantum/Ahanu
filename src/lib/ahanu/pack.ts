@@ -57,7 +57,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "sst-acspo-first-2026-08-21";
+export const PACK_BUILDER_REV = "sst-landed-name-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -158,13 +158,76 @@ function sstAgeBand(ageH: number): "fresh" | "stale" | "missing-band" {
 }
 
 /**
- * Helm copy: real SST source, analysis age, and packed spacing.
- * Does not claim 1 km unless the note says native 1 km arrived.
+ * Product that actually landed. Catalog / leftover MUR labels do not win.
+ * ACSPO notes say "not 1 km MUR" — check ACSPO before MUR.
+ */
+const SST_LANDED_BY_ID: Record<string, string> = {
+  noaacwLEOACSPOSSTL3SnrtKDaily: "ACSPO",
+  jplMURSST41: "MUR",
+  noaacwBLENDEDsstDNDaily: "GeoPolar",
+  noaacrwsstDaily: "CoralTemp",
+  noaacwGEOHIRRSSTGoes16NRT: "GOES-16",
+};
+
+export function sstLandedName(dataset?: string | null, note?: string | null): string | undefined {
+  const id = (dataset ?? "").trim();
+  if (id && SST_LANDED_BY_ID[id]) return SST_LANDED_BY_ID[id];
+  const blob = `${id} ${note ?? ""}`;
+  if (/ACSPO/i.test(blob)) return "ACSPO";
+  if (/GeoPolar/i.test(blob)) return "GeoPolar";
+  if (/CoralTemp|Coral Reef Watch/i.test(blob)) return "CoralTemp";
+  if (/GOES-16|GEOHIRR/i.test(blob)) return "GOES-16";
+  if (/\bMUR\b/i.test(blob)) return "MUR";
+  return undefined;
+}
+
+/** Pack row: name the grid that landed. Do not claim MUR on ACSPO or fixture. */
+export function sstPackRowLabel(input: {
+  dataset?: string | null;
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  const product = sstLandedName(input.dataset, input.note);
+  if (product) return `SST ${product}`;
+  if (input.source === "fixture") return "SST composite (fixture)";
+  if (input.stored && !/MUR\s*\/\s*CoastWatch/i.test(input.stored)) return input.stored;
+  return "SST composite (public ERDDAP)";
+}
+
+function overlaySstMeta(overlay?: string): { dataset?: string; note?: string } {
+  if (!overlay) return {};
+  const parsed = parseLayerBody(overlay);
+  if (!parsed || parsed.kind !== "grid") return {};
+  return {
+    dataset: typeof parsed.dataset === "string" && parsed.dataset ? parsed.dataset : undefined,
+    note: typeof parsed.note === "string" && parsed.note ? parsed.note : undefined,
+  };
+}
+
+function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
+  if (spec.id === "enc" && overlayIsOfficialEnc(overlay)) return "NOAA ENC (official S-57)";
+  if (spec.id === "sst") {
+    const meta = overlaySstMeta(overlay);
+    return sstPackRowLabel({
+      dataset: meta.dataset,
+      note: meta.note,
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  return spec.label;
+}
+
+/**
+ * Helm copy: landed product, analysis age, and packed spacing.
+ * Does not claim MUR when the body is ACSPO. Does not invent freshness.
  */
 export function sstHelmLine(input: {
   source?: string;
   updatedAt?: string;
   note?: string;
+  dataset?: string;
   nowMs?: number;
 }): string {
   const now = input.nowMs ?? Date.now();
@@ -179,8 +242,10 @@ export function sstHelmLine(input: {
   if (input.source !== "noaa" && input.source !== "r2") {
     return "SST fixture — not live NOAA.";
   }
+  const product = sstLandedName(input.dataset, input.note);
   const bits = [
-    `SST ${input.source}`,
+    product ? `SST ${product}` : "SST",
+    input.source,
     ageBit,
     band,
     when,
@@ -614,7 +679,7 @@ export async function buildFixturePack(options: {
     bodies[spec.id] = body;
     layers.push({
       id: spec.id,
-      label: spec.id === "enc" && overlayIsOfficialEnc(overlay) ? "NOAA ENC (official S-57)" : spec.label,
+      label: packRowLabel(spec, overlay),
       sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
       sizeBytes: bytes,
       status: "ready",

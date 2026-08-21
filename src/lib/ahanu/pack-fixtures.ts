@@ -71,7 +71,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "bathymetry", label: "Bathymetry (COG)", hours: 0, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "contours", label: "Depth contours", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
   { id: "canyons", label: "Canyon axes & heads", hours: 0, format: "geojson", contentType: "application/geo+json", ext: "geojson", required: false },
-  { id: "sst", label: "SST composite (MUR / CoastWatch)", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: true },
+  { id: "sst", label: "SST composite (public ERDDAP)", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "chlorophyll", label: "Chlorophyll-a L4", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "altimetry", label: "SSH anomaly", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "wind", label: "NDFD oceanic + GFS-Wave wind GRIB", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },

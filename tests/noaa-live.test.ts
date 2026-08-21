@@ -767,6 +767,9 @@ describe("buildTripPack SST overlay", () => {
     });
     const sst = live.manifest.layers.find((l) => l.id === "sst")!;
     assert.equal(sst.source, "noaa");
+    assert.equal(sst.label, "SST MUR");
+    assert.doesNotMatch(sst.label, /ACSPO/);
+    assert.equal(fixture.manifest.layers.find((l) => l.id === "sst")!.label, "SST composite (fixture)");
     assert.notEqual(sst.hash, fixture.manifest.layers.find((l) => l.id === "sst")!.hash);
     assert.equal(await sha256Hex(live.bodies.sst!), sst.hash);
     assert.equal(sst.updatedAt, START);

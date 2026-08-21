@@ -18,6 +18,7 @@ export interface SampleGrid {
   source?: PackFieldSource;
   note?: string;
   updatedAt?: string;
+  dataset?: string;
   dirValues?: number[][];
   periodValues?: number[][];
 }
@@ -216,6 +217,7 @@ export function gridFromBody(body: PackedBody): SampleGrid | null {
     source: g.source === "noaa" || g.live ? "noaa" : g.source === "r2" ? "r2" : undefined,
     note: g.note,
     updatedAt: g.updatedAt,
+    dataset: g.dataset,
     dirValues: g.dirValues,
     periodValues: g.periodValues,
   };
