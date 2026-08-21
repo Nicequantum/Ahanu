@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (production Download keeps Worker liveErrors, 2026-08-21)
+
+Production Download with Live NOAA off dropped helm `liveErrors` until IDB restore. API still had the SST age keep-line and AIS miss — skipper lost the honest cues after marina-Wi-Fi Download. Production Download already hits the live Worker (`tryLive`; `?live=1` is preview-only). Helm now keeps Worker `liveErrors` the same way restore does. Does not invent errors. Does not auto-flip Accept stale. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (helm wall clock + SST-age Ready badge, 2026-08-21)
 
 Helm `clockMs` was still the leftover demo stamp `2026-08-20T21:40Z`. Packed 8455083 next high/low and the tide now-marker were vs that clock, not wall time — skipper-facing lie. Clock now follows `Date.now()` (local TZ display is fine). Tests that freeze time inject `setHelmNowMs`. tickSim no longer warps 12× from the leftover stamp. Do not invent NOAA tide data.

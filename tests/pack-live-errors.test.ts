@@ -282,3 +282,99 @@ describe("store retry live overlays", () => {
     }
   });
 });
+
+describe("production Download keeps Worker liveErrors", () => {
+  const SST_KEEP = "sst: live refresh still 27 h (ACSPO 2026-08-20T12:00:00.000Z) — kept ACSPO";
+  const AIS_MISS = "ais: no positions in snapshot (0 frames) — live miss";
+
+  async function mockWorkerPack(liveErrors: string[]) {
+    const { buildFixturePack } = await import("../src/lib/ahanu/pack.ts");
+    const built = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      liveErrors,
+    });
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const raw = String(input);
+      const url = raw.startsWith("http") ? raw : `http://ahanu.test${raw}`;
+      if (url.includes("/api/packs")) {
+        return new Response(JSON.stringify(built.manifest), { status: 200 });
+      }
+      const layer = new URL(url).searchParams.get("layer") ?? "";
+      const body = built.bodies[layer];
+      if (!body) return new Response("missing", { status: 404 });
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+    return orig;
+  }
+
+  it("Live NOAA off still shows SST keep-line + AIS miss and does not flip Accept stale", async () => {
+    const orig = await mockWorkerPack([SST_KEEP, AIS_MISS]);
+    const prev = useAhanu.getState();
+    useAhanu.setState({
+      packLive: false,
+      packDownloading: false,
+      packBbox: { ...POINT_JUDITH_CANYON_BBOX },
+      packStart: START,
+      packHours: 72,
+      packLayers: [],
+      packLiveErrors: [],
+      sstStaleOverride: false,
+    });
+    try {
+      await useAhanu.getState().downloadTripPack();
+      const got = useAhanu.getState();
+      assert.equal(got.packLive, false);
+      assert.equal(got.sstStaleOverride, false);
+      assert.ok(got.packLiveErrors.includes(SST_KEEP), got.packLiveErrors.join(" | "));
+      assert.ok(got.packLiveErrors.includes(AIS_MISS), got.packLiveErrors.join(" | "));
+      assert.deepEqual(got.packLiveErrors, got.packManifest?.liveErrors ?? []);
+    } finally {
+      globalThis.fetch = orig;
+      useAhanu.setState({
+        packLive: prev.packLive,
+        packLiveErrors: prev.packLiveErrors,
+        packLayers: prev.packLayers,
+        packManifest: prev.packManifest,
+        packReady: prev.packReady,
+        packDownloading: false,
+        sstStaleOverride: prev.sstStaleOverride,
+      });
+    }
+  });
+
+  it("does not invent helm liveErrors when the Worker list is empty", async () => {
+    const orig = await mockWorkerPack([]);
+    const prev = useAhanu.getState();
+    useAhanu.setState({
+      packLive: false,
+      packDownloading: false,
+      packBbox: { ...POINT_JUDITH_CANYON_BBOX },
+      packStart: START,
+      packHours: 72,
+      packLayers: [],
+      packLiveErrors: ["leftover should be replaced, not kept as invention"],
+      sstStaleOverride: false,
+    });
+    try {
+      await useAhanu.getState().downloadTripPack();
+      const got = useAhanu.getState();
+      assert.deepEqual(got.packLiveErrors, []);
+      assert.equal(got.sstStaleOverride, false);
+    } finally {
+      globalThis.fetch = orig;
+      useAhanu.setState({
+        packLive: prev.packLive,
+        packLiveErrors: prev.packLiveErrors,
+        packLayers: prev.packLayers,
+        packManifest: prev.packManifest,
+        packReady: prev.packReady,
+        packDownloading: false,
+        sstStaleOverride: prev.sstStaleOverride,
+      });
+    }
+  });
+});

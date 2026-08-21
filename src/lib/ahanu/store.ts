@@ -532,7 +532,11 @@ export const useAhanu = create<AhanuState>()(
             packReady: result.ready,
             packDownloading: false,
             packError: result.ready.ready ? null : result.ready.failures.join("; "),
-            packLiveErrors: s.packLive ? capLiveErrors(result.manifest.liveErrors) : [],
+            // Production Download hits the live Worker even when Live NOAA is
+            // off (?live=1 is preview-only). Keep Worker liveErrors (SST age
+            // keep-line, AIS miss) the same way IDB restore does. Do not invent
+            // lines. Do not flip Accept stale.
+            packLiveErrors: capLiveErrors(result.manifest.liveErrors),
             packEpoch: packedEpoch(),
           });
           return result.ready;
