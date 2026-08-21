@@ -75,6 +75,10 @@ export interface EncS57Extract {
       depthContours?: number;
       depthContoursOmitted?: number;
       landAreas?: number;
+      landRegions?: number;
+      lakes?: number;
+      slopes?: number;
+      seabed?: number;
       wrecks?: number;
       obstructions?: number;
       bridges?: number;

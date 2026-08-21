@@ -353,11 +353,17 @@ export function encCoastForChart(): GeoJSON.FeatureCollection {
 }
 
 export function encShoreForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractTyped("enc-s57-shore", LINE) };
+  return {
+    type: "FeatureCollection",
+    features: [...extractTyped("enc-s57-shore", LINE), ...extractTyped("enc-s57-slope", LINE)],
+  };
 }
 
 export function encDepthAreasForChart(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: extractTyped("enc-s57-depth-area", POLY) };
+  return {
+    type: "FeatureCollection",
+    features: [...extractTyped("enc-s57-depth-area", POLY), ...extractTyped("enc-s57-lake", POLY)],
+  };
 }
 
 export function encDepthContoursForChart(): GeoJSON.FeatureCollection {
@@ -372,6 +378,7 @@ export function encHazardsForChart(): GeoJSON.FeatureCollection {
   const features = [
     ...extractFeatures("enc-s57-wreck"),
     ...extractFeatures("enc-s57-obstruction"),
+    ...extractFeatures("enc-s57-seabed"),
     ...extractFeatures("enc-s57-bridge"),
   ];
   return { type: "FeatureCollection", features };

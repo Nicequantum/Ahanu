@@ -21,9 +21,11 @@ const { POINT_JUDITH_CANYON_BBOX, buildFixturePack } = await import("../src/lib/
 const {
   encLandPolygons,
   encCoastForChart,
+  encShoreForChart,
   encDepthAreasForChart,
   encAidsForChart,
   encSoundingsForChart,
+  encHazardsForChart,
 } = await import("../src/lib/ahanu/packed-chart.ts");
 
 const CHART_MAP = fileURLToPath(new URL("../src/components/chartplotter/ChartMap.tsx", import.meta.url));
@@ -210,5 +212,63 @@ describe("ENC source geometry vs layer type", () => {
     assert.equal(aids.features.length, 1);
     assert.equal(aids.features[0]!.geometry.type, "Point");
     assert.equal(encSoundingsForChart().features.length, 1);
+  });
+
+  it("routes leftover skipper kinds without inventing polygons", async () => {
+    const leftover: GeoJSON.Feature[] = [
+      {
+        type: "Feature",
+        properties: { kind: "enc-s57-land", acronym: "LNDRGN" },
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[-71.52, 41.37], [-71.51, 41.37], [-71.51, 41.38], [-71.52, 41.38], [-71.52, 41.37]]],
+        },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "enc-s57-lake", acronym: "LAKARE" },
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[-71.53, 41.36], [-71.52, 41.36], [-71.52, 41.37], [-71.53, 41.37], [-71.53, 41.36]]],
+        },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "enc-s57-slope", acronym: "SLOTOP" },
+        geometry: { type: "LineString", coordinates: [[-71.5, 41.36], [-71.49, 41.36]] },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "enc-s57-seabed", acronym: "SBDARE" },
+        geometry: { type: "Point", coordinates: [-71.51, 41.35] },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "enc-s57-obstruction", acronym: "UWTROC" },
+        geometry: { type: "Point", coordinates: [-71.512, 41.361] },
+      },
+    ];
+    const packed = encToPackedJson(POINT_JUDITH_CANYON_BBOX, [], {
+      catalogUrl: "https://charts.noaa.gov/ENCs/ENCProdCat.xml",
+    });
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: "2026-08-20T12:00:00.000Z",
+      hours: 72,
+      createdAt: "2026-08-20T12:00:00.000Z",
+    });
+    const ocean = packedOceanFromBodies({ ...fixture.bodies, enc: encodeLayerBody(packed) }, "noaa");
+    assert.ok(ocean.enc);
+    ocean.enc.extract = { official: true, note: "S-57 extract — not ECDIS", cells: [], features: leftover };
+    setPackedOcean(ocean);
+    assert.equal(encLandPolygons().features.length, 1);
+    assert.equal(encDepthAreasForChart().features.length, 1);
+    assert.equal((encDepthAreasForChart().features[0]!.properties as { acronym?: string })?.acronym, "LAKARE");
+    assert.equal(encShoreForChart().features.length, 1);
+    assert.equal((encShoreForChart().features[0]!.properties as { acronym?: string })?.acronym, "SLOTOP");
+    const hazards = encHazardsForChart();
+    assert.equal(hazards.features.length, 2);
+    assert.ok(hazards.features.some((f) => (f.properties as { acronym?: string })?.acronym === "SBDARE"));
+    assert.ok(hazards.features.some((f) => (f.properties as { acronym?: string })?.acronym === "UWTROC"));
   });
 });

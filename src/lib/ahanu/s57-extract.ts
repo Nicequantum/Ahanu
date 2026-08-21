@@ -2,7 +2,8 @@
  * Honest S-57 extract from packed official ISO 8211 .000 bytes.
  * Not an ECDIS. Only geometry that is actually in the file.
  * Isolated-node aids/lights + SG3D soundings + connected-node/edge
- * coastline, shoreline, depth, land, wrecks, and obstructions.
+ * coastline, shoreline, depth, land, lakes, seabed, slope, wrecks, rocks,
+ * and obstructions. Not place-name points as fake polygons.
  */
 
 import { base64ToBytes, isIso8211, isS57UpdateFileName, parseS57DsidMeta, s57UpdateNumber, unzipEntries } from "./noaa-enc";
@@ -38,22 +39,36 @@ const OBJL_BOYSPP = 18;
 const OBJL_COALNE = 30;
 const OBJL_DEPARE = 42;
 const OBJL_DEPCNT = 43;
+const OBJL_BUISGL = 12;
+const OBJL_LAKARE = 69;
 const OBJL_LNDARE = 71;
+const OBJL_LNDRGN = 73;
 const OBJL_LIGHTS = 75;
 const OBJL_OBSTRN = 86;
 const OBJL_PILPNT = 90;
+const OBJL_RIVERS = 114;
+const OBJL_ROADWY = 116;
+const OBJL_SEAARE = 119;
+const OBJL_SBDARE = 121;
 const OBJL_SLCONS = 122;
+const OBJL_SLOTOP = 126;
 const OBJL_SOUNDG = 129;
-const OBJL_UWTROC = 144;
+const OBJL_TS_PRH = 136;
+const OBJL_UWTROC = 153;
 const OBJL_WRECKS = 159;
 
 const ATTL_CATWRK = 29;
 const ATTL_CATOBS = 24;
+const ATTL_CATLND = 34;
+const ATTL_CATSLO = 64;
 const ATTL_DRVAL1 = 87;
 const ATTL_DRVAL2 = 88;
+const ATTL_NATSUR = 113;
+const ATTL_NATQUA = 114;
 const ATTL_OBJNAM = 116;
 const ATTL_VALDCO = 174;
 const ATTL_VALSOU = 179;
+const ATTL_WATLEV = 187;
 
 const AID_OBJL = new Set([
   OBJL_BCNCAR,
@@ -84,13 +99,22 @@ export const OBJ_NAME: Record<number, string> = {
   30: "COALNE",
   42: "DEPARE",
   43: "DEPCNT",
+  12: "BUISGL",
+  69: "LAKARE",
   71: "LNDARE",
+  73: "LNDRGN",
   75: "LIGHTS",
   86: "OBSTRN",
   90: "PILPNT",
+  114: "RIVERS",
+  116: "ROADWY",
+  119: "SEAARE",
+  121: "SBDARE",
   122: "SLCONS",
+  126: "SLOTOP",
   129: "SOUNDG",
-  144: "UWTROC",
+  136: "TS_PRH",
+  153: "UWTROC",
   159: "WRECKS",
 };
 
@@ -104,6 +128,9 @@ export type S57ExtractKind =
   | "enc-s57-depth-area"
   | "enc-s57-depth-contour"
   | "enc-s57-land"
+  | "enc-s57-lake"
+  | "enc-s57-slope"
+  | "enc-s57-seabed"
   | "enc-s57-wreck"
   | "enc-s57-obstruction"
   | "enc-s57-bridge";
@@ -127,6 +154,10 @@ export interface S57ExtractCounts {
   depthContours: number;
   depthContoursOmitted: number;
   landAreas: number;
+  landRegions: number;
+  lakes: number;
+  slopes: number;
+  seabed: number;
   wrecks: number;
   obstructions: number;
   bridges: number;
@@ -537,6 +568,15 @@ function acronymOf(objl: number): string {
   return OBJ_NAME[objl] ?? `OBJ${objl}`;
 }
 
+/** Present in these cells but not painted: buildings, named water, roads, rivers, tidal harmonics. */
+export const S57_SKIPPED_OBJL = {
+  BUISGL: OBJL_BUISGL,
+  RIVERS: OBJL_RIVERS,
+  ROADWY: OBJL_ROADWY,
+  SEAARE: OBJL_SEAARE,
+  TS_PRH: OBJL_TS_PRH,
+} as const;
+
 export function countS57ObjectClasses(bytes: Uint8Array): { acronym: string; objl: number; count: number }[] {
   const records = parseIso8211Records(bytes);
   const map = new Map<number, number>();
@@ -778,6 +818,10 @@ export function extractS57FromRecords(records: IsoRecord[], cellId = "UNKNOWN"):
   let soundings = 0;
   let soundingsOmitted = 0;
   let landAreas = 0;
+  let landRegions = 0;
+  let lakes = 0;
+  let slopes = 0;
+  let seabed = 0;
   let wrecks = 0;
   let obstructions = 0;
   let bridges = 0;
@@ -810,6 +854,11 @@ export function extractS57FromRecords(records: IsoRecord[], cellId = "UNKNOWN"):
       valsou: numAttr(attrs, ATTL_VALSOU) ?? null,
       catwrk: numAttr(attrs, ATTL_CATWRK) ?? null,
       catobs: numAttr(attrs, ATTL_CATOBS) ?? null,
+      catlnd: numAttr(attrs, ATTL_CATLND) ?? null,
+      catslo: numAttr(attrs, ATTL_CATSLO) ?? null,
+      natsur: attrs[ATTL_NATSUR] || null,
+      natqua: attrs[ATTL_NATQUA] || null,
+      watlev: numAttr(attrs, ATTL_WATLEV) ?? null,
     };
 
     if (objl === OBJL_SOUNDG) {
@@ -880,6 +929,25 @@ export function extractS57FromRecords(records: IsoRecord[], cellId = "UNKNOWN"):
       else if (prim === PRIM_POINT && emitPoint("enc-s57-land", "LNDARE")) landAreas += 1;
       continue;
     }
+    if (objl === OBJL_LNDRGN) {
+      // Area land/marsh/reef only. Point LNDRGN is a place name — do not invent a polygon.
+      if (prim === PRIM_AREA) landRegions += emitAreas("enc-s57-land", "LNDRGN");
+      continue;
+    }
+    if (objl === OBJL_LAKARE) {
+      if (prim === PRIM_AREA) lakes += emitAreas("enc-s57-lake", "LAKARE");
+      continue;
+    }
+    if (objl === OBJL_SLOTOP) {
+      if (prim === PRIM_LINE) slopes += emitLines("enc-s57-slope", "SLOTOP");
+      continue;
+    }
+    if (objl === OBJL_SBDARE) {
+      if (prim === PRIM_AREA) seabed += emitAreas("enc-s57-seabed", "SBDARE");
+      else if (prim === PRIM_LINE) seabed += emitLines("enc-s57-seabed", "SBDARE");
+      else if (prim === PRIM_POINT && emitPoint("enc-s57-seabed", "SBDARE")) seabed += 1;
+      continue;
+    }
     if (objl === OBJL_WRECKS) {
       if (prim === PRIM_AREA) wrecks += emitAreas("enc-s57-wreck", "WRECKS");
       else if (emitPoint("enc-s57-wreck", "WRECKS")) wrecks += 1;
@@ -934,6 +1002,10 @@ export function extractS57FromRecords(records: IsoRecord[], cellId = "UNKNOWN"):
       depthContours: depcnt.kept.length,
       depthContoursOmitted: depcnt.omitted,
       landAreas,
+      landRegions,
+      lakes,
+      slopes,
+      seabed,
       wrecks,
       obstructions,
       bridges,

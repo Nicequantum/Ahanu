@@ -46,9 +46,18 @@ describe("S-57 extract from recorded official US5PVDCB .000", () => {
     assert.equal(by.OBSTRN, 5);
     assert.equal(by.SOUNDG, 2);
     assert.equal(by.BOYSAW, 16);
+    assert.equal(by.LNDRGN, 57);
+    assert.equal(by.BUISGL, 47);
+    assert.equal(by.LAKARE, 16);
+    assert.equal(by.SLOTOP, 14);
+    assert.equal(by.SBDARE, 19);
+    assert.equal(by.UWTROC, 28);
+    assert.equal(by.SEAARE, 12);
+    assert.equal(by.RIVERS, 5);
+    assert.equal(by.TS_PRH, undefined, "TS_PRH absent — leftover 28 was UWTROC");
+    assert.equal(by.ROADWY, undefined, "ROADWY absent — leftover 5 was RIVERS");
     assert.equal(by.LIGHTS, undefined, "LIGHTS absent from US5PVDCB");
     assert.equal(by.WRECKS, undefined, "WRECKS absent from US5PVDCB");
-    assert.equal(by.UWTROC, undefined, "UWTROC absent from US5PVDCB");
   });
 
   it("paints coastline, shoreline, depth, land, obstructions from real coordinates", () => {
@@ -62,7 +71,11 @@ describe("S-57 extract from recorded official US5PVDCB .000", () => {
     assert.equal(extracted.counts.depthAreas, 30);
     assert.equal(extracted.counts.depthContours, 31);
     assert.equal(extracted.counts.landAreas, 15);
-    assert.equal(extracted.counts.obstructions, 5);
+    assert.equal(extracted.counts.landRegions, 56, "LNDRGN areas only — skip the 1 point name");
+    assert.equal(extracted.counts.lakes, 16);
+    assert.equal(extracted.counts.slopes, 14);
+    assert.equal(extracted.counts.seabed, 19);
+    assert.equal(extracted.counts.obstructions, 33, "5 OBSTRN + 28 UWTROC");
     assert.equal(extracted.counts.wrecks, 0, "do not invent wrecks");
     assert.equal(extracted.counts.lights, 0, "do not invent lights");
     assert.equal(extracted.counts.aids, 23);
@@ -80,8 +93,11 @@ describe("S-57 extract from recorded official US5PVDCB .000", () => {
     assert.equal(kinds.get("enc-s57-shore"), 407);
     assert.equal(kinds.get("enc-s57-depth-area"), 30);
     assert.equal(kinds.get("enc-s57-depth-contour"), 31);
-    assert.equal(kinds.get("enc-s57-land"), 15);
-    assert.equal(kinds.get("enc-s57-obstruction"), 5);
+    assert.equal(kinds.get("enc-s57-land"), 71, "15 LNDARE + 56 LNDRGN areas");
+    assert.equal(kinds.get("enc-s57-lake"), 16);
+    assert.equal(kinds.get("enc-s57-slope"), 14);
+    assert.equal(kinds.get("enc-s57-seabed"), 19);
+    assert.equal(kinds.get("enc-s57-obstruction"), 33);
     assert.equal(kinds.get("enc-s57-wreck"), undefined);
 
     const coast = extracted.features.find((f) => (f.properties as { kind?: string })?.kind === "enc-s57-coastline");
@@ -206,5 +222,79 @@ describe("S-57 extract applies recorded official US5PVDCB.001", () => {
     assert.equal(extracted.edition, "3");
     assert.equal(extracted.updn, "1");
     assert.notEqual(JSON.stringify(extracted.counts), JSON.stringify(before.counts), "update must change extract counts");
+  });
+});
+
+const approach000 = join(here, "fixtures/US5PVDBB.000");
+
+describe("S-57 leftover classes — recount and skipper paint", () => {
+  it("paints harbor LNDRGN areas / LAKARE / SLOTOP / SBDARE / UWTROC from real bytes", () => {
+    const bytes = new Uint8Array(readFileSync(harbor000));
+    const extracted = extractS57FromDot000(bytes, "US5PVDCB");
+    assert.ok(extracted);
+    const lndrgn = extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "LNDRGN");
+    assert.equal(lndrgn.length, 56);
+    assert.ok(lndrgn.every((f) => f.geometry?.type === "Polygon"), "no fake polygons for the point name");
+    const marsh = lndrgn.filter((f) => (f.properties as { catlnd?: number })?.catlnd === 2);
+    assert.ok(marsh.length >= 40, "CATLND 2 marsh is the dominant harbor land region");
+    const lake = extracted.features.find((f) => (f.properties as { acronym?: string })?.acronym === "LAKARE");
+    assert.equal(lake?.geometry?.type, "Polygon");
+    const ring = (lake!.geometry as GeoJSON.Polygon).coordinates[0]!;
+    const [lon, lat] = ring[0]!;
+    assert.ok(lon > -71.56 && lon < -71.46);
+    assert.ok(lat > 41.36 && lat < 41.48);
+    const slope = extracted.features.find((f) => (f.properties as { acronym?: string })?.acronym === "SLOTOP");
+    assert.equal(slope?.geometry?.type, "LineString");
+    assert.equal((slope?.properties as { catslo?: number })?.catslo, 6, "CATSLO 6 cliff");
+    const rock = extracted.features.find((f) => (f.properties as { acronym?: string })?.acronym === "UWTROC");
+    assert.equal(rock?.geometry?.type, "Point");
+    assert.equal((rock?.properties as { kind?: string })?.kind, "enc-s57-obstruction");
+    assert.equal((rock?.properties as { watlev?: number })?.watlev, 4, "covers and uncovers");
+    const [rlon, rlat] = (rock!.geometry as GeoJSON.Point).coordinates;
+    assert.ok(rlon > -71.56 && rlon < -71.46);
+    assert.ok(rlat > 41.36 && rlat < 41.48);
+    const seabed = extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "SBDARE");
+    assert.equal(seabed.length, 19);
+    assert.ok(seabed.some((f) => f.geometry?.type === "Point"));
+    assert.ok(seabed.some((f) => f.geometry?.type === "Polygon"));
+    assert.equal(
+      extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "BUISGL").length,
+      0,
+      "do not paint buildings",
+    );
+    assert.equal(extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "SEAARE").length, 0);
+    assert.equal(extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "RIVERS").length, 0);
+    assert.equal(extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "ROADWY").length, 0);
+    assert.equal(extracted.features.filter((f) => (f.properties as { acronym?: string })?.acronym === "TS_PRH").length, 0);
+  });
+
+  it("recounts US5PVDBB base .000 and paints the same skipper classes when present", () => {
+    const bytes = new Uint8Array(readFileSync(approach000));
+    const classes = countS57ObjectClasses(bytes);
+    const by = Object.fromEntries(classes.map((c) => [c.acronym, c.count]));
+    assert.equal(by.LNDRGN, 65);
+    assert.equal(by.BUISGL, 246);
+    assert.equal(by.LAKARE, 18);
+    assert.equal(by.SLOTOP, 12);
+    assert.equal(by.SBDARE, 50);
+    assert.equal(by.UWTROC, 162);
+    assert.equal(by.SEAARE, 15);
+    assert.equal(by.RIVERS, 11);
+    assert.equal(by.LIGHTS, 10);
+    assert.equal(by.WRECKS, 7);
+    assert.equal(by.TS_PRH, undefined);
+    assert.equal(by.ROADWY, undefined);
+    const extracted = extractS57FromDot000(bytes, "US5PVDBB");
+    assert.ok(extracted);
+    assert.equal(extracted.counts.landRegions, 64);
+    assert.equal(extracted.counts.lakes, 18);
+    assert.equal(extracted.counts.slopes, 12);
+    assert.equal(extracted.counts.seabed, 50);
+    assert.equal(extracted.counts.obstructions, 229, "67 OBSTRN + 162 UWTROC");
+    assert.equal(extracted.counts.lights, 10);
+    assert.equal(extracted.counts.wrecks, 7);
+    const rock = extracted.features.find((f) => (f.properties as { name?: string })?.name === "Peaked Rock");
+    assert.ok(rock);
+    assert.equal(rock!.geometry?.type, "Point");
   });
 });

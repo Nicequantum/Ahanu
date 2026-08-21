@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (leftover S-57 skipper classes, 2026-08-21)
+
+Re-counted leftover classes on real NOAA bytes: harbor **US5PVDCB** `.000` + applied `.001`, neighbor **US5PVDBB** base `.000` only (no `.00n` in that zip). Leftover names were wrong for three present classes: the 28 “TS_PRH” are **UWTROC** (objl 153, covers-and-uncovers rocks); the 12 “SBDARE” are **SEAARE** named coves; the 5 “ROADWY” are **RIVERS**. Real **SBDARE** is objl 121 (19 harbor / 50 approach). **TS_PRH** and **ROADWY** are absent. Extract now paints reconstructable skipper geometry only: **UWTROC** as obstructions (28 / 162), **SBDARE** points+areas (19 / 50), **LAKARE** lake polygons (16 / 18), **SLOTOP** cliff lines CATSLO 6 (14 / 12), **LNDRGN** area land/marsh only (56 of 57 / 64 of 65 — the one point is a place name, no fake polygon). Still skipped: **BUISGL** buildings (47 / 246), **SEAARE** named water (would cover depth), **RIVERS**, **ROADWY** (absent), **TS_PRH** (absent; no harmonic series the helm can show). LIGHTS/WRECKS still absent in harbor, already painted on US5PVDBB. Did not invent S-57. Not an ECDIS. MapLibre worker, ENC update apply, security headers unchanged. No Worker scoring. No Flutter.
+
 ## This pass (PWA GET/HEAD /health, 2026-08-21)
 
 PWA Worker had no `/health` — GET and HEAD were 404 HTML (SPA miss) so ahanu.dev uptime checks failed. GET/HEAD `/health` now return 200 JSON `{ ok: true, service: "ahanu" }` (HEAD empty body) with the same PWA security headers as other documents. SPA `/` and `/login` unchanged. Packs HEAD /health, NDBC probe cache, skipCache limit, catch bind, ENC, GFS, security header values unchanged. No Worker scoring. No Flutter.
