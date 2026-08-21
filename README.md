@@ -78,7 +78,7 @@ Helm Packs download uses `VITE_AHANU_PACKS_URL` (`packsApiBase()` in `src/lib/ah
 - CF/prod PWA: defaults to live ahanu-packs workers.dev. Override with VITE_AHANU_PACKS_URL.
 - Grok/Nitro preview stays same-origin fixture packs. Not the ship path.
 
-Endpoints: GET /health, GET /api/packs, GET /api/objects, GET /api/sources, GET /api/buoys, POST /api/catches.
+Endpoints: GET /health, GET /api/packs, GET /api/objects, GET /api/sources, GET /api/buoys, POST /api/ingest (INGEST_TOKEN), POST /api/catches (device token).
 
 R2 ahanu-trip-packs and D1 ahanu-core exist in ENAM. Live PJ pack on workers.dev is 12 NOAA / 0 fixture. Preview packs without live=1 stay fixtures.
 

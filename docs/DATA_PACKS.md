@@ -160,7 +160,8 @@ Total commonly **60–100 MB**. That is a marina-Wi-Fi download, not a sat-phone
 | Layer `missing`     | Ingest never wrote the key | Pack cannot be Ready if required                                        |
 | Layer `stale`       | Cycle/composite too old    | Weather: not Ready. SST: not Ready unless the skipper accepts stale SST |
 | Hash mismatch       | Bytes ≠ manifest           | Delete object, retry once, then fail the pack                           |
-| 401 on catch POST   | No bearer token            | Keep the catch local, `synced: false`                                   |
+| 401 on catch POST   | No device token            | Keep the catch local, `synced: false`                                   |
+| 401 on ingest POST  | Missing/wrong INGEST_TOKEN | Cron still runs in-process; do not put the secret in VITE_              |
 | No network mid-trip | Expected                   | Freeze last buoy snapshot, keep scoring on packed rasters               |
 
 Never block logging a catch on the network. The logbook is user data; it belongs on the boat first.

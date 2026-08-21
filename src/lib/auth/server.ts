@@ -77,7 +77,8 @@ function previewAuthSecret(): string {
     globalAuthRef.__grokAuthPreviewSecret__ = randomBytes(32).toString("hex");
   } catch {
     // Cloudflare Workers reject node:crypto random at global scope. Helm must
-    // still boot; production should inject BETTER_AUTH_SECRET.
+    // still boot locally. Production CF injects BETTER_AUTH_SECRET as a Worker
+    // secret — do not rely on this fallback there.
     globalAuthRef.__grokAuthPreviewSecret__ =
       "ahanu-cf-preview-auth-secret-set-BETTER_AUTH_SECRET";
   }

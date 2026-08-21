@@ -26,6 +26,7 @@ import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live"
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
 import { ingestFixturePack, persistBuiltPack, ingestDefaultBbox } from "./ingest/run";
+import { requireDeviceAuth, requireIngestAuth } from "./ingest-auth";
 import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
 export type { BBox } from "./ingest/pack";
@@ -421,31 +422,9 @@ const SEED_REPORTS: CommunityReport[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Auth stub — production will verify a device JWT. Missing header = 401.
+// Auth — ingest fail-closed on INGEST_TOKEN; catches stay device-token.
+// Cron is in-process (scheduled → ingestFixturePack) and does not HTTP.
 // ---------------------------------------------------------------------------
-
-function requireAuth(req: Request): Response | null {
-  const header = req.headers.get("Authorization") ?? "";
-  if (!header.startsWith("Bearer ")) {
-    return error(401, "unauthorized", { hint: "Authorization: Bearer <token> (stub — any non-empty token is accepted)" });
-  }
-  const token = header.slice("Bearer ".length).trim();
-  if (!token) {
-    return error(401, "unauthorized", { hint: "empty bearer token" });
-  }
-  return null;
-}
-
-/** Cron is unauthenticated. HTTP ingest requires bearer; INGEST_TOKEN tightens if set. */
-function requireIngestAuth(req: Request, env: Env): Response | null {
-  const denied = requireAuth(req);
-  if (denied) return denied;
-  const secret = (env.INGEST_TOKEN ?? env.AHANU_INGEST_TOKEN ?? "").trim();
-  if (!secret) return null;
-  const token = (req.headers.get("Authorization") ?? "").slice("Bearer ".length).trim();
-  if (token !== secret) return error(401, "unauthorized", { hint: "ingest token mismatch" });
-  return null;
-}
 
 function isSpecies(s: unknown): s is SpeciesId {
   return typeof s === "string" && (SPECIES as readonly string[]).includes(s);
@@ -528,10 +507,10 @@ async function upsertCatch(env: Env, rec: CatchRecord): Promise<CatchRecord> {
 // ---------------------------------------------------------------------------
 
 export class CommunityHub {
-  constructor(
-    private readonly state: DoState,
-    _env: Env,
-  ) {}
+  private readonly state: DoState;
+  constructor(state: DoState, _env: Env) {
+    this.state = state;
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -617,6 +596,7 @@ async function probeNdbc(): Promise<NoaaHealthProbe> {
 
 export default {
   async scheduled(_event: unknown, env: Env, ctx: ExecCtx): Promise<void> {
+    // Privileged: same isolate as INGEST_TOKEN. Does not POST /api/ingest.
     ctx.waitUntil(ingestFixturePack(env));
   },
   async fetch(request: Request, env: Env, ctx?: ExecCtx): Promise<Response> {
@@ -781,7 +761,7 @@ export default {
       }
 
       if (request.method === "POST" && path === "/api/catches") {
-        const denied = requireAuth(request);
+        const denied = requireDeviceAuth(request);
         if (denied) return denied;
         let body: unknown;
         try {

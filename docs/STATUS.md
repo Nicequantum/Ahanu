@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (production secrets + ingest lock, 2026-08-21)
+
+PWA Worker `ahanu` had no secrets; Better Auth fell through to a hardcoded CF preview string. `BETTER_AUTH_SECRET` is now a Worker secret (value not in git). Packs Worker `ahanu-packs` had no secrets; HTTP `POST /api/ingest` accepted any non-empty Bearer. Ingest now fail-closes: missing/empty `INGEST_TOKEN` is 401, mismatch is 401, cron stays in-process (`scheduled` → `ingestFixturePack`) and does not HTTP. `POST /api/catches` still uses the skipper's device token only — ingest secret is not required and is not in `VITE_` public env. Zone `ahanu.app` is not on this account (owned zones: `ahanu.dev`, `clarityautoapex.com`); `api.ahanu.app` stays unattached, workers.dev only. No S-57 renderer change. No Worker scoring. No Flutter.
+
 ## This pass (official S-57 clip, 2026-08-21)
 
 NOAA OCS serves public no-key S-57 exchange-set zips at `https://charts.noaa.gov/ENCs/{CELL}.zip` (HTTP 200, `application/zip`, PK magic, `ENC_ROOT/{CELL}/{CELL}.000` leader `015823LE1`). ENCProdCat.xml 200 / 10.5 MB, `dt_valid` 2026-08-20T04:59:10Z. Point Judith canyon box: 237 active usage 3–5 cells, catalog zip sum 20.7 MB (155 under 80 KB). District/state guesses `01.zip` / `RI.zip` 404. AWS `noaa-enc-pds` 404. ENC Online MapServer HEAD 200 (JSON metadata, not S-57). ENC Direct tiles TLS fail from this host. Full 237-cell set is too many Worker subrequests for one pack GET.

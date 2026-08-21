@@ -56,6 +56,9 @@ new_sqlite_classes = ["CommunityHub"]
 # Ingest cron is on: builds a live PJ pack (tryLive, skipCache) and puts
 # layer bodies at manifest r2Key. NOAA bytes when they landed; hashed
 # fixtures otherwise. Custom domain still reserved; workers.dev only.
-# GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1). POST /api/ingest is bearer-gated.
+# GFS-Wave 72 h series is on (GFS_WAVE_SERIES=1).
+# POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
+# Cron is in-process and does not HTTP POST /api/ingest.
+# POST /api/catches stays device-token Bearer (helm localStorage).
 [triggers]
 crons = ["15 2,8,14,20 * * *"]
