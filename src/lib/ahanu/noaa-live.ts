@@ -83,7 +83,17 @@ export const NORTHEAST_NDBC_IDS = [
   "MTKN6",
 ] as const;
 
+/** Official NOAA CO-OPS mdapi station 8455083 — not 8458022 (Weekapaug Point). */
+export const POINT_JUDITH_COOPS = {
+  id: "8455083",
+  name: "POINT JUDITH, HARBOR OF REFUGE",
+  lat: 41.3633,
+  lon: -71.49,
+  required: true,
+} as const;
+
 export const COOPS_HARBOR_STATIONS = [
+  POINT_JUDITH_COOPS,
   { id: "8452660", name: "Newport", lat: 41.49, lon: -71.327, required: true },
   { id: "8452944", name: "Quonset Point", lat: 41.586, lon: -71.41, required: true },
   { id: "8510560", name: "Montauk", lat: 41.048, lon: -71.959, required: true },

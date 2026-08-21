@@ -175,8 +175,12 @@ describe("tryLiveNoaa", () => {
     assert.equal(buoyPayload.live, true);
     assert.equal(buoyPayload.source, "ndbc");
     assert.ok(buoyPayload.buoys?.some((b) => b.id === "44097"));
-    const tidePayload = live.tides.payload as { stations?: { id: string; series: unknown[] }[] };
+    const tidePayload = live.tides.payload as { stations?: { id: string; name?: string; series: unknown[] }[] };
     assert.ok((tidePayload.stations?.length ?? 0) >= 3);
+    const pj = tidePayload.stations?.find((s) => s.id === "8455083");
+    assert.ok(pj);
+    assert.equal(pj.name, "POINT JUDITH, HARBOR OF REFUGE");
+    assert.ok((pj.series?.length ?? 0) > 0);
   });
 
   it("degrades to empty overlays when the network is blocked", async () => {

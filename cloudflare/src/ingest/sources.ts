@@ -370,8 +370,9 @@ export function altimetry(): IngestMeta {
  *
  *   API:      https://api.tidesandcurrents.noaa.gov/api/prod/
  *   Getter:   https://api.tidesandcurrents.noaa.gov/api/prod/datagetter
- *   Stations: 8452660 Newport, 8452944 Quonset Point, 8510560 Montauk,
- *             8447930 Woods Hole, 8461490 New London, 8449130 Nantucket.
+ *   Stations: 8455083 Point Judith Harbor of Refuge, 8452660 Newport,
+ *             8452944 Quonset Point, 8510560 Montauk, 8447930 Woods Hole,
+ *             8461490 New London, 8449130 Nantucket.
  *   Currents:  https://api.tidesandcurrents.noaa.gov/api/prod/ (product=currents_predictions)
  */
 export function coOpsTides(): IngestMeta {
@@ -388,6 +389,10 @@ export function coOpsTides(): IngestMeta {
       {
         label: "datagetter",
         url: "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter",
+      },
+      {
+        label: "Point Judith Harbor of Refuge (8455083) predictions",
+        url: "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?station=8455083&product=predictions&datum=MLLW&units=english&time_zone=gmt&interval=hilo&format=json",
       },
       {
         label: "Newport (8452660) predictions",

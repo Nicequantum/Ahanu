@@ -4,13 +4,19 @@ import { afterEach, describe, it } from "node:test";
 
 const {
   DEFAULT_TIDE_HARBOR,
+  FALLBACK_TIDE_HARBOR,
   TIDE_HARBOR_KEY,
   packedTideCurve,
+  packedTideHarbors,
   readPersistedTideHarbor,
   readPersistedTideHarborRecord,
   resolveTideHarbor,
   writePersistedTideHarbor,
 } = await import("../src/lib/ahanu/tide-curve.ts");
+const { COOPS_HARBOR_STATIONS, POINT_JUDITH_COOPS, coopsStationsForBox } = await import(
+  "../src/lib/ahanu/noaa-live.ts"
+);
+const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { STORE_PERSIST_KEY } = await import("../src/lib/ahanu/display-mode.ts");
 const { packedOceanFromBodies, setPackedOcean, clearPackedOcean } = await import(
   "../src/lib/ahanu/packed-fields.ts"
@@ -74,16 +80,29 @@ const MONTAUK = {
   hilo: [],
 };
 
+const POINT_JUDITH = {
+  id: POINT_JUDITH_COOPS.id,
+  name: POINT_JUDITH_COOPS.name,
+  lat: POINT_JUDITH_COOPS.lat,
+  lon: POINT_JUDITH_COOPS.lon,
+  interval: "h",
+  datum: "MLLW",
+  series: [{ at: "2026-08-20T12:00:00.000Z", heightFt: 1.1 }],
+  hilo: [],
+};
+
 describe("tide harbor persist", () => {
   afterEach(() => {
     clearPackedOcean();
   });
 
-  it("defaults to Newport when nothing is stored", () => {
-    assert.equal(DEFAULT_TIDE_HARBOR, "Newport");
+  it("defaults to official Point Judith when nothing is stored", () => {
+    assert.equal(DEFAULT_TIDE_HARBOR, "POINT JUDITH, HARBOR OF REFUGE");
+    assert.equal(DEFAULT_TIDE_HARBOR, POINT_JUDITH_COOPS.name);
+    assert.equal(FALLBACK_TIDE_HARBOR, "Newport");
     assert.equal(TIDE_HARBOR_KEY, "ahanu-tide-harbor");
-    assert.equal(readPersistedTideHarbor(memoryStorage()), "Newport");
-    assert.equal(resolveTideHarbor(undefined, memoryStorage()), "Newport");
+    assert.equal(readPersistedTideHarbor(memoryStorage()), POINT_JUDITH_COOPS.name);
+    assert.equal(resolveTideHarbor(undefined, memoryStorage()), POINT_JUDITH_COOPS.name);
   });
 
   it("round-trips a skipper-chosen harbor id and name", () => {
@@ -144,14 +163,14 @@ describe("tide harbor persist", () => {
     assert.equal(curve.nextHigh?.heightFt, 2.8);
   });
 
-  it("missing pack or unknown station resolves to Newport and invents no water levels", () => {
+  it("missing pack or unknown station resolves without inventing water levels", () => {
     const store = memoryStorage();
     writePersistedTideHarbor({ id: "8452944", name: "Quonset Point" }, store);
-    assert.equal(resolveTideHarbor("Quonset Point", store), "Newport");
+    assert.equal(resolveTideHarbor("Quonset Point", store), POINT_JUDITH_COOPS.name);
     assert.equal(packedTideCurve(new Date("2026-08-20T12:00:00.000Z"), resolveTideHarbor("Quonset Point", store)), null);
 
     loadTides({ fixture: true, start: "2026-08-20T12:00:00.000Z", hours: 24, stations: [] });
-    assert.equal(resolveTideHarbor("Montauk", store), "Newport");
+    assert.equal(resolveTideHarbor("Montauk", store), POINT_JUDITH_COOPS.name);
     assert.equal(packedTideCurve(new Date("2026-08-20T12:00:00.000Z"), "Montauk"), null);
 
     loadTides({ fixture: true, start: "2026-08-20T12:00:00.000Z", hours: 24, stations: [NEWPORT, QUONSET, MONTAUK] });
@@ -167,7 +186,53 @@ describe("tide harbor persist", () => {
       [TIDE_HARBOR_KEY]: "{not-json",
       [STORE_PERSIST_KEY]: "not-json",
     });
-    assert.equal(readPersistedTideHarbor(store), "Newport");
+    assert.equal(readPersistedTideHarbor(store), POINT_JUDITH_COOPS.name);
+    assert.equal(resolveTideHarbor(undefined, store), POINT_JUDITH_COOPS.name);
+  });
+
+  it("lists official Point Judith when that station is packed", () => {
+    loadTides({
+      fixture: true,
+      start: "2026-08-20T12:00:00.000Z",
+      hours: 24,
+      stations: [POINT_JUDITH, NEWPORT, QUONSET, MONTAUK],
+    });
+    const names = packedTideHarbors();
+    assert.ok(names.includes(POINT_JUDITH_COOPS.name));
+    assert.ok(names.includes("Newport"));
+    assert.equal(resolveTideHarbor(undefined, memoryStorage()), POINT_JUDITH_COOPS.name);
+    const curve = packedTideCurve(new Date("2026-08-20T12:00:00.000Z"));
+    assert.ok(curve);
+    assert.equal(curve.stationId, "8455083");
+    assert.equal(curve.harbor, POINT_JUDITH_COOPS.name);
+    assert.deepEqual(curve.points, POINT_JUDITH.series);
+  });
+
+  it("keeps a persisted Newport pick when Point Judith is also packed", () => {
+    loadTides({
+      fixture: true,
+      start: "2026-08-20T12:00:00.000Z",
+      hours: 24,
+      stations: [POINT_JUDITH, NEWPORT, QUONSET, MONTAUK],
+    });
+    const store = memoryStorage();
+    writePersistedTideHarbor({ id: "8452660", name: "Newport" }, store);
     assert.equal(resolveTideHarbor(undefined, store), "Newport");
+    assert.equal(resolveTideHarbor(readPersistedTideHarbor(store), store), "Newport");
+  });
+});
+
+describe("CO-OPS Point Judith catalog", () => {
+  it("includes official NOAA station 8455083 POINT JUDITH, HARBOR OF REFUGE", () => {
+    assert.equal(POINT_JUDITH_COOPS.id, "8455083");
+    assert.equal(POINT_JUDITH_COOPS.name, "POINT JUDITH, HARBOR OF REFUGE");
+    assert.equal(POINT_JUDITH_COOPS.lat, 41.3633);
+    assert.equal(POINT_JUDITH_COOPS.lon, -71.49);
+    const row = COOPS_HARBOR_STATIONS.find((s) => s.id === "8455083");
+    assert.ok(row);
+    assert.equal(row.name, "POINT JUDITH, HARBOR OF REFUGE");
+    assert.equal(row.required, true);
+    const boxed = coopsStationsForBox(POINT_JUDITH_CANYON_BBOX);
+    assert.ok(boxed.some((s) => s.id === "8455083" && s.name === "POINT JUDITH, HARBOR OF REFUGE"));
   });
 });

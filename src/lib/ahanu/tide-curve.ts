@@ -6,7 +6,11 @@ import { STORE_PERSIST_KEY } from "./display-mode";
 import type { PackedTideStation } from "./noaa-live";
 import { getPackedOcean } from "./packed-fields";
 
-export const DEFAULT_TIDE_HARBOR = "Newport";
+/** Official NOAA CO-OPS 8455083 name. Must match Worker catalog POINT_JUDITH_COOPS. */
+export const DEFAULT_TIDE_HARBOR = "POINT JUDITH, HARBOR OF REFUGE";
+export const POINT_JUDITH_TIDE_STATION_ID = "8455083";
+/** Last-resort packed harbor when Point Judith is not in this pack. */
+export const FALLBACK_TIDE_HARBOR = "Newport";
 export const TIDE_HARBOR_KEY = "ahanu-tide-harbor";
 
 export interface PersistedTideHarbor {
@@ -60,8 +64,17 @@ export function selectPackedTideStation(harbor = DEFAULT_TIDE_HARBOR): PackedTid
   if (!stations?.length) return null;
   return (
     stations.find((s) => stationMatches(s, harbor)) ??
-    stations.find((s) => stationMatches(s, DEFAULT_TIDE_HARBOR)) ??
+    findPackedPreferredHarbor(stations) ??
+    stations.find((s) => stationMatches(s, FALLBACK_TIDE_HARBOR)) ??
     stations[0] ??
+    null
+  );
+}
+
+function findPackedPreferredHarbor(stations: PackedTideStation[]): PackedTideStation | null {
+  return (
+    stations.find((s) => s.id === POINT_JUDITH_TIDE_STATION_ID) ??
+    stations.find((s) => stationMatches(s, DEFAULT_TIDE_HARBOR)) ??
     null
   );
 }
@@ -131,7 +144,7 @@ function readZustandTideHarbor(raw: string | null): PersistedTideHarbor | null {
   return null;
 }
 
-/** Dedicated key first, then the zustand persist blob, else Newport. */
+/** Dedicated key first, then the zustand persist blob, else Point Judith. */
 export function readPersistedTideHarbor(storage?: Readable | null): string {
   return readPersistedTideHarborRecord(storage)?.name || DEFAULT_TIDE_HARBOR;
 }
@@ -166,8 +179,9 @@ export function writePersistedTideHarbor(
 }
 
 /**
- * Last skipper pick if that station is still packed; otherwise Newport.
- * Missing pack cannot validate — return Newport and do not invent a station.
+ * Last skipper pick if that station is still packed.
+ * Empty persist prefers Point Judith when packed; else Newport.
+ * Missing pack cannot validate — return the default name and do not invent a station.
  */
 export function resolveTideHarbor(want?: string | null, storage?: Readable | null): string {
   const rec = readPersistedTideHarborRecord(storage);
@@ -180,7 +194,11 @@ export function resolveTideHarbor(want?: string | null, storage?: Readable | nul
     (sameRecord && rec?.id ? findPackedTideStation(rec.id) : null) ??
     (sameRecord && rec?.name ? findPackedTideStation(rec.name) : null);
   if (found) return found.name;
-  return findPackedTideStation(DEFAULT_TIDE_HARBOR)?.name ?? DEFAULT_TIDE_HARBOR;
+  return (
+    findPackedPreferredHarbor(stations)?.name ??
+    findPackedTideStation(FALLBACK_TIDE_HARBOR)?.name ??
+    DEFAULT_TIDE_HARBOR
+  );
 }
 
 function kindFromNeighbors(

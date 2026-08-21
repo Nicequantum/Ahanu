@@ -142,7 +142,7 @@ describe("packedTideCurve", () => {
         },
       ],
     });
-    assert.equal(DEFAULT_TIDE_HARBOR, "Newport");
+    assert.equal(DEFAULT_TIDE_HARBOR, "POINT JUDITH, HARBOR OF REFUGE");
     const curve = packedTideCurve(new Date("2026-08-20T12:30:00.000Z"));
     assert.ok(curve);
     assert.equal(curve.harbor, "Newport");
