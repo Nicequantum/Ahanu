@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (Frame harbor = harbor + inlet, 2026-08-21)
+
+Frame harbor preferred **US5PVDCB** only (`-71.55..-71.475, 41.4..41.475`). Galilee / Point Judith Harbor dock (~-71.51, 41.3615) is south of that box; the inlet is off the south edge. Default is now the union of packed official **US5PVDCB + US5PVDBB** (`-71.55..-71.475, 41.325..41.475`). **US5PVDDD** (Narragansett Bay East Pass, north 41.55 / east -71.325) is omitted — the union is not z12–14 harbor-scale. Fallback stays the documented US5PVDBB / PJ box (`41.325..41.4`). Framing still drops Follow; camera persist stays `moveend` → `ahanu-camera`. One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
+
 ## This pass (Frame harbor, 2026-08-21)
 
 Frame pack still fits the whole trip bbox, so harbor ENC is a speck in the NW. Helm now has **Frame harbor** next to Frame pack (plotter + Packs). It fits packed official harbor-scale cells: prefer **US5PVDCB** Point Judith Harbor extract/pack footprint (`-71.55..-71.475, 41.4..41.475` from the official `.000`), else the union of US5PVDCB+US5PVDBB+US5PVDDD, else the documented US5PVDBB / PJ harbor box (`-71.55..-71.475, 41.325..41.4` — ENCProdCat 2026-08-21 / extract, not invented). Framing drops Follow the same way a skipper pan does. Camera persist stays `moveend` → `ahanu-camera`. `maxZoom` 14 so shoreline is readable (z12–14), not the canyon. One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
