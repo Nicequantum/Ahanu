@@ -1,33 +1,65 @@
 /**
- * One-tap Frame harbor. Fits the existing plotter to the union of packed
- * official US5PVDCB + US5PVDBB footprints (Point Judith Harbor + inlet).
- * US5PVDDD is included only when the union stays harbor-scale (z12–14)
- * and does not pull north into Narragansett Bay. Else the documented
- * US5PVDBB / PJ harbor box. Drops Follow the same way a skipper pan
+ * One-tap Frame harbor. Always fitBounds the documented official
+ * US5PVDCB ∪ US5PVDBB box (Point Judith Harbor + inlet) so Galilee
+ * stays in view. Never the tide-harbor store (Newport). Never
+ * US5PVDCD / US3RI1AA / US5PVDDD / whole bay. Huge or wrong extract
+ * footprints are rejected — ENCProdCat 2026-08-21 / official .000
+ * vertices, not invented. Drops Follow the same way a skipper pan
  * does. Camera persist is moveend → ahanu-camera. maxZoom 14 so
  * shoreline is readable (z12–14), not the canyon. Not ECDIS.
  */
 
-import { POINT_JUDITH_HARBOR_BBOX } from "./constants";
+import { NEWPORT, POINT_JUDITH_HARBOR_BBOX } from "./constants";
 import { fitBoundsFromBbox, parsePackBbox } from "./frame-pack";
 import type { PackBBox } from "./pack-fixtures";
 
 export const FRAME_HARBOR_LABEL = "Frame harbor";
 
-/** Official Point Judith Harbor cell. Union with the inlet when packed. */
+/** Official Point Judith Harbor cell (pond). South edge is 41.4 — Galilee is south of this. */
 export const HARBOR_FRAME_CELL = "US5PVDCB";
 
 /** Official inlet / Block Island Sound approach that covers Galilee. */
 export const HARBOR_FRAME_INLET = "US5PVDBB";
 
-/** Packed official harbor + inlet footprints. Default Frame harbor union. */
+/** Packed official harbor + inlet. The only cells Frame harbor may use. */
 export const HARBOR_FRAME_UNION = ["US5PVDCB", "US5PVDBB"] as const;
 
 /**
- * Narragansett Bay East Pass. Include only when the union stays
- * harbor-scale (z12–14) — official footprint pulls north of the harbor.
+ * Narragansett Bay East Pass. Never framed — official footprint
+ * pulls north of the harbor (41.475–41.55).
  */
 export const HARBOR_FRAME_BAY_CELL = "US5PVDDD";
+
+/** East Passage / Newport approach. Never framed. */
+export const HARBOR_FRAME_EAST_PASS = "US5PVDCD";
+
+/** Usage-3 Rhode Island overview. Never framed. */
+export const HARBOR_FRAME_RI_OVERVIEW = "US3RI1AA";
+
+export const HARBOR_FRAME_BANNED = ["US5PVDCD", "US3RI1AA", "US5PVDDD"] as const;
+
+/** Official ENCProdCat / US5PVDCB.000 extract. Pond only — Galilee is south of 41.4. */
+export const US5PVDCB_OFFICIAL_BBOX: PackBBox = {
+  west: -71.55,
+  south: 41.4,
+  east: -71.475,
+  north: 41.475,
+};
+
+/** Official ENCProdCat / US5PVDBB.000 extract. Same as POINT_JUDITH_HARBOR_BBOX. */
+export const US5PVDBB_OFFICIAL_BBOX: PackBBox = { ...POINT_JUDITH_HARBOR_BBOX };
+
+/**
+ * Official US5PVDCB ∪ US5PVDBB. This is the box Frame harbor fitBounds.
+ * west -71.55, south 41.325, east -71.475, north 41.475.
+ * Galilee (41.3615) inside. Newport (41.49) outside.
+ */
+export const HARBOR_FRAME_BBOX: PackBBox = {
+  west: -71.55,
+  south: 41.325,
+  east: -71.475,
+  north: 41.475,
+};
 
 /** Galilee / Point Judith Harbor dock. South of US5PVDCB-only (41.4). */
 export const GALILEE_DOCK = { lon: -71.51, lat: 41.3615 };
@@ -62,6 +94,8 @@ export interface HarborFrameInput {
     east?: unknown;
     north?: unknown;
   }> | null;
+  /** Ignored. Frame harbor is not the tide-harbor picker. */
+  tideHarbor?: unknown;
 }
 
 function bboxFromRing(ring: GeoJSON.Position[] | undefined): PackBBox | null {
@@ -99,24 +133,28 @@ function unionBoxes(boxes: PackBBox[]): PackBBox | null {
   };
 }
 
+function isUnionCell(id: string): id is (typeof HARBOR_FRAME_UNION)[number] {
+  return id === HARBOR_FRAME_CELL || id === HARBOR_FRAME_INLET;
+}
+
 /** Extract bounds first, then enc-s57-cell polygons, then pack catalog boxes. */
 export function harborFootprints(input?: HarborFrameInput | null): Map<string, PackBBox> {
   const out = new Map<string, PackBBox>();
   for (const cell of input?.cells ?? []) {
-    if (!cell?.id) continue;
+    if (!cell?.id || !isUnionCell(cell.id)) continue;
     const bbox = parsePackBbox(cell);
     if (bbox) out.set(cell.id, bbox);
   }
   for (const f of input?.extract?.features ?? []) {
     const props = (f.properties ?? {}) as { id?: string; cellId?: string; kind?: string };
     const id = props.id || props.cellId;
-    if (!id) continue;
+    if (!id || !isUnionCell(id)) continue;
     if (props.kind && props.kind !== "enc-s57-cell") continue;
     const bbox = bboxFromGeometry(f.geometry);
     if (bbox) out.set(id, bbox);
   }
   for (const cell of input?.extract?.cells ?? []) {
-    if (!cell?.cellId) continue;
+    if (!cell?.cellId || !isUnionCell(cell.cellId)) continue;
     const bbox = parsePackBbox(cell.bounds);
     if (bbox) out.set(cell.cellId, bbox);
   }
@@ -132,34 +170,41 @@ export function bboxContainsLonLat(bbox: PackBBox, lon: number, lat: number): bo
   return lon >= bbox.west && lon <= bbox.east && lat >= bbox.south && lat <= bbox.north;
 }
 
+/**
+ * Accept only a harbor-scale US5PVDCB / US5PVDBB print that stays on
+ * the Point Judith cells. Huge extract hulls, Newport, and the bay fail.
+ */
+export function isAcceptedHarborPrint(id: string, box: PackBBox): boolean {
+  if (!isUnionCell(id)) return false;
+  if (!isHarborScaleBbox(box)) return false;
+  if (bboxContainsLonLat(box, NEWPORT.lon, NEWPORT.lat)) return false;
+  if (box.north > 41.48) return false;
+  if (box.east > -71.45) return false;
+  return true;
+}
+
 function sourceOf(ids: string[]): HarborFrameSource {
+  if (!ids.length) return "pj-harbor-box";
   if (ids.length === 1 && ids[0] === HARBOR_FRAME_CELL) return "US5PVDCB";
   return "harbor-union";
 }
 
+/**
+ * Camera box is always the official US5PVDCB ∪ US5PVDBB union.
+ * Packed prints only label which of those two cells landed.
+ * Tide harbor is ignored. Banned cells never join the box.
+ */
 export function harborFrameOf(input?: HarborFrameInput | null): HarborFrame {
   const prints = harborFootprints(input);
-  const ids: string[] = [];
-  const boxes: PackBBox[] = [];
-  for (const id of HARBOR_FRAME_UNION) {
+  const ids = HARBOR_FRAME_UNION.filter((id) => {
     const box = prints.get(id);
-    if (!box) continue;
-    ids.push(id);
-    boxes.push(box);
-  }
-  const union = unionBoxes(boxes);
-  if (union) {
-    const bay = prints.get(HARBOR_FRAME_BAY_CELL);
-    if (bay) {
-      const withBay = unionBoxes([union, bay]);
-      if (withBay && isHarborScaleBbox(withBay)) {
-        const next = [...ids, HARBOR_FRAME_BAY_CELL];
-        return { bbox: withBay, source: sourceOf(next), cellIds: next };
-      }
-    }
-    return { bbox: union, source: sourceOf(ids), cellIds: ids };
-  }
-  return { bbox: { ...POINT_JUDITH_HARBOR_BBOX }, source: "pj-harbor-box", cellIds: [] };
+    return box != null && isAcceptedHarborPrint(id, box);
+  });
+  return {
+    bbox: { ...HARBOR_FRAME_BBOX },
+    source: sourceOf(ids),
+    cellIds: ids,
+  };
 }
 
 export function bboxToFrameHarbor(input?: HarborFrameInput | null): PackBBox {

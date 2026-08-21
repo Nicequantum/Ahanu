@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (Frame harbor = official PJ union only, 2026-08-21)
+
+Live Frame harbor on ahanu.dev jumped to upper Narragansett / Providence (~41.5–41.8N; US5PVDCB / US5PVDCD / US3RI1AA labels). Tide-harbor picker is Newport / Quonset / Montauk / New London — no Point Judith. **Click path is not the tide store:** ChartMap calls applyFrameHarbor(map, getPackedOcean()?.enc) and fitBounds the framed bbox. Live pack extract/catalog for US5PVDCB and US5PVDBB are the official boxes (-71.55..-71.475, 41.4..41.475 and 41.325..41.4). The camera box is now **always** that official union (-71.55..-71.475, 41.325..41.475) so Galilee 41.3615 stays in and Newport 41.49 stays out. Huge extract hulls, US5PVDCD, US3RI1AA, US5PVDDD, and tideHarbor are ignored. One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
+
 ## This pass (Frame harbor = harbor + inlet, 2026-08-21)
 
 Frame harbor preferred **US5PVDCB** only (`-71.55..-71.475, 41.4..41.475`). Galilee / Point Judith Harbor dock (~-71.51, 41.3615) is south of that box; the inlet is off the south edge. Default is now the union of packed official **US5PVDCB + US5PVDBB** (`-71.55..-71.475, 41.325..41.475`). **US5PVDDD** (Narragansett Bay East Pass, north 41.55 / east -71.325) is omitted — the union is not z12–14 harbor-scale. Fallback stays the documented US5PVDBB / PJ box (`41.325..41.4`). Framing still drops Follow; camera persist stays `moveend` → `ahanu-camera`. One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.

@@ -30,18 +30,25 @@ const {
   FRAME_HARBOR_LABEL,
   FRAME_HARBOR_MAX_ZOOM,
   GALILEE_DOCK,
+  HARBOR_FRAME_BANNED,
   HARBOR_FRAME_BAY_CELL,
+  HARBOR_FRAME_BBOX,
   HARBOR_FRAME_CELL,
+  HARBOR_FRAME_EAST_PASS,
   HARBOR_FRAME_INLET,
+  HARBOR_FRAME_RI_OVERVIEW,
   HARBOR_FRAME_UNION,
+  US5PVDBB_OFFICIAL_BBOX,
+  US5PVDCB_OFFICIAL_BBOX,
   applyFrameHarbor,
   bboxContainsLonLat,
   bboxToFrameHarbor,
   harborFrameOf,
   harborFootprints,
+  isAcceptedHarborPrint,
   isHarborScaleBbox,
 } = await import("../src/lib/ahanu/frame-harbor.ts");
-const { POINT_JUDITH_CANYON_BBOX, POINT_JUDITH_HARBOR_BBOX, PLOTTER_MAX_ZOOM } =
+const { NEWPORT, POINT_JUDITH_CANYON_BBOX, POINT_JUDITH_HARBOR_BBOX, PLOTTER_MAX_ZOOM } =
   await import("../src/lib/ahanu/constants.ts");
 const { CAMERA_KEY, writePersistedCamera, readPersistedCamera } =
   await import("../src/lib/ahanu/plotter-camera.ts");
@@ -60,6 +67,8 @@ const STORE = fileURLToPath(new URL("../src/lib/ahanu/store.ts", import.meta.url
 const US5PVDCB = { west: -71.55, south: 41.4, east: -71.475, north: 41.475 };
 const US5PVDBB = { west: -71.55, south: 41.325, east: -71.475, north: 41.4 };
 const US5PVDDD = { west: -71.4, south: 41.475, east: -71.325, north: 41.55 };
+const US5PVDCD = { west: -71.4, south: 41.4, east: -71.325, north: 41.475 };
+const US3RI1AA = { west: -72, south: 40.8, east: -70.8, north: 42 };
 const HARBOR_INLET = { west: -71.55, south: 41.325, east: -71.475, north: 41.475 };
 
 function assertContainsGalilee(bbox: { west: number; south: number; east: number; north: number }) {
@@ -70,6 +79,13 @@ function assertContainsGalilee(bbox: { west: number; south: number; east: number
   assert.ok(bbox.west <= -71.51 && bbox.east >= -71.51);
 }
 
+function assertExcludesNewport(bbox: { west: number; south: number; east: number; north: number }) {
+  assert.equal(NEWPORT.lat, 41.49);
+  assert.equal(NEWPORT.lon, -71.327);
+  assert.equal(bboxContainsLonLat(bbox, NEWPORT.lon, NEWPORT.lat), false, "Newport must stay outside Frame harbor");
+  assert.ok(bbox.north < NEWPORT.lat, "Frame harbor north must stay south of Newport 41.49");
+}
+
 describe("Frame harbor bbox", () => {
   it("labels the helm control Frame harbor", () => {
     assert.equal(FRAME_HARBOR_LABEL, "Frame harbor");
@@ -77,33 +93,44 @@ describe("Frame harbor bbox", () => {
     assert.equal(HARBOR_FRAME_INLET, "US5PVDBB");
     assert.deepEqual([...HARBOR_FRAME_UNION], ["US5PVDCB", "US5PVDBB"]);
     assert.equal(HARBOR_FRAME_BAY_CELL, "US5PVDDD");
+    assert.equal(HARBOR_FRAME_EAST_PASS, "US5PVDCD");
+    assert.equal(HARBOR_FRAME_RI_OVERVIEW, "US3RI1AA");
+    assert.deepEqual([...HARBOR_FRAME_BANNED], ["US5PVDCD", "US3RI1AA", "US5PVDDD"]);
+    assert.deepEqual(HARBOR_FRAME_BBOX, HARBOR_INLET);
+    assert.deepEqual(US5PVDCB_OFFICIAL_BBOX, US5PVDCB);
+    assert.deepEqual(US5PVDBB_OFFICIAL_BBOX, US5PVDBB);
   });
 
-  it("uses the documented US5PVDBB / PJ harbor box when nothing is packed", () => {
+  it("uses the official US5PVDCB∪US5PVDBB box when nothing is packed", () => {
     assert.deepEqual(POINT_JUDITH_HARBOR_BBOX, US5PVDBB);
-    assert.deepEqual(bboxToFrameHarbor(null), { ...POINT_JUDITH_HARBOR_BBOX });
-    assert.deepEqual(bboxToFrameHarbor(undefined), { ...POINT_JUDITH_HARBOR_BBOX });
-    assert.deepEqual(bboxToFrameHarbor({}), { ...POINT_JUDITH_HARBOR_BBOX });
+    assert.deepEqual(bboxToFrameHarbor(null), { ...HARBOR_FRAME_BBOX });
+    assert.deepEqual(bboxToFrameHarbor(undefined), { ...HARBOR_FRAME_BBOX });
+    assert.deepEqual(bboxToFrameHarbor({}), { ...HARBOR_FRAME_BBOX });
     const framed = harborFrameOf(null);
     assert.equal(framed.source, "pj-harbor-box");
     assert.deepEqual(framed.cellIds, []);
     assert.notDeepEqual(framed.bbox, { ...POINT_JUDITH_CANYON_BBOX });
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
     assert.ok(framed.bbox.south <= 41.325 && framed.bbox.north >= 41.4);
   });
 
-  it("unions packed official US5PVDCB+US5PVDBB so Galilee and the inlet stay in view", () => {
+  it("unions packed official US5PVDCB+US5PVDBB so Galilee stays in and Newport stays out", () => {
     const framed = harborFrameOf({
       extract: {
         cells: [
           { cellId: "US5PVDCB", bounds: US5PVDCB },
           { cellId: "US5PVDBB", bounds: US5PVDBB },
           { cellId: "US5PVDDD", bounds: US5PVDDD },
+          { cellId: "US5PVDCD", bounds: US5PVDCD },
+          { cellId: "US3RI1AA", bounds: US3RI1AA },
         ],
       },
       cells: [
         { id: "US5PVDCB", ...US5PVDCB },
         { id: "US5PVDBB", ...US5PVDBB },
+        { id: "US5PVDCD", ...US5PVDCD },
+        { id: "US3RI1AA", ...US3RI1AA },
       ],
     });
     assert.equal(framed.source, "harbor-union");
@@ -113,11 +140,12 @@ describe("Frame harbor bbox", () => {
     assert.ok(framed.bbox.north - framed.bbox.south < 0.2);
     assert.ok(framed.bbox.east - framed.bbox.west < 0.2);
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
     assert.equal(bboxContainsLonLat(US5PVDCB, GALILEE_DOCK.lon, GALILEE_DOCK.lat), false);
     assert.ok(!isHarborScaleBbox({ west: -71.55, south: 41.325, east: -71.325, north: 41.55 }));
   });
 
-  it("uses packed US5PVDBB when US5PVDCB is missing and omits US5PVDDD Bay pull", () => {
+  it("still frames the official union when only US5PVDBB is packed", () => {
     const framed = harborFrameOf({
       extract: {
         cells: [
@@ -128,11 +156,12 @@ describe("Frame harbor bbox", () => {
     });
     assert.equal(framed.source, "harbor-union");
     assert.deepEqual(framed.cellIds, ["US5PVDBB"]);
-    assert.deepEqual(framed.bbox, US5PVDBB);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
   });
 
-  it("includes US5PVDDD only when the union stays harbor-scale", () => {
+  it("never includes US5PVDDD / US5PVDCD / US3RI1AA even when they look harbor-scale", () => {
     const smallBay = { west: -71.475, south: 41.45, east: -71.45, north: 41.475 };
     const framed = harborFrameOf({
       extract: {
@@ -140,25 +169,32 @@ describe("Frame harbor bbox", () => {
           { cellId: "US5PVDCB", bounds: US5PVDCB },
           { cellId: "US5PVDBB", bounds: US5PVDBB },
           { cellId: "US5PVDDD", bounds: smallBay },
+          { cellId: "US5PVDCD", bounds: US5PVDCD },
+          { cellId: "US3RI1AA", bounds: US3RI1AA },
         ],
       },
     });
     assert.equal(framed.source, "harbor-union");
-    assert.deepEqual(framed.cellIds, ["US5PVDCB", "US5PVDBB", "US5PVDDD"]);
-    assert.deepEqual(framed.bbox, { west: -71.55, south: 41.325, east: -71.45, north: 41.475 });
-    assert.ok(isHarborScaleBbox(framed.bbox));
+    assert.deepEqual(framed.cellIds, ["US5PVDCB", "US5PVDBB"]);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assert.ok(!framed.cellIds.includes("US5PVDDD"));
+    assert.ok(!framed.cellIds.includes("US5PVDCD"));
+    assert.ok(!framed.cellIds.includes("US3RI1AA"));
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
   });
 
-  it("reads pack catalog boxes when extract has no bounds", () => {
+  it("reads pack catalog boxes when extract has no bounds and still keeps Galilee", () => {
     const framed = harborFrameOf({
       cells: [{ id: "US5PVDCB", ...US5PVDCB }],
     });
     assert.equal(framed.source, "US5PVDCB");
-    assert.deepEqual(framed.bbox, US5PVDCB);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
   });
 
-  it("reads enc-s57-cell polygons when cell.bounds is missing", () => {
+  it("reads enc-s57-cell polygons when cell.bounds is missing and still keeps Galilee", () => {
     const framed = harborFrameOf({
       extract: {
         features: [
@@ -182,26 +218,75 @@ describe("Frame harbor bbox", () => {
       },
     });
     assert.equal(framed.source, "US5PVDCB");
-    assert.deepEqual(framed.bbox, US5PVDCB);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
   });
 
-  it("extract bounds win over a stale pack catalog box", () => {
+  it("extract bounds win over a stale pack catalog box only when they stay harbor-scale", () => {
     const prints = harborFootprints({
       extract: { cells: [{ cellId: "US5PVDCB", bounds: US5PVDCB }] },
       cells: [{ id: "US5PVDCB", west: -72.8, south: 39.4, east: -68.8, north: 41.5 }],
     });
     assert.deepEqual(prints.get("US5PVDCB"), US5PVDCB);
+    assert.equal(isAcceptedHarborPrint("US5PVDCB", US5PVDCB), true);
+    assert.equal(isAcceptedHarborPrint("US5PVDCB", { west: -72.8, south: 39.4, east: -68.8, north: 41.5 }), false);
   });
 
-  it("ignores canyon-scale leftovers and unused cells", () => {
+  it("ignores canyon leftovers, US3RI1AA, and unused cells", () => {
     const framed = harborFrameOf({
       cells: [
         { id: "US3MA1AC", west: -72.8, south: 39.4, east: -68.8, north: 41.5 },
         { id: "US5NY2GL", west: -72.0, south: 41.04, east: -71.9, north: 41.09 },
+        { id: "US3RI1AA", ...US3RI1AA },
+        { id: "US5PVDCD", ...US5PVDCD },
       ],
     });
     assert.equal(framed.source, "pj-harbor-box");
-    assert.deepEqual(framed.bbox, { ...POINT_JUDITH_HARBOR_BBOX });
+    assert.deepEqual(framed.bbox, { ...HARBOR_FRAME_BBOX });
+    assert.deepEqual(framed.cellIds, []);
+    assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
+  });
+
+  it("rejects a huge US5PVDCB extract and still fitBounds the official union", () => {
+    const huge = { west: -72, south: 40.8, east: -70.8, north: 42 };
+    const framed = harborFrameOf({
+      extract: {
+        cells: [
+          { cellId: "US5PVDCB", bounds: huge },
+          { cellId: "US5PVDBB", bounds: US5PVDBB },
+          { cellId: "US5PVDCD", bounds: US5PVDCD },
+          { cellId: "US3RI1AA", bounds: US3RI1AA },
+        ],
+      },
+      cells: [
+        { id: "US5PVDCB", ...huge },
+        { id: "US5PVDCD", ...US5PVDCD },
+        { id: "US3RI1AA", ...US3RI1AA },
+      ],
+      tideHarbor: "Newport",
+    });
+    assert.equal(framed.source, "harbor-union");
+    assert.deepEqual(framed.cellIds, ["US5PVDBB"]);
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assert.notDeepEqual(framed.bbox, huge);
+    assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
+  });
+
+  it("never frames the tide harbor even when the picker is Newport", () => {
+    const framed = harborFrameOf({
+      tideHarbor: "Newport",
+      cells: [
+        { id: "US5PVDCD", ...US5PVDCD },
+        { id: "US3RI1AA", ...US3RI1AA },
+      ],
+    });
+    assert.deepEqual(framed.bbox, HARBOR_FRAME_BBOX);
+    assertExcludesNewport(framed.bbox);
+    assertContainsGalilee(framed.bbox);
+    assert.equal(bboxContainsLonLat(framed.bbox, -71.327, 41.49), false);
   });
 
   it("frames official US5PVDCB.000 + US5PVDBB.000 extract union, not the trip box", () => {
@@ -222,11 +307,12 @@ describe("Frame harbor bbox", () => {
     assert.deepEqual(framed.cellIds, ["US5PVDCB", "US5PVDBB"]);
     assert.deepEqual(framed.bbox, HARBOR_INLET);
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
     assert.notDeepEqual(framed.bbox, { ...POINT_JUDITH_CANYON_BBOX });
     assert.notDeepEqual(framed.bbox, US5PVDCB);
   });
 
-  it("fitBounds the harbor box at z12–14 on the existing plotter", () => {
+  it("fitBounds the official harbor union at z12–14 on the existing plotter", () => {
     const calls: unknown[] = [];
     const map = {
       fitBounds: (bounds: unknown, opts: unknown) => {
@@ -243,11 +329,12 @@ describe("Frame harbor bbox", () => {
     });
     assert.equal(framed.source, "harbor-union");
     assertContainsGalilee(framed.bbox);
+    assertExcludesNewport(framed.bbox);
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0], {
       bounds: [
-        [HARBOR_INLET.west, HARBOR_INLET.south],
-        [HARBOR_INLET.east, HARBOR_INLET.north],
+        [HARBOR_FRAME_BBOX.west, HARBOR_FRAME_BBOX.south],
+        [HARBOR_FRAME_BBOX.east, HARBOR_FRAME_BBOX.north],
       ],
       opts: { ...FRAME_HARBOR_FIT },
     });
@@ -301,14 +388,23 @@ describe("Frame harbor store", () => {
     assert.equal(useAhanu.getState().followShip, false);
     assert.equal(globalThis.localStorage.getItem(CAMERA_KEY), before);
   });
+
+  it("frameHarbor does not read or write tideHarbor", () => {
+    useAhanu.setState({ tideHarbor: "Newport" });
+    useAhanu.getState().frameHarbor();
+    assert.equal(useAhanu.getState().tideHarbor, "Newport");
+    assert.equal(useAhanu.getState().frameHarborSeq, 1);
+  });
 });
 
 describe("Frame harbor helm wiring", () => {
-  it("ChartMap frames harbor on seq and persists the view on moveend", async () => {
+  it("ChartMap frames packed ENC on seq — never tideHarbor — and persists on moveend", async () => {
     const src = await readFile(CHART_MAP, "utf8");
     assert.match(src, /applyFrameHarbor/);
     assert.match(src, /frameHarborSeq/);
     assert.match(src, /applyFrameHarbor\(map, getPackedOcean\(\)\?\.enc\)/);
+    assert.match(src, /never tideHarbor/);
+    assert.doesNotMatch(src, /applyFrameHarbor\([^)]*tideHarbor/);
     assert.match(src, /map\.on\("moveend"/);
     assert.match(src, /createDebouncedCameraPersist/);
     assert.match(src, /data-map="ahanu"/);
@@ -331,6 +427,7 @@ describe("Frame harbor helm wiring", () => {
     assert.match(store, /followAfterSkipperMapMove/);
     assert.match(store, /frameHarborSeq: s\.frameHarborSeq \+ 1/);
     assert.match(store, /frameHarborSeq: 0/);
+    assert.doesNotMatch(store, /frameHarbor:[\s\S]{0,200}tideHarbor/);
     assert.doesNotMatch(store, /ECDIS/);
   });
 });

@@ -970,6 +970,8 @@ export function ChartMap() {
     if (frameHarborSeq <= 0) return;
     const map = mapRef.current;
     if (!map) return;
+    // Packed ENC only — never tideHarbor (Newport). fitBounds official
+    // US5PVDCB ∪ US5PVDBB (-71.55..-71.475, 41.325..41.475).
     applyFrameHarbor(map, getPackedOcean()?.enc);
   }, [frameHarborSeq]);
 
