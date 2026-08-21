@@ -2,8 +2,17 @@ import "./register-alias.ts";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-const { resolvePackManifest, persistBuiltPack, packManifestR2Key, loadPersistedManifest, hashedLayerR2Key } =
-  await import("../cloudflare/src/ingest/run.ts");
+const {
+  resolvePackManifest,
+  persistBuiltPack,
+  packManifestR2Key,
+  loadPersistedManifest,
+  hashedLayerR2Key,
+  headPackManifest,
+  mergeRefreshKeptLiveErrors,
+  leftoverRefreshKeptErrors,
+  collapseRefreshKeptLiveErrors,
+} = await import("../cloudflare/src/ingest/run.ts");
 const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const worker = (await import("../cloudflare/src/index.ts")).default;
 const { buildTripPack, packIdFor, peekBuiltPack, resetBuiltPackCache, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
@@ -541,13 +550,119 @@ describe("GET /api/packs R2 manifest", () => {
       timeoutMs: 50,
       fetchImpl: async () => new Response("no", { status: 404 }),
     });
-    assert.equal(hit.source, "r2");
-    assert.equal(hit.built, undefined);
     assert.equal(hit.manifest.layers.find((l) => l.id === "sst")?.hash, murSst.hash);
-    assert.ok(
-      (hit.manifest.liveErrors ?? []).some((e) => /sst: live refresh failed/.test(e) && /kept/.test(e)),
-      hit.manifest.liveErrors?.join(" | "),
-    );
+    const sstLines = (hit.manifest.liveErrors ?? []).filter((e) => /sst: live refresh failed/.test(e) && /kept/.test(e));
+    assert.equal(sstLines.length, 1, hit.manifest.liveErrors?.join(" | "));
+    if (hit.built) assert.equal(hit.built.bodies.sst, undefined, "honesty catalog persist must not rewrite SST bytes");
+  });
+
+  it("stale SST keep-line is idempotent across GET persist", async () => {
+    const { env } = mockEnv();
+    const now = new Date("2026-08-21T15:12:00.000Z");
+    const acspoPack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    await persistBuiltPack(env, acspoPack);
+    const sst = acspoPack.manifest.layers.find((l) => l.id === "sst");
+    assert.ok(sst);
+    assert.equal(sst.updatedAt, "2026-08-20T12:00:00.000Z");
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const first = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const firstLines = (first.manifest.liveErrors ?? []).filter((e) => /^sst: live refresh /.test(e));
+    assert.equal(firstLines.length, 1, first.manifest.liveErrors?.join(" | "));
+    assert.match(firstLines[0] ?? "", /still \d+ h/);
+    assert.match(firstLines[0] ?? "", /kept ACSPO/);
+    assert.equal(first.manifest.layers.find((l) => l.id === "sst")?.hash, sst.hash);
+    assert.ok(first.built);
+    assert.equal(first.built.bodies.sst, undefined);
+
+    await persistBuiltPack(env, first.built);
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const second = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const secondLines = (second.manifest.liveErrors ?? []).filter((e) => /^sst: live refresh /.test(e));
+    assert.equal(secondLines.length, 1, second.manifest.liveErrors?.join(" | "));
+    assert.equal(secondLines[0], firstLines[0]);
+    assert.equal(second.built, undefined);
+    assert.equal(second.source, "r2");
+  });
+
+  it("HEAD persist collapses duplicate sst live-refresh liveErrors without NOAA", async () => {
+    const { env, store } = mockEnv();
+    const now = new Date("2026-08-21T15:12:00.000Z");
+    const acspoPack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const line =
+      "sst: live refresh still 27 h (noaacwLEOACSPOSSTL3SnrtKDaily) — kept ACSPO 2026-08-20T12:00:00.000Z";
+    const ais = "ais: no positions in snapshot (0 frames) — live miss";
+    acspoPack.manifest.liveErrors = [line, line, ais];
+    await persistBuiltPack(env, acspoPack);
+    const key = packManifestR2Key(acspoPack.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    stored.liveErrors = [line, line, ais];
+    store.set(key, JSON.stringify(stored));
+    assert.equal(leftoverRefreshKeptErrors(stored.liveErrors), true);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.equal(headed.source, "r2");
+    assert.ok(headed.manifest);
+    const sstLines = (headed.manifest.liveErrors ?? []).filter((e) => /^sst: live refresh /.test(e));
+    assert.equal(sstLines.length, 1, headed.manifest.liveErrors?.join(" | "));
+    assert.ok((headed.manifest.liveErrors ?? []).includes(ais));
+    assert.ok(headed.built);
+    assert.equal(Object.keys(headed.built.bodies).length, 0);
+  });
+});
+
+describe("mergeRefreshKeptLiveErrors", () => {
+  it("replaces same-kind sst keep-lines and drops exact dups", () => {
+    const a = "sst: live refresh still 27 h (noaacwLEOACSPOSSTL3SnrtKDaily) — kept ACSPO 2026-08-20T12:00:00.000Z";
+    const b = "sst: live refresh still 28 h (noaacwLEOACSPOSSTL3SnrtKDaily) — kept ACSPO 2026-08-20T12:00:00.000Z";
+    const ais = "ais: no positions in snapshot (0 frames) — live miss";
+    const merged = mergeRefreshKeptLiveErrors([a, a, ais], b);
+    assert.deepEqual(merged, [b, ais]);
+    assert.equal(leftoverRefreshKeptErrors([a, a, ais]), true);
+    assert.equal(leftoverRefreshKeptErrors([b, ais]), false);
+    assert.deepEqual(collapseRefreshKeptLiveErrors([a, a, ais]), [a, ais]);
   });
 });
 

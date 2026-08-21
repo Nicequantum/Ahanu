@@ -26,8 +26,10 @@
  * from the landed body so R2 cannot keep a MUR label on an ACSPO object.
  * Official ENC persist includes cellIds + updateCount. Serving R2 (GET and
  * HEAD) also rewrites a leftover MUR label when the stored SST body is
- * already ACSPO, and leftover "02° — not 1 km MUR" notes from the first-period
- * strip of 0.02° (no NOAA fetch). HEAD persist writes that catalog rewrite.
+ * already ACSPO, leftover "02° — not 1 km MUR" notes from the first-period
+ * strip of 0.02°, and duplicate sst/enc/tides "live refresh" liveErrors from
+ * stale-SST GET prepend (no NOAA fetch). HEAD persist writes that catalog rewrite.
+ * A stale SST keep-line replaces the previous same-kind line instead of growing.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -233,9 +235,10 @@ export type HeadPackResult =
 /**
  * HEAD /api/packs: last R2 only. Never buildTripPack, never take a
  * skipCache live-rebuild slot. skipCache on the query is ignored.
- * Serving leftover MUR labels on an already-landed ACSPO body, or
- * leftover "02° — not 1 km MUR" notes from the first-period strip, is
- * the same catalog rewrite GET persist uses — no NOAA.
+ * Serving leftover MUR labels on an already-landed ACSPO body,
+ * leftover "02° — not 1 km MUR" notes from the first-period strip, or
+ * duplicate sst/enc/tides live-refresh liveErrors, is the same catalog
+ * rewrite GET persist uses — no NOAA.
  */
 export async function headPackManifest(
   env: IngestEnv,
@@ -319,6 +322,74 @@ export function sstRefreshKeptLine(
   const why =
     errors.filter((e) => /^sst\b/i.test(e)).slice(0, 3).join("; ") || "all public paths failed";
   return `sst: live refresh failed (${why}) — kept ${kept} ${when}`.trim();
+}
+
+export function refreshKeptKind(line: string): "sst" | "enc" | "tides" | null {
+  const t = line.trim();
+  if (/^sst: live refresh /i.test(t)) return "sst";
+  if (/^enc: live refresh /i.test(t)) return "enc";
+  if (/^tides: live refresh /i.test(t)) return "tides";
+  return null;
+}
+
+function liveErrorsEqual(a?: readonly string[] | null, b?: readonly string[] | null): boolean {
+  const aa = a ?? [];
+  const bb = b ?? [];
+  if (aa.length !== bb.length) return false;
+  return aa.every((line, i) => line === bb[i]);
+}
+
+/** Replace same-kind sst/enc/tides refresh-kept lines. Exact dups drop. Newest honesty first. */
+export function mergeRefreshKeptLiveErrors(
+  stored: readonly string[] | undefined | null,
+  honesty: string,
+): string[] {
+  const kind = refreshKeptKind(honesty);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (line: string) => {
+    const t = line.trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  push(honesty);
+  for (const line of stored ?? []) {
+    if (kind && refreshKeptKind(line) === kind) continue;
+    push(line);
+  }
+  return capLiveErrors(out);
+}
+
+export function collapseRefreshKeptLiveErrors(errors: readonly string[] | undefined | null): string[] {
+  const have = new Set<"sst" | "enc" | "tides">();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of errors ?? []) {
+    const t = line.trim();
+    if (!t || seen.has(t)) continue;
+    const kind = refreshKeptKind(t);
+    if (kind) {
+      if (have.has(kind)) continue;
+      have.add(kind);
+    }
+    seen.add(t);
+    out.push(t);
+  }
+  return capLiveErrors(out);
+}
+
+export function leftoverRefreshKeptErrors(errors: readonly string[] | undefined | null): boolean {
+  return !liveErrorsEqual(errors, collapseRefreshKeptLiveErrors(errors));
+}
+
+function honestyOnlyRefresh(stored: BuiltPack["manifest"], honesty: string): ResolvedPack {
+  const liveErrors = mergeRefreshKeptLiveErrors(stored.liveErrors, honesty);
+  if (liveErrorsEqual(liveErrors, stored.liveErrors)) {
+    return { manifest: stored, source: "r2" };
+  }
+  const manifest = { ...stored, liveErrors };
+  return { manifest, source: "live", built: { manifest, bodies: {} } };
 }
 
 async function builtPackWithRefreshedSst(
@@ -429,7 +500,7 @@ async function loadStoredLayerBody(
   return resolveR2LayerBody(env.PACKS, raw);
 }
 
-/** Serving R2: leftover MUR label on an ACSPO body, leftover 02° MUR notes, or official ENC without counts. No NOAA. */
+/** Serving R2: leftover MUR label on an ACSPO body, leftover 02° MUR notes, duplicate live-refresh errors, or official ENC without counts. No NOAA. */
 async function rewriteLeftoverR2Labels(
   env: IngestEnv,
   stored: BuiltPack["manifest"],
@@ -452,9 +523,17 @@ async function rewriteLeftoverR2Labels(
     if (body && encSourceName(body)) overlays.enc = body;
   }
   const notesDirty = leftoverMurNotes(stored.notes);
-  if (!overlays.sst && !overlays.enc && !notesDirty) return { manifest: stored, source: "r2" };
-  const manifest = rewriteLandedManifest(stored, overlays);
-  if (!overlays.sst && !overlays.enc && (manifest.notes ?? "") === (stored.notes ?? "")) {
+  const errorsDirty = leftoverRefreshKeptErrors(stored.liveErrors);
+  if (!overlays.sst && !overlays.enc && !notesDirty && !errorsDirty) return { manifest: stored, source: "r2" };
+  const rewritten = rewriteLandedManifest(stored, overlays);
+  const liveErrors = collapseRefreshKeptLiveErrors(rewritten.liveErrors);
+  const manifest = { ...rewritten, liveErrors };
+  if (
+    !overlays.sst &&
+    !overlays.enc &&
+    (manifest.notes ?? "") === (stored.notes ?? "") &&
+    liveErrorsEqual(liveErrors, stored.liveErrors)
+  ) {
     return { manifest: stored, source: "r2" };
   }
   return { manifest, source: "live", built: { manifest, bodies: overlays } };
@@ -581,10 +660,7 @@ async function refreshShortR2Enc(
     return { manifest: built.manifest, source: "live", built };
   }
   const honesty = encRefreshKeptLine(oldIds, errors);
-  return {
-    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
-    source: "r2",
-  };
+  return honestyOnlyRefresh(stored, honesty);
 }
 
 async function refreshStaleR2Sst(
@@ -614,10 +690,7 @@ async function refreshStaleR2Sst(
     return { manifest: built.manifest, source: "live", built };
   }
   const honesty = sstRefreshKeptLine(sst, ingest, errors, nowMs);
-  return {
-    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
-    source: "r2",
-  };
+  return honestyOnlyRefresh(stored, honesty);
 }
 
 function tidesRefreshKeptLine(haveIds: string[], errors: string[]): string {
@@ -745,10 +818,7 @@ async function refreshShortR2Tides(
     return { manifest: built.manifest, source: "live", built };
   }
   const honesty = tidesRefreshKeptLine(packedTideStationIds(payload), errors);
-  return {
-    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
-    source: "r2",
-  };
+  return honestyOnlyRefresh(stored, honesty);
 }
 
 /** Worker-safe single R2 put. Official S-57 ENC ~3.4 MB stays one object. */

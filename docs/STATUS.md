@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (idempotent SST live-refresh liveErrors, 2026-08-21)
+
+Live GET /api/packs on api.ahanu.dev listed **sst: live refresh still 27 h … kept ACSPO** twice. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. Root cause: stale-SST GET prepended `sstRefreshKeptLine` on every R2 hit, and leftover notes persist wrote that prepend back. Same-kind sst/enc/tides keep-lines now replace; exact dups drop. Serving R2 GET/HEAD persist writes the collapsed list — no NOAA. 8455083 packed. AIS leftover honest. No AIS edit. No Flutter. PR #1 not merged.
+
 ## This pass (SW network-first production packs, 2026-08-21)
 
 SW allowlisted api.ahanu.dev / workers.dev but treated GETs without `live=1` as fixture cache-first. Helm Download talks to the live Worker with Live NOAA off (`?live=1` is preview-only; skipCache is Retry only), so a second dock Download could serve the last SW cache after cron / Retry / notes cleanup. Production pack origins are now network-first (30 s stamp is a hint, not forever). Same-origin fixture stays cache-first. Airplane after dock download still uses IndexedDB + last successful SW cache. Does not invent NOAA. No AIS edit. No Flutter. PR #1 not merged.
