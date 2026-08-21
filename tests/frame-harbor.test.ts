@@ -352,12 +352,12 @@ describe("Frame harbor bbox", () => {
       [-71.55, 41.325],
       [-71.475, 41.475],
     ]);
-    assert.deepEqual(FRAME_HARBOR_CENTER, [-71.5125, 41.4]);
+    assert.deepEqual(FRAME_HARBOR_CENTER, [-71.51, 41.38]);
     assert.ok(
-      Math.abs(FRAME_HARBOR_CENTER[0] - (HARBOR_FRAME_BBOX.west + HARBOR_FRAME_BBOX.east) / 2) < 1e-6,
+      Math.abs((HARBOR_FRAME_BBOX.west + HARBOR_FRAME_BBOX.east) / 2 - (-71.5125)) < 1e-6,
     );
     assert.ok(
-      Math.abs(FRAME_HARBOR_CENTER[1] - (HARBOR_FRAME_BBOX.south + HARBOR_FRAME_BBOX.north) / 2) < 1e-6,
+      Math.abs((HARBOR_FRAME_BBOX.south + HARBOR_FRAME_BBOX.north) / 2 - 41.4) < 1e-6,
     );
     assert.equal(FRAME_HARBOR_ZOOM, 12.5);
     assert.deepEqual(calls[0], {
@@ -457,7 +457,7 @@ describe("Frame harbor click box", () => {
       duration: 500,
       essential: true,
     });
-    assert.deepEqual(calls[0]?.center, [-71.5125, 41.4]);
+    assert.deepEqual(calls[0]?.center, [-71.51, 41.38]);
     assert.equal(calls[0]?.zoom, 12.5);
     assert.equal("offset" in calls[0], false);
     assert.equal("padding" in calls[0], false);
@@ -474,12 +474,14 @@ describe("Frame harbor click box", () => {
   it("Galilee stays inside a 1280×720 view at the official pin", () => {
     const laptop = { width: 1280, height: 720 };
     const view = viewportAtCamera(FRAME_HARBOR_CENTER, FRAME_HARBOR_ZOOM, laptop);
-    // Official pin box is the requirement. Landscape leftover may include US5PVDCD.
+    // Official ENC box still contains Galilee and excludes Newport; camera pin must keep Galilee on screen.
     assertContainsGalilee(HARBOR_FRAME_BBOX);
     assertExcludesNewport(HARBOR_FRAME_BBOX);
     assert.ok(HARBOR_FRAME_BBOX.north < 41.49);
     assert.ok(view.west <= GALILEE_DOCK.lon && view.east >= GALILEE_DOCK.lon);
-    assert.ok(Math.abs(view.south - GALILEE_DOCK.lat) < 0.02 || bboxContainsLonLat(view, GALILEE_DOCK.lon, GALILEE_DOCK.lat));
+    assert.equal(bboxContainsLonLat(view, GALILEE_DOCK.lon, GALILEE_DOCK.lat), true);
+    const shortHelm = viewportAtCamera(FRAME_HARBOR_CENTER, FRAME_HARBOR_ZOOM, { width: 1280, height: 500 });
+    assert.equal(bboxContainsLonLat(shortHelm, GALILEE_DOCK.lon, GALILEE_DOCK.lat), true);
     const mapCalls: unknown[] = [];
     applyFrameHarbor(
       {
@@ -497,7 +499,7 @@ describe("Frame harbor click box", () => {
       offset?: [number, number];
       padding?: unknown;
     };
-    assert.deepEqual(hit.center, [-71.5125, 41.4]);
+    assert.deepEqual(hit.center, [-71.51, 41.38]);
     assert.equal(hit.zoom, 12.5);
     assert.equal(hit.duration, 500);
     assert.equal(hit.essential, true);

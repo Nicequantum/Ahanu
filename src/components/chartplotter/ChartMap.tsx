@@ -972,7 +972,7 @@ export function ChartMap() {
     if (!map) return;
     // Packed ENC only — never tideHarbor (Newport) or Frame pack.
     // easeTo official US5PVDCB ∪ US5PVDBB pin [[-71.55, 41.325], [-71.475, 41.475]]
-    // center [-71.5125, 41.40] zoom 12.5. No fitBounds padding/offset.
+    // center [-71.51, 41.38] zoom 12.5. No fitBounds padding/offset.
     applyFrameHarbor(map, getPackedOcean()?.enc);
   }, [frameHarborSeq]);
 

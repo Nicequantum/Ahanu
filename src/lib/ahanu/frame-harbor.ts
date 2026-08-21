@@ -72,8 +72,8 @@ export const FRAME_HARBOR_MAX_ZOOM = 14;
 /** Documented pin zoom — Galilee stays readable on a laptop plotter. */
 export const FRAME_HARBOR_ZOOM = 12.5;
 
-/** Midpoint of HARBOR_FRAME_BBOX. Literals so the camera is exact. */
-export const FRAME_HARBOR_CENTER: [number, number] = [-71.5125, 41.4];
+/** Galilee pin, not the official-box midpoint. At z12.5, 41.38 keeps Galilee on laptop helms; official box is unchanged. */
+export const FRAME_HARBOR_CENTER: [number, number] = [-71.51, 41.38];
 
 export const FRAME_HARBOR_FIT = {
   padding: 32,
