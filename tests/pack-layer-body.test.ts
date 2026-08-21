@@ -176,4 +176,49 @@ describe("layerBody vs pack manifest hash", () => {
     assert.equal(obj, null);
     assert.equal(fetches, 0);
   });
+
+  it("does not rebuild NOAA when R2 has enc sst wind waves buoys", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      tryLive: true,
+      skipCache: true,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    await persistBuiltPack(env, built);
+    const want = ["enc", "sst", "wind", "waves", "buoys"] as const;
+    for (const id of want) {
+      const rec = built.manifest.layers.find((l) => l.id === id);
+      assert.ok(rec, id);
+      assert.ok(store.has(rec.r2Key), `${id} hash key`);
+      assert.ok(store.has(latestLayerR2Key(built.manifest.packId, id)), `${id} latest`);
+    }
+    assert.ok(store.has(packManifestR2Key(built.manifest.packId)));
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    assert.equal(peekBuiltPack({ bbox: POINT_JUDITH_CANYON_BBOX, start: START, hours: HOURS }), undefined);
+
+    let fetches = 0;
+    for (const id of want) {
+      const rec = built.manifest.layers.find((l) => l.id === id);
+      assert.ok(rec);
+      const obj = await layerBody(env, POINT_JUDITH_CANYON_BBOX, START, HOURS, id, {
+        packId: built.manifest.packId,
+        hash: rec.hash,
+        fetchImpl: async (url) => {
+          fetches += 1;
+          return ndbcFetch(NDBC_N1)(url);
+        },
+      });
+      assert.ok(obj, id);
+      assert.equal(obj.source, "r2", id);
+      assert.equal(obj.hash, rec.hash, id);
+      assert.equal(await sha256Hex(obj.body), rec.hash, id);
+    }
+    assert.equal(fetches, 0, "objects must not rebuild NOAA when R2 has the layer");
+  });
 });

@@ -20,12 +20,12 @@ import {
   specForLayer,
   type BBox,
 } from "./ingest/pack";
-import { buildTripPack, peekBuiltPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
+import { buildTripPack, rememberBuiltPack } from "../../src/lib/ahanu/pack";
 import { layerBody } from "./layer-body";
 import { tryLiveNoaa, NDBC_LATEST_OBS_URL } from "../../src/lib/ahanu/noaa-live";
 import { defaultNoaaFetch, NOAA_GRID_TIMEOUT_MS, NOAA_USER_AGENT } from "../../src/lib/ahanu/noaa-http";
 import { POINT_JUDITH_CANYON_BBOX } from "../../src/lib/ahanu/pack-fixtures";
-import { ingestFixturePack, persistBuiltPack, ingestDefaultBbox } from "./ingest/run";
+import { ingestFixturePack, persistBuiltPack, persistLayerObject, ingestDefaultBbox } from "./ingest/run";
 import { requireDeviceAuth, requireIngestAuth } from "./ingest-auth";
 import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
@@ -58,7 +58,9 @@ interface DoState {
 }
 
 interface R2Like {
-  get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+  get?: (
+    key: string,
+  ) => Promise<{ text: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> } | null>;
   put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
 }
 
@@ -646,16 +648,16 @@ export default {
           hash,
         });
         if (!obj) return error(404, "layer body missing", { layer });
-        if (obj.persist && env.PACKS && typeof env.PACKS.put === "function") {
-          const cached = peekBuiltPack({
-            packId: obj.packId,
-            bbox: bboxOrErr,
-            start,
-            hours: Math.round(hours),
-          });
+        if (obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {
           schedulePersist(
             ctx,
-            cached ? persistBuiltPack(env, cached) : env.PACKS.put(obj.r2Key, obj.persist.body),
+            persistLayerObject(env, {
+              packId: obj.packId,
+              id: spec.id,
+              r2Key: obj.r2Key,
+              hash: obj.hash,
+              body: obj.body,
+            }),
           );
         }
         return new Response(obj.body, {

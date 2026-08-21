@@ -2,12 +2,13 @@
  * Ingest pipeline.
  *
  * Cron (`15 2,8,14,20 * * *`) builds a live Point Judith trip pack
- * (`tryLive`, `skipCache`, NOAA timeouts) and puts each layer body at
- * `rec.r2Key` on R2 `ahanu-trip-packs` when PACKS.put exists. NOAA
- * bytes are written when that overlay landed; hashed fixtures are
- * written honestly when it did not. GET /api/packs never enables the
- * 72 h GFS-Wave series. Cron reads AHANU_GFS_WAVE_SERIES / GFS_WAVE_SERIES
- * and still leaves the series off unless those flags are set.
+ * (`tryLive`, `skipCache`, NOAA timeouts) and puts every advertised
+ * layer body at the hash key, `packs/{packId}/{layer}`, and
+ * `packs/{packId}/manifest.json` on R2 `ahanu-trip-packs` when
+ * PACKS.put exists. Official ENC (~3.4 MB), SST, and GRIB go as one
+ * put (UTF-8 bytes). A body over R2_SINGLE_PUT_MAX_BYTES is split
+ * into parts — never dropped silently. One layer throw does not abort
+ * the rest. GET /api/packs and cron share persistBuiltPack.
  *
  * Official S-57 packs when NOAA zips fetch and parse ISO 8211; catalog-only otherwise.
  * Hour-0 GFS-Wave is not a 72 h grid unless the series completes.
@@ -24,7 +25,9 @@ import { NORTHEAST_BBOX, POINT_JUDITH_CANYON_BBOX, type PackBBox } from "../../.
 export interface IngestEnv {
   PACKS?: {
     put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
-    get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+    get?: (
+      key: string,
+    ) => Promise<{ text: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> } | null>;
   };
   DB?: {
     prepare: (query: string) => {
@@ -47,6 +50,11 @@ export interface IngestLayerWrite {
   hash: string;
 }
 
+export interface IngestLayerFail {
+  id: string;
+  error: string;
+}
+
 export interface IngestResult {
   packId: string;
   r2Prefix: string;
@@ -55,8 +63,30 @@ export interface IngestResult {
   noaa: number;
   fixture: number;
   layers: IngestLayerWrite[];
+  failed: IngestLayerFail[];
   liveErrors: string[];
   d1: boolean;
+}
+
+export interface PersistPutOptions {
+  /** Override R2_SINGLE_PUT_MAX_BYTES (tests). Official ENC ~3.4 MB must fit. */
+  putMaxBytes?: number;
+  partBytes?: number;
+}
+
+export interface PersistLayerInput {
+  packId: string;
+  id: string;
+  r2Key: string;
+  hash: string;
+  body: string;
+}
+
+export interface R2PartPointer {
+  ahanuR2Parts: 1;
+  hash: string;
+  bytes: number;
+  parts: string[];
 }
 
 export interface IngestOptions {
@@ -86,6 +116,124 @@ export function packManifestR2Key(packId: string): string {
   return `packs/${packId}/manifest.json`;
 }
 
+/** Worker-safe single R2 put. Official S-57 ENC ~3.4 MB stays one object. */
+export const R2_SINGLE_PUT_MAX_BYTES = 8_388_608;
+export const R2_PART_BYTES = 4_194_304;
+const PART_POINTER_PREFIX = '{"ahanuR2Parts":';
+
+function utf8(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+function asPutBody(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+export function parseR2PartPointer(text: string): R2PartPointer | null {
+  if (!text.startsWith(PART_POINTER_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(text) as R2PartPointer;
+    if (parsed.ahanuR2Parts !== 1 || !Array.isArray(parsed.parts) || parsed.parts.length === 0) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function r2ObjectText(
+  bucket: IngestEnv["PACKS"],
+  key: string,
+): Promise<string | null> {
+  if (!bucket || typeof bucket.get !== "function") return null;
+  try {
+    const obj = await bucket.get(key);
+    if (!obj) return null;
+    if (typeof obj.arrayBuffer === "function") {
+      const buf = new Uint8Array(await obj.arrayBuffer());
+      return new TextDecoder("utf-8", { fatal: false }).decode(buf);
+    }
+    return await obj.text();
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveR2LayerBody(
+  bucket: IngestEnv["PACKS"],
+  raw: string,
+): Promise<string | null> {
+  const pointer = parseR2PartPointer(raw);
+  if (!pointer) return raw;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (const partKey of pointer.parts) {
+    const part = await r2ObjectText(bucket, partKey);
+    if (part == null) return null;
+    const bytes = utf8(part);
+    chunks.push(bytes);
+    total += bytes.byteLength;
+  }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: false }).decode(out);
+}
+
+async function putObject(
+  bucket: NonNullable<IngestEnv["PACKS"]>,
+  key: string,
+  value: string | Uint8Array,
+): Promise<void> {
+  const body = typeof value === "string" ? asPutBody(utf8(value)) : asPutBody(value);
+  await bucket.put!(key, body);
+}
+
+/**
+ * Write hash key + latest alias. Split only above the real single-put cap.
+ * One throw is returned, not thrown — callers persist the remaining layers.
+ */
+export async function persistLayerObject(
+  env: IngestEnv,
+  rec: PersistLayerInput,
+  opts: PersistPutOptions = {},
+): Promise<{ wrote: boolean; parts: number; error?: string }> {
+  const bucket = env.PACKS;
+  if (!bucket || typeof bucket.put !== "function") return { wrote: false, parts: 0, error: "no PACKS.put" };
+  const bytes = utf8(rec.body);
+  const maxBytes = opts.putMaxBytes ?? R2_SINGLE_PUT_MAX_BYTES;
+  const partBytes = opts.partBytes ?? R2_PART_BYTES;
+  const latest = latestLayerR2Key(rec.packId, rec.id);
+  try {
+    if (bytes.byteLength <= maxBytes) {
+      await putObject(bucket, rec.r2Key, bytes);
+      await putObject(bucket, latest, bytes);
+      return { wrote: true, parts: 0 };
+    }
+    if (partBytes < 1) throw new Error(`layer ${rec.id} is ${bytes.byteLength} B over put cap ${maxBytes} and partBytes is invalid`);
+    const partKeys: string[] = [];
+    for (let i = 0, n = 0; i < bytes.byteLength; i += partBytes, n += 1) {
+      const chunk = bytes.subarray(i, Math.min(i + partBytes, bytes.byteLength));
+      const key = `${rec.r2Key}.part/${String(n).padStart(3, "0")}`;
+      await putObject(bucket, key, chunk);
+      partKeys.push(key);
+    }
+    const pointer = JSON.stringify({
+      ahanuR2Parts: 1,
+      hash: rec.hash,
+      bytes: bytes.byteLength,
+      parts: partKeys,
+    } satisfies R2PartPointer);
+    await putObject(bucket, rec.r2Key, pointer);
+    await putObject(bucket, latest, pointer);
+    return { wrote: true, parts: partKeys.length };
+  } catch (err) {
+    return { wrote: false, parts: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export function layerWrites(manifest: BuiltPack["manifest"], bodies: Record<string, string>): IngestLayerWrite[] {
   const out: IngestLayerWrite[] = [];
   for (const layer of manifest.layers) {
@@ -107,18 +255,36 @@ export async function putPackObjects(
   writes: IngestLayerWrite[],
   bodies: Record<string, string>,
   packId?: string,
-): Promise<number> {
+  opts: PersistPutOptions = {},
+): Promise<{ wrote: number; failed: IngestLayerFail[] }> {
   const bucket = env.PACKS;
-  if (!bucket || typeof bucket.put !== "function") return 0;
+  if (!bucket || typeof bucket.put !== "function") return { wrote: 0, failed: [] };
   let wrote = 0;
+  const failed: IngestLayerFail[] = [];
   for (const rec of writes) {
     const body = bodies[rec.id];
-    if (!body) continue;
-    await bucket.put(rec.r2Key, body);
-    if (packId) await bucket.put(latestLayerR2Key(packId, rec.id), body);
-    wrote += 1;
+    if (!body) {
+      failed.push({ id: rec.id, error: "missing body" });
+      continue;
+    }
+    if (!packId) {
+      try {
+        await putObject(bucket, rec.r2Key, utf8(body));
+        wrote += 1;
+      } catch (err) {
+        failed.push({ id: rec.id, error: err instanceof Error ? err.message : String(err) });
+      }
+      continue;
+    }
+    const one = await persistLayerObject(
+      env,
+      { packId, id: rec.id, r2Key: rec.r2Key, hash: rec.hash, body },
+      opts,
+    );
+    if (one.wrote) wrote += 1;
+    else failed.push({ id: rec.id, error: one.error ?? "put failed" });
   }
-  return wrote;
+  return { wrote, failed };
 }
 
 /**
@@ -152,13 +318,17 @@ export async function syncPackLayers(
   }
 }
 
-export async function persistBuiltPack(env: IngestEnv, built: BuiltPack): Promise<IngestResult> {
+export async function persistBuiltPack(
+  env: IngestEnv,
+  built: BuiltPack,
+  opts: PersistPutOptions = {},
+): Promise<IngestResult> {
   const writes = layerWrites(built.manifest, built.bodies);
-  const wrote = await putPackObjects(env, writes, built.bodies, built.manifest.packId);
+  const { wrote, failed } = await putPackObjects(env, writes, built.bodies, built.manifest.packId, opts);
   const bucket = env.PACKS;
   if (bucket && typeof bucket.put === "function") {
     try {
-      await bucket.put(packManifestR2Key(built.manifest.packId), JSON.stringify(built.manifest));
+      await putObject(bucket, packManifestR2Key(built.manifest.packId), JSON.stringify(built.manifest));
     } catch {
       /* hash + latest keys already written; objects can still use those */
     }
@@ -172,6 +342,7 @@ export async function persistBuiltPack(env: IngestEnv, built: BuiltPack): Promis
     noaa: writes.filter((w) => w.source === "noaa").length,
     fixture: writes.filter((w) => w.source === "fixture").length,
     layers: writes,
+    failed,
     liveErrors: built.manifest.liveErrors ?? [],
     d1,
   };

@@ -16,12 +16,20 @@ import {
   type BuiltPack,
 } from "../../src/lib/ahanu/pack";
 import { NOAA_GRID_TIMEOUT_MS } from "../../src/lib/ahanu/noaa-http";
-import { hashedLayerR2Key, latestLayerR2Key, packManifestR2Key } from "./ingest/run";
+import {
+  hashedLayerR2Key,
+  latestLayerR2Key,
+  packManifestR2Key,
+  resolveR2LayerBody,
+  r2ObjectText,
+} from "./ingest/run";
 import { workerGfsWaveSeriesFlag } from "../../src/lib/ahanu/noaa-gfs";
 
 export interface LayerBodyEnv {
   PACKS?: {
-    get?: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+    get?: (
+      key: string,
+    ) => Promise<{ text: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> } | null>;
     put?: (key: string, value: string | ArrayBuffer) => Promise<unknown>;
   };
   AHANU_GFS_WAVE_SERIES?: string;
@@ -53,14 +61,9 @@ function layerFromBuilt(built: BuiltPack, layerId: string): LayerBodyResult | nu
 }
 
 async function r2Text(bucket: LayerBodyEnv["PACKS"], key: string): Promise<string | null> {
-  if (!bucket || typeof bucket.get !== "function") return null;
-  try {
-    const obj = await bucket.get(key);
-    if (!obj) return null;
-    return await obj.text();
-  } catch {
-    return null;
-  }
+  const raw = await r2ObjectText(bucket, key);
+  if (raw == null) return null;
+  return resolveR2LayerBody(bucket, raw);
 }
 
 async function r2IfHash(

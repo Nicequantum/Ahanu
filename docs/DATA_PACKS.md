@@ -179,4 +179,4 @@ Until a scheduled Worker writes R2:
 3. Replace fixture hashes with those body hashes. Do not leave identity hashes in production.
 4. The client already verifies whatever digest the manifest carries and **does not trust** `readyForOffshore` on the Worker.
 
-Do not assume those R2 objects exist today.
+GET /api/packs and cron write hash key + `packs/{packId}/{layer}` + manifest for every advertised layer. Official ENC (~3.4 MB) is one object. Objects GET must not rebuild NOAA when those keys hit.

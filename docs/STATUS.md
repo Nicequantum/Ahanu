@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (R2 source of truth for every packed layer, 2026-08-21)
+
+GET `/api/packs` and cron already called `persistBuiltPack` for all 12 advertised layers (hash key + `packs/{packId}/{layer}` + manifest). Official ENC is ~3.4 MB and first in persist order — a thrown put aborted SST/GRIB/the rest, so a cold isolate after 02/08/14/20 UTC rebuilt NOAA. Persist now writes UTF-8 bytes, keeps going after one layer throw, and splits only above 8 MiB (official ENC stays one object). Objects GET write-through the served layer when the isolate, not R2, had it. Objects serve R2 without rebuilding NOAA. No ENC/S-57 invented. Ingest stay fail-closed. GFS 72 h, SST stride-2, MapLibre worker, maxZoom 16 unchanged. No Worker scoring. No Flutter.
+
 ## This pass (leftover API auth holes, 2026-08-21)
 
 ahanu-packs HTTP inventory: public by design are OPTIONS, GET `/` `/health`, GET `/api/packs`, GET `/api/objects`, GET `/api/sources`, GET `/api/buoys`. Gated: POST `/api/ingest` (INGEST_TOKEN fail-closed), POST `/api/catches` (skipper device bearer — any non-empty; do not require ingest secret). Closed this pass: `/api/community` GET/POST is 404 (unused; helm paints `src/lib/data/community.ts`). GET `/api/catches` is 404 (no list of other devices). PWA Worker: `/` `/login` public; `/api/auth/*` Better Auth. CF without `BETTER_AUTH_SECRET` now fails closed (no hardcoded preview string). `askSkipper` requires a session before spending `XAI_API_KEY`. Helm download and catch-sync unchanged. No INGEST_TOKEN in VITE_. No Worker scoring. No Flutter.
@@ -200,7 +204,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST / CMEMS (keys / licence). Production R2 objects.
 - Preview `/api/packs` without `live=1`.
-- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 exists but does not yet hold live ENC/GRIB/SST for every layer.
+- AIS demo gateway. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC ~3.4 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
 
 ## What works now (finish-pack-loop)
 

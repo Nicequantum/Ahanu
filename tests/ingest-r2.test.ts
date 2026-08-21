@@ -2,7 +2,9 @@ import "./register-alias.ts";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-const { ingestFixturePack, persistBuiltPack } = await import("../cloudflare/src/ingest/run.ts");
+const { ingestFixturePack, persistBuiltPack, persistLayerObject, latestLayerR2Key, R2_SINGLE_PUT_MAX_BYTES } =
+  await import("../cloudflare/src/ingest/run.ts");
+const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const { resetLiveNoaaCache } = await import("../src/lib/ahanu/noaa-live.ts");
 const { resetBuiltPackCache } = await import("../src/lib/ahanu/pack.ts");
 const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack.ts");
@@ -88,7 +90,7 @@ describe("ingest R2 persist", () => {
       {
         PACKS: {
           put: async (key, value) => {
-            store.set(key, String(value));
+            store.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
           },
         },
         DB: {
@@ -211,5 +213,175 @@ describe("ingest R2 persist", () => {
       START,
     ]);
   });
-});
 
+  it("writes a 3.4 MB official-sized ENC body to hash key and latest alias", async () => {
+    const store = new Map<string, string>();
+    const enc = '{"kind":"enc-clip","zip":"' + "A".repeat(3_400_000) + '"}';
+    const result = await persistBuiltPack(
+      {
+        PACKS: {
+          put: async (key, value) => {
+            store.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
+          },
+          get: async (key) => {
+            const text = store.get(key);
+            return text ? { text: async () => text } : null;
+          },
+        },
+      },
+      {
+        manifest: {
+          packId: "packenc",
+          version: 1,
+          bbox: POINT_JUDITH_CANYON_BBOX,
+          start: START,
+          hours: 72,
+          generatedAt: START,
+          readyForOffshore: false,
+          layers: [
+            {
+              id: "enc",
+              label: "enc",
+              sizeMb: 3.4,
+              sizeBytes: enc.length,
+              status: "ready",
+              updatedAt: START,
+              hours: 0,
+              hash: "enc-hash",
+              r2Key: "packs/packenc/enc/enchash0001.json",
+              contentType: "application/json",
+              format: "enc-clip",
+              source: "noaa",
+            },
+          ],
+          totalBytes: enc.length,
+          totalMb: 3.4,
+          r2Prefix: "packs/packenc",
+          sources: [],
+          notes: "",
+          liveErrors: [],
+          builder: { rev: "test" },
+        },
+        bodies: { enc },
+      },
+    );
+    assert.equal(result.wrote, 1);
+    assert.deepEqual(result.failed, []);
+    assert.ok(enc.length > 3_000_000);
+    assert.ok(enc.length < R2_SINGLE_PUT_MAX_BYTES, "official ENC must fit one put");
+    assert.equal(store.get("packs/packenc/enc/enchash0001.json")?.length, enc.length);
+    assert.equal(store.get("packs/packenc/enc"), enc);
+    assert.ok(![...store.keys()].some((k) => k.includes(".part/")), "must not split 3.4 MB ENC");
+  });
+
+  it("keeps writing remaining layers when one put throws", async () => {
+    const store = new Map<string, string>();
+    const result = await persistBuiltPack(
+      {
+        PACKS: {
+          put: async (key, value) => {
+            if (key.includes("/enc/")) throw new Error("enc too large");
+            store.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
+          },
+        },
+      },
+      {
+        manifest: {
+          packId: "packfail",
+          version: 1,
+          bbox: POINT_JUDITH_CANYON_BBOX,
+          start: START,
+          hours: 72,
+          generatedAt: START,
+          readyForOffshore: false,
+          layers: [
+            {
+              id: "enc",
+              label: "enc",
+              sizeMb: 0,
+              sizeBytes: 4,
+              status: "ready",
+              updatedAt: START,
+              hours: 0,
+              hash: "e1",
+              r2Key: "packs/packfail/enc/e1.json",
+              contentType: "application/json",
+              format: "enc-clip",
+              source: "noaa",
+            },
+            {
+              id: "sst",
+              label: "sst",
+              sizeMb: 0,
+              sizeBytes: 2,
+              status: "ready",
+              updatedAt: START,
+              hours: 24,
+              hash: "s1",
+              r2Key: "packs/packfail/sst/s1.json",
+              contentType: "application/json",
+              format: "grid",
+              source: "noaa",
+            },
+          ],
+          totalBytes: 6,
+          totalMb: 0,
+          r2Prefix: "packs/packfail",
+          sources: [],
+          notes: "",
+          liveErrors: [],
+          builder: { rev: "test" },
+        },
+        bodies: { enc: "ENC!", sst: "{}" },
+      },
+    );
+    assert.equal(result.wrote, 1);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.failed[0]?.id, "enc");
+    assert.equal(store.get("packs/packfail/sst/s1.json"), "{}");
+    assert.equal(store.get(latestLayerR2Key("packfail", "sst")), "{}");
+  });
+
+  it("splits a body over the put cap and reconstructs it for objects GET", async () => {
+    const store = new Map<string, string>();
+    const env = {
+      PACKS: {
+        put: async (key: string, value: string | ArrayBuffer) => {
+          store.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
+        },
+        get: async (key: string) => {
+          const text = store.get(key);
+          return text ? { text: async () => text } : null;
+        },
+      },
+    };
+    const body = "ABCDEFGHIJ".repeat(8); // 80 B
+    const one = await persistLayerObject(
+      env,
+      {
+        packId: "packparts",
+        id: "sst",
+        r2Key: "packs/packparts/sst/hashhashhash.json",
+        hash: "ab",
+        body,
+      },
+      { putMaxBytes: 20, partBytes: 16 },
+    );
+    assert.equal(one.wrote, true);
+    assert.ok(one.parts >= 2);
+    const pointer = store.get("packs/packparts/sst/hashhashhash.json") ?? "";
+    assert.ok(pointer.includes("ahanuR2Parts"), pointer.slice(0, 80));
+    assert.equal(store.get("packs/packparts/sst"), pointer);
+
+    resetBuiltPackCache();
+    const viaLatest = await layerBody(env, POINT_JUDITH_CANYON_BBOX, START, 72, "sst", {
+      packId: "packparts",
+      fetchImpl: async () => {
+        throw new Error("must not rebuild NOAA for split R2 body");
+      },
+    });
+    assert.ok(viaLatest);
+    assert.equal(viaLatest.body, body);
+    assert.equal(viaLatest.source, "r2");
+  });
+});
