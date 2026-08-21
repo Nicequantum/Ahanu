@@ -19,7 +19,7 @@ import { SPECIES_LABELS } from "@/lib/data/species";
 import { applyDisplayMode, applyPersistedDisplayMode } from "@/lib/ahanu/display-mode";
 import { bindUnsyncedCatchRetry, hydrateAhanuStore, markFishHere, useAhanu } from "@/lib/ahanu/store";
 import { readyOffshoreBadge } from "@/lib/ahanu/pack";
-import { restorePackedSession } from "@/lib/ahanu/pack-client";
+import { packsApiBase, restorePackedSession } from "@/lib/ahanu/pack-client";
 import { capLiveErrors } from "@/lib/ahanu/pack";
 import { packedEpoch } from "@/lib/ahanu/packed-fields";
 import { packedTideCurve, packedTideHarbors, resolveTideHarbor } from "@/lib/ahanu/tide-curve";
@@ -73,7 +73,26 @@ export function AppShell() {
   useEffect(() => {
     void hydrateAhanuStore();
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw-ahanu.js", { type: "module" }).catch(() => undefined);
+      void navigator.serviceWorker
+        .register("/sw-ahanu.js", { type: "module" })
+        .then((reg) => {
+          const base = packsApiBase();
+          if (!base) return;
+          let origin = "";
+          try {
+            origin = new URL(base).origin;
+          } catch {
+            return;
+          }
+          const tell = (sw: ServiceWorker | null) => {
+            sw?.postMessage({ type: "ahanu-packs-origin", origin });
+          };
+          tell(reg.installing);
+          tell(reg.waiting);
+          tell(reg.active);
+          void navigator.serviceWorker.ready.then((ready) => tell(ready.active));
+        })
+        .catch(() => undefined);
     }
     void restorePackedSession().then((manifest) => {
       if (manifest) {

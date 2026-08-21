@@ -3,16 +3,51 @@
  * Fixture GET /api/packs and GET /api/objects: cache-first after first success.
  * ?live=1: network-first; a 30 s stamp is only a freshness hint, never "live forever".
  * IndexedDB remains the source of truth for a pack already written on the device.
- * This worker is the same-origin HTTP fallback when those URLs are fetched again.
+ * This worker is the HTTP fallback when those URLs are fetched again — same origin
+ * (local Vite) and the live ahanu-packs Worker. Arbitrary cross-origin is not cached.
  */
 
 export const CACHE_NAME = "ahanu-packs-v2";
 export const LIVE_MAX_AGE_MS = 30_000;
 
+/** Live packs Worker. Helm VITE_AHANU_PACKS_URL points here on CF/prod. */
+export const PACKS_WORKER_ORIGIN = "https://ahanu-packs.hombre3536.workers.dev";
+
+const extraPackOrigins = new Set();
+
 export function isPackPath(pathname) {
   return (
     pathname === "/api/packs" || pathname === "/api/objects" || pathname.startsWith("/api/objects/")
   );
+}
+
+export function allowPackOrigin(origin) {
+  if (typeof origin !== "string" || !origin.trim()) return null;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (u.origin === "null") return null;
+    extraPackOrigins.add(u.origin);
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function resetPackOrigins() {
+  extraPackOrigins.clear();
+}
+
+export function applyPacksOriginMessage(data) {
+  if (!data || data.type !== "ahanu-packs-origin") return null;
+  return allowPackOrigin(data.origin);
+}
+
+export function isAllowedPackOrigin(urlOrigin, selfOrigin) {
+  if (selfOrigin && urlOrigin === selfOrigin) return true;
+  if (urlOrigin === PACKS_WORKER_ORIGIN) return true;
+  if (extraPackOrigins.has(urlOrigin)) return true;
+  return false;
 }
 
 export function isLivePackRequest(url) {
@@ -29,6 +64,17 @@ export function isSkipCachePackRequest(url) {
 export function packFetchStrategy(url) {
   if (!isPackPath(url.pathname)) return null;
   return isLivePackRequest(url) || isSkipCachePackRequest(url) ? "network-first" : "cache-first";
+}
+
+/**
+ * Cross-origin pack GETs must be CORS (readable, cacheable). no-cors would be
+ * opaque — we refuse to invent or store a body we cannot read.
+ */
+export function packNetworkRequest(request, selfOrigin) {
+  const req = typeof request === "string" ? new Request(request) : request;
+  const url = new URL(requestUrl(req));
+  if (selfOrigin && url.origin === selfOrigin) return req;
+  return new Request(req, { mode: "cors", credentials: "omit" });
 }
 
 export function cachedAtMs(res) {
@@ -66,8 +112,12 @@ async function remember(cache, request, res, strategy, now, waitUntil) {
   await put;
 }
 
+function canCachePackResponse(res) {
+  return Boolean(res && res.ok && res.type !== "opaque" && res.type !== "error");
+}
+
 /**
- * Same-origin pack GET handler. Returns null when this worker should not claim the request.
+ * Allowlisted pack GET handler. Returns null when this worker should not claim the request.
  *
  * @param {Request} request
  * @param {{
@@ -82,7 +132,7 @@ async function remember(cache, request, res, strategy, now, waitUntil) {
 export async function respondToPackRequest(request, env) {
   if (request.method !== "GET") return null;
   const url = new URL(requestUrl(request));
-  if (env.origin && url.origin !== env.origin) return null;
+  if (!isAllowedPackOrigin(url.origin, env.origin)) return null;
   const strategy = packFetchStrategy(url);
   if (!strategy) return null;
 
@@ -91,11 +141,13 @@ export async function respondToPackRequest(request, env) {
   const cache = await env.cacheStore.open(CACHE_NAME);
   const cached = await cache.match(request);
 
+  const network = () => fetchImpl(packNetworkRequest(request, env.origin));
+
   if (strategy === "cache-first") {
     if (cached) return cached;
     try {
-      const res = await fetchImpl(request);
-      if (res.ok) await remember(cache, request, res, strategy, now, env.waitUntil);
+      const res = await network();
+      if (canCachePackResponse(res)) await remember(cache, request, res, strategy, now, env.waitUntil);
       return res;
     } catch {
       return Response.error();
@@ -104,8 +156,8 @@ export async function respondToPackRequest(request, env) {
 
   if (cached && isLiveCacheFresh(cached, now) && !isSkipCachePackRequest(url)) return cached;
   try {
-    const res = await fetchImpl(request);
-    if (res.ok) {
+    const res = await network();
+    if (canCachePackResponse(res)) {
       await remember(cache, request, res, strategy, now, env.waitUntil);
       return res;
     }
@@ -143,6 +195,10 @@ if (runningAsServiceWorker()) {
     );
   });
 
+  self.addEventListener("message", (event) => {
+    applyPacksOriginMessage(event.data);
+  });
+
   self.addEventListener("fetch", (event) => {
     const req = event.request;
     if (req.method !== "GET") return;
@@ -152,7 +208,7 @@ if (runningAsServiceWorker()) {
     } catch {
       return;
     }
-    if (url.origin !== self.location.origin) return;
+    if (!isAllowedPackOrigin(url.origin, self.location.origin)) return;
     if (!isPackPath(url.pathname)) return;
     event.respondWith(
       respondToPackRequest(req, {

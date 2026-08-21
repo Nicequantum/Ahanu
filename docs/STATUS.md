@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (SW caches CF packs origin, 2026-08-20)
+
+`public/sw-ahanu.js` now allowlists pack GETs from the helm origin (local Vite) and `https://ahanu-packs.hombre3536.workers.dev` — the live `VITE_AHANU_PACKS_URL`. Paths stay `/api/packs`, `/api/objects`, `/api/objects/*`. Arbitrary cross-origin is not cached. Cross-origin fetch is CORS, not no-cors; a CORS failure does not invent a cached body. Helm also postMessages the packs origin on SW register. Fixture cache-first / `?live=1` network-first unchanged. Cache name remains `ahanu-packs-v2`. A real airplane-mode browser pass still needs a later sea trial. No ENC/S-57 invented. No Worker scoring. No Flutter.
+
 ## This pass (prefer in-window public SST, 2026-08-20)
 
 `fetchLiveSst` still uses ERDDAP `last`. CoralTemp `noaacrwsstDaily` last cell here is 2026-08-18T12:00:00Z (~60 h). PFEG `jplMURSST41` last cell is 2026-08-19T09:00:00Z (~39 h), inside the 48 h Ready window. Probe order now tries MUR first. A parseable grid older than 48 h is skipped when a later public grid is in-window; timestamps stay honest. MUR is subsampled stride 5 to ~0.05° — not native 1 km. GOES-16 dataset id 404s here. Helm **Accept stale SST** remains the path if every public grid is older than 48 h. No Worker scoring. No Flutter.

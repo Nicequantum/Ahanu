@@ -5,10 +5,16 @@ import { afterEach, describe, it } from "node:test";
 const {
   CACHE_NAME,
   LIVE_MAX_AGE_MS,
+  PACKS_WORKER_ORIGIN,
   isPackPath,
+  isAllowedPackOrigin,
+  allowPackOrigin,
+  resetPackOrigins,
+  applyPacksOriginMessage,
   isLivePackRequest,
   isSkipCachePackRequest,
   packFetchStrategy,
+  packNetworkRequest,
   isLiveCacheFresh,
   respondToPackRequest,
 } = await import("../public/sw-ahanu.js");
@@ -66,6 +72,10 @@ function createMemoryCaches() {
 }
 
 describe("SW pack URL strategy", () => {
+  afterEach(() => {
+    resetPackOrigins();
+  });
+
   it("claims packs and objects, not other GET paths", () => {
     assert.equal(isPackPath("/api/packs"), true);
     assert.equal(isPackPath("/api/objects"), true);
@@ -101,6 +111,10 @@ describe("SW pack URL strategy", () => {
 });
 
 describe("respondToPackRequest", () => {
+  afterEach(() => {
+    resetPackOrigins();
+  });
+
   it("cache-first: fixture object is served from cache after first success", async () => {
     const caches = createMemoryCaches();
     let fetches = 0;
@@ -349,6 +363,91 @@ describe("respondToPackRequest", () => {
     assert.equal(cross, null);
     assert.equal(post, null);
     assert.equal(caches._size(), 0);
+  });
+
+  it("treats the live CF packs origin as an allowlisted pack path and caches it", async () => {
+    const url = `${PACKS_WORKER_ORIGIN}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
+    const parsed = new URL(url);
+    assert.equal(PACKS_WORKER_ORIGIN, "https://ahanu-packs.hombre3536.workers.dev");
+    assert.equal(isPackPath(parsed.pathname), true);
+    assert.equal(isAllowedPackOrigin(parsed.origin, ORIGIN), true);
+    assert.equal(isAllowedPackOrigin("https://other.example", ORIGIN), false);
+    assert.equal(packFetchStrategy(parsed), "cache-first");
+    assert.equal(packFetchStrategy(new URL(`${url}&live=1`)), "network-first");
+
+    const caches = createMemoryCaches();
+    let fetches = 0;
+    let seenMode: string | undefined;
+    const env = {
+      fetchImpl: async (input: Request) => {
+        fetches += 1;
+        seenMode = input.mode;
+        return new Response("cf-pack", { status: 200 });
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    };
+    const first = await respondToPackRequest(new Request(url), env);
+    assert.ok(first);
+    assert.equal(await first.text(), "cf-pack");
+    assert.equal(fetches, 1);
+    assert.equal(seenMode, "cors");
+    assert.equal(caches._size(), 1);
+
+    const offline = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 99_999,
+    });
+    assert.ok(offline);
+    assert.equal(await offline.text(), "cf-pack");
+    assert.equal(fetches, 1);
+  });
+
+  it("cross-origin pack fetch uses CORS; a CORS failure does not invent a cached body", async () => {
+    const url = `${PACKS_WORKER_ORIGIN}/api/objects?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}&layer=sst`;
+    const caches = createMemoryCaches();
+    const net = packNetworkRequest(new Request(url), ORIGIN);
+    assert.equal(net.mode, "cors");
+    assert.equal(net.credentials, "omit");
+    const same = packNetworkRequest(new Request(packUrl("/api/packs")), ORIGIN);
+    assert.notEqual(same.mode, "no-cors");
+
+    const failed = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    assert.ok(failed);
+    assert.equal(failed.type, "error");
+    assert.equal(caches._size(), 0);
+  });
+
+  it("postMessage can allowlist an extra packs origin; arbitrary hosts stay rejected", async () => {
+    const extra = "https://packs.example.test";
+    assert.equal(isAllowedPackOrigin(extra, ORIGIN), false);
+    assert.equal(applyPacksOriginMessage({ type: "ahanu-packs-origin", origin: extra }), extra);
+    assert.equal(isAllowedPackOrigin(extra, ORIGIN), true);
+    assert.equal(isAllowedPackOrigin("https://evil.example/api/packs", ORIGIN), false);
+    assert.equal(allowPackOrigin("ftp://nope.example"), null);
+
+    const caches = createMemoryCaches();
+    const url = `${extra}/api/packs?west=-72.8&south=39.4&east=-68.8&north=41.5&hours=72&start=${START}`;
+    const res = await respondToPackRequest(new Request(url), {
+      fetchImpl: async () => new Response("extra-pack", { status: 200 }),
+      cacheStore: caches,
+      origin: ORIGIN,
+      now: 1_000,
+    });
+    assert.equal(await res!.text(), "extra-pack");
+    assert.equal(caches._size(), 1);
   });
 });
 
