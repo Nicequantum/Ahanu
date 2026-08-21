@@ -2035,6 +2035,9 @@ describe("official S-57 pack", () => {
       cell("US4NY1CY", 4, "New York", 45000, 237503, -71.7, 41.1, -71.4, 41.4),
       cell("US4RI1EA", 4, "Rhode Island", 45000, 131608, -71.7, 41.4, -71.4, 41.7),
       cell("US4MA1BD", 4, "Southern Massachusetts", 45000, 14684, -70.8, 40.5, -70.5, 40.8),
+      cell("US3MA1BD", 3, "Massachusetts", 180000, 148781, -69.6, 40.8, -68.4, 42.0),
+      cell("US3NY1AG", 3, "New York", 350000, 95346, -72.0, 39.6, -70.8, 40.8),
+      cell("US3CT1AA", 3, "Connecticut", 350000, 100142, -73.2, 40.8, -72.0, 42.0),
     ];
     const picks = pickOfficialEncCells(cells);
     const ids = picks.map((c) => c.id);
@@ -2060,6 +2063,9 @@ describe("official S-57 pack", () => {
     }
     assert.ok(!ids.includes("US5MA1CL"), "Edgartown Pond is not the dock-to-canyon set");
     assert.ok(!ids.includes("US4MA1BD"), "south-of-MA approach is not the dock-to-canyon set");
+    assert.ok(!ids.includes("US3MA1BD"), "leftover coastal must not crowd out approach cells");
+    assert.ok(!ids.includes("US3NY1AG"), "leftover coastal must not crowd out approach cells");
+    assert.ok(!ids.includes("US3CT1AA"), "leftover coastal must not crowd out approach cells");
     assert.ok(!ids.includes("US5FAKE1"), "must not invent cells");
     assert.ok(picks.length <= ENC_S57_MAX_CELLS);
     assert.ok(picks.length <= 16);

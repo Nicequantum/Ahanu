@@ -303,12 +303,17 @@ export function pickOfficialEncCells(
   const coastalCanyon = coastal
     .filter((c) => CANYON_HEAD_POINTS.some((h) => coversPoint(c, h.lat, h.lon)))
     .sort(byDetail);
-  for (const c of [...coastalHarbor, ...coastalCanyon, ...coastal.sort(byDetail)]) {
+  // Harbor/canyon coastal first, then usage-4 approach. Do not dump every
+  // leftover usage-3 into the cap or Block Island / Narragansett approach lose.
+  for (const c of [...coastalHarbor, ...coastalCanyon]) {
     addOfficialCell(out, used, c, maxCells, maxTotal, maxEach);
   }
   for (const h of [...APPROACH_POINTS, ...HARBOR_POINTS, ...INLET_POINTS]) {
     const hits = cells.filter((c) => c.usage === 4 && coversPoint(c, h.lat, h.lon)).sort(byDetail);
     addOfficialCell(out, used, hits[0], maxCells, maxTotal, maxEach);
+  }
+  for (const c of coastal.sort(byDetail)) {
+    addOfficialCell(out, used, c, maxCells, maxTotal, maxEach);
   }
   return out;
 }
