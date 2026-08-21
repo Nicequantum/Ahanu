@@ -511,4 +511,163 @@ describe("paced GFS-Wave series", () => {
     assert.notDeepEqual(merged.values[i3], fix.values[i3]);
     assert.deepEqual(merged.values[i9], fix.values[i9]);
   });
+
+  function mockCycleFetch(ok: Record<string, number[]>, tracker?: { urls: string[] }) {
+    return async (url: string) => {
+      tracker?.urls.push(url);
+      if (!url.includes("filter_gfswave")) return new Response("no", { status: 404 });
+      const file = url.match(/gfswave\.t(\d{2})z\.atlocn\.0p16\.f(\d{3})\.grib2/);
+      const dir = decodeURIComponent(url).match(/\/gfs\.(\d{8})\/(\d{2})\//);
+      if (!file || !dir) return new Response("bad", { status: 404 });
+      const key = `${dir[1]}${dir[2]}`;
+      const hour = Number(file[2]);
+      if (!ok[key]?.includes(hour)) return new Response("missing", { status: 404 });
+      return new Response(encodeHourSample(hour, 5 + hour / 3, 1 + hour / 12), { status: 200 });
+    };
+  }
+
+  it("picks a complete previous cycle over an incomplete newer 00z", async () => {
+    const { pickGfsWaveSeriesCycle, gfsWaveSeriesHours, gfsLiveHoursNote } = await import(
+      "../src/lib/ahanu/noaa-gfs.ts"
+    );
+    const { tryLiveNoaa } = await import("../src/lib/ahanu/noaa-live.ts");
+    const wanted = gfsWaveSeriesHours();
+    const pick = pickGfsWaveSeriesCycle(
+      [
+        { ymd: "20260821", cc: "00", hasHorizon: false, prefixHours: 27 },
+        { ymd: "20260820", cc: "18", hasHorizon: true, prefixHours: 72 },
+        { ymd: "20260820", cc: "12", hasHorizon: true, prefixHours: 72 },
+      ],
+      72,
+    );
+    assert.equal(pick?.ymd, "20260820");
+    assert.equal(pick?.cc, "18");
+    const now = new Date("2026-08-21T03:00:00.000Z");
+    const byCycle: Record<string, number[]> = {
+      "2026082100": wanted.filter((h) => h <= 27),
+      "2026082018": wanted,
+      "2026082012": wanted,
+      "2026082006": wanted,
+    };
+    const tracker = { urls: [] as string[] };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      now,
+      gfsWaveSeries: { enabled: true, hours: wanted, paceMs: 0 },
+      fetchImpl: mockCycleFetch(byCycle, tracker),
+    });
+    assert.equal(live.gfsWaveSeries?.complete, true);
+    assert.equal(live.gfsWaveSeries?.hoursCovered, 72);
+    assert.equal(live.gfsWaveSeries?.cycle?.ymd, "20260820");
+    assert.equal(live.gfsWaveSeries?.cycle?.cc, "18");
+    const z00 = tracker.urls.filter((u) => decodeURIComponent(u).includes("/gfs.20260821/00/"));
+    assert.ok(z00.length >= 1);
+    assert.ok(z00.every((u) => u.includes("f072")), "00z should only be horizon-probed");
+    const pack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      skipCache: true,
+      now,
+      gfsWaveSeries: { enabled: true, hours: wanted, paceMs: 0 },
+      fetchImpl: mockCycleFetch(byCycle),
+    });
+    const wind = pack.manifest.layers.find((l) => l.id === "wind")!;
+    assert.equal(wind.source, "noaa");
+    const body = parseLayerBody(pack.bodies.wind!) as { fixture?: boolean; hours?: number[]; note?: string };
+    assert.equal(body.fixture, false);
+    assert.deepEqual(body.hours, wanted);
+    assert.ok(!(pack.manifest.liveErrors ?? []).some((e) => e.includes("fixture")));
+    assert.match(gfsLiveHoursNote(wanted, 72, { ymd: "20260820", cc: "18" }), /20260820 18z hours 0–72 live/);
+  });
+
+  it("picks the newest cycle when every candidate has the horizon", async () => {
+    const { pickGfsWaveSeriesCycle, gfsWaveSeriesHours } = await import("../src/lib/ahanu/noaa-gfs.ts");
+    const { tryLiveNoaa } = await import("../src/lib/ahanu/noaa-live.ts");
+    const wanted = gfsWaveSeriesHours();
+    const pick = pickGfsWaveSeriesCycle(
+      [
+        { ymd: "20260821", cc: "00", hasHorizon: true, prefixHours: 72 },
+        { ymd: "20260820", cc: "18", hasHorizon: true, prefixHours: 72 },
+      ],
+      72,
+    );
+    assert.equal(pick?.cc, "00");
+    const now = new Date("2026-08-21T03:00:00.000Z");
+    const byCycle: Record<string, number[]> = {
+      "2026082100": wanted,
+      "2026082018": wanted,
+      "2026082012": wanted,
+      "2026082006": wanted,
+    };
+    const tracker = { urls: [] as string[] };
+    const live = await tryLiveNoaa({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      skipCache: true,
+      now,
+      gfsWaveSeries: { enabled: true, hours: wanted, paceMs: 0 },
+      fetchImpl: mockCycleFetch(byCycle, tracker),
+    });
+    assert.equal(live.gfsWaveSeries?.complete, true);
+    assert.equal(live.gfsWaveSeries?.cycle?.ymd, "20260821");
+    assert.equal(live.gfsWaveSeries?.cycle?.cc, "00");
+    const z18 = tracker.urls.filter((u) => decodeURIComponent(u).includes("/gfs.20260820/18/"));
+    assert.equal(z18.length, 0, "should not probe older cycles after newest horizon hits");
+  });
+
+  it("picks the best prefix and names the fixture tail when every cycle is incomplete", async () => {
+    const { pickGfsWaveSeriesCycle, gfsWaveSeriesHours, gfsLiveHoursNote } = await import(
+      "../src/lib/ahanu/noaa-gfs.ts"
+    );
+    const wanted = gfsWaveSeriesHours();
+    const pick = pickGfsWaveSeriesCycle(
+      [
+        { ymd: "20260821", cc: "00", hasHorizon: false, prefixHours: 27 },
+        { ymd: "20260820", cc: "18", hasHorizon: false, prefixHours: 54 },
+        { ymd: "20260820", cc: "12", hasHorizon: false, prefixHours: 36 },
+        { ymd: "20260820", cc: "06", hasHorizon: false, prefixHours: 18 },
+      ],
+      72,
+    );
+    assert.equal(pick?.ymd, "20260820");
+    assert.equal(pick?.cc, "18");
+    assert.equal(pick?.prefixHours, 54);
+    const now = new Date("2026-08-21T03:00:00.000Z");
+    const byCycle: Record<string, number[]> = {
+      "2026082100": wanted.filter((h) => h <= 27),
+      "2026082018": wanted.filter((h) => h <= 54),
+      "2026082012": wanted.filter((h) => h <= 36),
+      "2026082006": wanted.filter((h) => h <= 18),
+    };
+    const pack = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      tryLive: true,
+      timeoutMs: 1000,
+      skipCache: true,
+      now,
+      gfsWaveSeries: { enabled: true, hours: wanted, paceMs: 0 },
+      fetchImpl: mockCycleFetch(byCycle),
+    });
+    const note = (pack.manifest.liveErrors ?? []).find((e) => e.startsWith("gfs:")) ?? "";
+    assert.match(note, /20260820 18z/);
+    assert.match(note, /hours 0–54 live/);
+    assert.match(note, /remaining hours through 72 fixture/);
+    const body = parseLayerBody(pack.bodies.wind!) as { fixture?: boolean; note?: string };
+    assert.equal(body.fixture, true);
+    assert.match(body.note ?? "", /20260820 18z/);
+    assert.match(body.note ?? "", /0–54 live/);
+    assert.ok(!(body.note ?? "").includes("f000–f072 / 3 h"));
+    assert.match(gfsLiveHoursNote(wanted.filter((h) => h <= 54), 72, { ymd: "20260820", cc: "18" }), /20260820 18z hours 0–54 live/);
+  });
 });

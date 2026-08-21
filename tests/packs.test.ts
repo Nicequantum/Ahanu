@@ -40,7 +40,7 @@ describe("fixture pack hashes", () => {
       createdAt: START,
     });
     assert.equal(manifest.layers.length, 12);
-    assert.equal(PACK_BUILDER_REV, "enc-s57-2026-08-21");
+    assert.equal(PACK_BUILDER_REV, "gfs-horizon-cycle-2026-08-21");
     assert.equal(manifest.builder.rev, PACK_BUILDER_REV);
     for (const layer of manifest.layers) {
       const body = bodies[layer.id];
@@ -758,6 +758,10 @@ describe("live ingest errors on pack session", () => {
     assert.equal(isHonestyLiveError(GFS_HOUR0_FIXTURE_NOTE), true);
     assert.equal(
       isHonestyLiveError("gfs: hours 0,3,6 live; remaining hours through 72 fixture (series incomplete)"),
+      true,
+    );
+    assert.equal(
+      isHonestyLiveError("gfs: 20260820 18z hours 0–54 live; remaining hours through 72 fixture (series incomplete)"),
       true,
     );
     assert.equal(isHonestyLiveError("sst: fetch failed"), false);

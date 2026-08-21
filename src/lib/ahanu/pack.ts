@@ -27,6 +27,7 @@ import {
 } from "./pack-fixtures";
 import {
   GFS_HOUR0_FIXTURE_NOTE,
+  formatGfsWaveCycle,
   gfsHour0FixtureNote,
   gfsLiveHoursNote,
   hour0Plane,
@@ -56,7 +57,7 @@ export const SST_MISSING_H = 48;
 export const WEATHER_STALE_H = 6;
 
 /** Hand-bumped when the pack merge contract changes. Not a live git hash. */
-export const PACK_BUILDER_REV = "enc-s57-2026-08-21";
+export const PACK_BUILDER_REV = "gfs-horizon-cycle-2026-08-21";
 
 export interface PackLayerRecord {
   id: PackLayerId;
@@ -684,6 +685,7 @@ function overlayGfsWindWaves(input: {
         fetchedHours: number[];
         windKt?: PackedGrid;
         waveFt?: PackedGrid;
+        cycle?: { ymd: string; cc: string };
       }
     | undefined;
   hour0Wind?: PackedGrid;
@@ -700,7 +702,7 @@ function overlayGfsWindWaves(input: {
   const liveHours = series?.fetchedHours?.length
     ? series.fetchedHours
     : ((input.hour0Wind ?? input.hour0Waves)?.hours ?? [0]);
-  const note = seriesOff ? gfsHour0FixtureNote("off") : gfsLiveHoursNote(liveHours, input.hours);
+  const note = seriesOff ? gfsHour0FixtureNote("off") : gfsLiveHoursNote(liveHours, input.hours, series?.cycle);
   const liveWind = series?.windKt ?? input.hour0Wind;
   const liveWaves = series?.waveFt ?? input.hour0Waves;
   const fixWind = asPackedGrid(generateLayerPayload("wind", input.bbox, input.start, input.hours));
@@ -717,17 +719,18 @@ function overlayGfsWindWaves(input: {
 }
 
 function gfsSourceName(
-  series: { complete: boolean; hoursCovered: number; fetchedHours: number[] } | undefined,
+  series: { complete: boolean; hoursCovered: number; fetchedHours: number[]; cycle?: { ymd: string; cc: string } } | undefined,
   painted: boolean,
   hash: string,
   bytes: number,
   mergeNote?: string,
 ): string {
+  const cycle = series?.cycle ? `${formatGfsWaveCycle(series.cycle)} ` : "";
   if (series?.complete && series.hoursCovered >= 72) {
-    return `GFS-Wave f000–f072 / 3 h parsed ${hash} (${bytes} B, 72 h)`;
+    return `GFS-Wave ${cycle}f000–f072 / 3 h parsed ${hash} (${bytes} B, 72 h)`;
   }
   if (series?.complete && series.fetchedHours.length) {
-    return `GFS-Wave series hours ${series.fetchedHours.join(",")} — hoursCovered ${series.hoursCovered}, not 72 h ready`;
+    return `GFS-Wave ${cycle}series hours ${series.fetchedHours.join(",")} — hoursCovered ${series.hoursCovered}, not 72 h ready`;
   }
   if (painted && mergeNote) return `${mergeNote} (${hash}, ${bytes} B)`;
   if (painted) return `GFS-Wave f000 parsed ${hash} (${bytes} B, hour-0 only)`;
@@ -758,6 +761,7 @@ export async function buildTripPack(options: {
   gfsWaveSeries?: GfsWaveSeriesFlag;
   sleep?: (ms: number) => Promise<void>;
   skipCache?: boolean;
+  now?: Date;
 }): Promise<BuiltPack> {
   const bbox = clampBbox(options.bbox);
   const hours = options.hours ?? DEFAULT_PACK_HOURS;
@@ -776,6 +780,7 @@ export async function buildTripPack(options: {
       skipCache: options.skipCache === true || Boolean(options.fetchImpl),
       gfsWaveSeries: options.gfsWaveSeries,
       sleep: options.sleep,
+      now: options.now,
     });
     if (live.buoys) overlays.buoys = encodeLiveLayer(live.buoys);
     if (live.tides) overlays.tides = encodeLiveLayer(live.tides);

@@ -5,11 +5,16 @@
  * 25 s budget (NOMADS served f000–f072 here in ~8 s sequential).
  * The 10 s pace is politeness for non-Worker callers, not a NOAA limit.
  * Do not replace the 72 h fixture with a single f000 clip.
+ * Series cycle pick: newest cycle that has the requested horizon
+ * (f072 for 72 h) wins. A publishing 00z with only f000–f027 must
+ * not beat an 18z that already has f072. If every candidate 404s
+ * the tail, keep the longest live prefix and name the fixture hours.
  * Keep free of `@/` aliases so the Worker can import it.
  */
 
 import type { PackBBox, PackedGrid } from "./pack-fixtures";
 import { ncepToPacked, parseNcep, type Hour0Packed } from "./grid-io";
+import { formatGfsWaveCycle } from "./noaa-gfs-merge";
 
 export const GFS_WAVE_FILTER_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl";
 export const GFS_WAVE_PROD_DIR = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/";
@@ -54,6 +59,37 @@ export function gfsWaveCycleCandidates(now = new Date()): GfsWaveCycle[] {
   return out;
 }
 
+export interface GfsWaveCycleProbe extends GfsWaveCycle {
+  hasHorizon: boolean;
+  /** Last contiguous wanted hour that exists, or -1 if none. */
+  prefixHours: number;
+}
+
+export function gfsWaveHorizonHour(hours: number[] = gfsWaveSeriesHours()): number {
+  if (!hours.length) return 0;
+  return Math.max(...hours);
+}
+
+/**
+ * Newest complete-horizon cycle wins. Candidates must be newest-first
+ * (same order as gfsWaveCycleCandidates). First-cycle-wins on any files
+ * is wrong: a partial 00z must not beat a complete 18z.
+ * If none have the horizon, take the longest prefix (newer wins a tie).
+ */
+export function pickGfsWaveSeriesCycle(
+  probes: GfsWaveCycleProbe[],
+  horizonHour = 72,
+): GfsWaveCycleProbe | undefined {
+  const complete = probes.filter((p) => p.hasHorizon || p.prefixHours >= horizonHour);
+  if (complete.length) return complete[0];
+  let best: GfsWaveCycleProbe | undefined;
+  for (const p of probes) {
+    if (p.prefixHours < 0) continue;
+    if (!best || p.prefixHours > best.prefixHours) best = p;
+  }
+  return best;
+}
+
 export function gfsWaveFilterUrl(ymd: string, cc: string, fhour: number, bbox: PackBBox): string {
   const hh = String(Math.max(0, Math.round(fhour))).padStart(3, "0");
   const file = `gfswave.t${cc}z.atlocn.0p16.f${hh}.grib2`;
@@ -87,6 +123,127 @@ export function isGrib2(bytes: Uint8Array): boolean {
   return head === "GRIB" && tail === "7777";
 }
 
+export function gfsWaveBytesOk(buf: Uint8Array): boolean {
+  return buf.byteLength >= 16 && buf.byteLength <= GFS_WAVE_MAX_BYTES && isGrib2(buf);
+}
+
+export async function fetchGfsWaveHourFile(options: {
+  bbox: PackBBox;
+  ymd: string;
+  cc: string;
+  hour: number;
+  fetchImpl: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+  prefetched?: Map<string, Uint8Array>;
+}): Promise<{ hour: number; url: string; bytes: Uint8Array } | undefined> {
+  const url = gfsWaveFilterUrl(options.ymd, options.cc, options.hour, options.bbox);
+  const hit = options.prefetched?.get(url);
+  if (hit) return { hour: options.hour, url, bytes: hit };
+  try {
+    const res = await options.fetchImpl(url);
+    if (!res.ok) return undefined;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (!gfsWaveBytesOk(buf)) return undefined;
+    options.prefetched?.set(url, buf);
+    return { hour: options.hour, url, bytes: buf };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Probe f072 (or last wanted hour). Optional binary search of the live prefix. */
+export async function probeGfsWaveCycle(options: {
+  bbox: PackBBox;
+  ymd: string;
+  cc: string;
+  hours?: number[];
+  fetchImpl: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+  prefetched?: Map<string, Uint8Array>;
+  horizonOnly?: boolean;
+}): Promise<GfsWaveCycleProbe> {
+  const hours = options.hours ?? gfsWaveSeriesHours();
+  const horizon = gfsWaveHorizonHour(hours);
+  const exists = async (hour: number) =>
+    Boolean(
+      await fetchGfsWaveHourFile({
+        bbox: options.bbox,
+        ymd: options.ymd,
+        cc: options.cc,
+        hour,
+        fetchImpl: options.fetchImpl,
+        prefetched: options.prefetched,
+      }),
+    );
+  const hasHorizon = hours.includes(horizon) ? await exists(horizon) : false;
+  if (hasHorizon) {
+    return { ymd: options.ymd, cc: options.cc, hasHorizon: true, prefixHours: horizon };
+  }
+  if (options.horizonOnly) {
+    return { ymd: options.ymd, cc: options.cc, hasHorizon: false, prefixHours: -1 };
+  }
+  const search = hours.length && hours[hours.length - 1] === horizon ? hours.slice(0, -1) : hours;
+  let lo = 0;
+  let hi = search.length - 1;
+  let last = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (await exists(search[mid]!)) {
+      last = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return {
+    ymd: options.ymd,
+    cc: options.cc,
+    hasHorizon: false,
+    prefixHours: last >= 0 ? search[last]! : -1,
+  };
+}
+
+/**
+ * Probe newest-first: first cycle whose horizon file is 200 is the pick.
+ * If every horizon 404s, measure prefixes and take the longest.
+ */
+export async function pickGfsWaveSeriesCycleFromNomads(options: {
+  bbox: PackBBox;
+  cycles: GfsWaveCycle[];
+  hours?: number[];
+  fetchImpl: (input: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+  prefetched?: Map<string, Uint8Array>;
+}): Promise<GfsWaveCycleProbe | undefined> {
+  const hours = options.hours ?? gfsWaveSeriesHours();
+  const horizon = gfsWaveHorizonHour(hours);
+  const seen: GfsWaveCycleProbe[] = [];
+  for (const cycle of options.cycles) {
+    const probe = await probeGfsWaveCycle({
+      bbox: options.bbox,
+      ymd: cycle.ymd,
+      cc: cycle.cc,
+      hours,
+      fetchImpl: options.fetchImpl,
+      prefetched: options.prefetched,
+      horizonOnly: true,
+    });
+    seen.push(probe);
+    if (probe.hasHorizon) return probe;
+  }
+  const prefixes = await Promise.all(
+    seen.map((p) =>
+      probeGfsWaveCycle({
+        bbox: options.bbox,
+        ymd: p.ymd,
+        cc: p.cc,
+        hours,
+        fetchImpl: options.fetchImpl,
+        prefetched: options.prefetched,
+        horizonOnly: false,
+      }),
+    ),
+  );
+  return pickGfsWaveSeriesCycle(prefixes, horizon);
+}
+
 export const GFS_WAVE_NOTE =
   "NOMADS GFS-Wave atlocn.0p16 f000 subset. Hour-0 wind/wave paint only when the file parses; that is not a 72 h grid.";
 
@@ -109,6 +266,7 @@ export async function fetchGfsWaveSeries(options: {
   budgetMs?: number;
   enabled?: boolean;
   sleep?: (ms: number) => Promise<void>;
+  prefetched?: Map<string, Uint8Array>;
 }): Promise<{ hour: number; url: string; bytes: Uint8Array }[]> {
   if (options.enabled !== true) return [];
   const hours = options.hours ?? gfsWaveSeriesHours();
@@ -122,12 +280,17 @@ export async function fetchGfsWaveSeries(options: {
     if (i > 0 && pace > 0) await sleep(pace);
     const hour = hours[i]!;
     const url = gfsWaveFilterUrl(options.ymd, options.cc, hour, options.bbox);
+    const cached = options.prefetched?.get(url);
+    if (cached) {
+      out.push({ hour, url, bytes: cached });
+      continue;
+    }
     try {
       const res = await options.fetchImpl(url);
       if (!res.ok) continue;
       const buf = new Uint8Array(await res.arrayBuffer());
-      if (buf.byteLength < 16 || buf.byteLength > GFS_WAVE_MAX_BYTES) continue;
-      if (!isGrib2(buf)) continue;
+      if (!gfsWaveBytesOk(buf)) continue;
+      options.prefetched?.set(url, buf);
       out.push({ hour, url, bytes: buf });
     } catch {
       /* skip this hour */
@@ -200,6 +363,7 @@ export interface GfsWaveSeriesGrids {
   wantedHours: number[];
   hoursCovered: number;
   complete: boolean;
+  cycle?: GfsWaveCycle;
 }
 
 /** Contiguous prefix from the first wanted hour. A gap does not count as 72 h. */
@@ -222,6 +386,7 @@ function stackLayer(
   planes: PackedGrid[],
   hoursCovered: number,
   complete: boolean,
+  cycle?: GfsWaveCycle,
 ): PackedGrid | undefined {
   if (!hours.length || !planes.length) return undefined;
   const tmpl = planes[0]!;
@@ -241,10 +406,11 @@ function stackLayer(
     if (g.periodValues?.[0]) periodValues.push(g.periodValues[0]);
     else periodsOk = false;
   }
+  const named = cycle ? `${formatGfsWaveCycle(cycle)} ` : "";
   const note =
     complete && hoursCovered >= 72
-      ? "NCEP Atlantic 0p16 f000–f072 / 3 h."
-      : `NCEP Atlantic 0p16 hours ${hours.join(",") || "none"} — hoursCovered ${hoursCovered}, not a 72 h forecast.`;
+      ? `NCEP Atlantic 0p16 ${named}f000–f072 / 3 h.`
+      : `NCEP Atlantic 0p16 ${named}hours ${hours.join(",") || "none"} — hoursCovered ${hoursCovered}, not a 72 h forecast.`;
   const out: PackedGrid = {
     kind: "grid",
     layer: tmpl.layer,
@@ -275,6 +441,7 @@ function stackLayer(
 export function assembleGfsWaveSeries(
   files: { hour: number; bytes: Uint8Array }[],
   wantedHours = gfsWaveSeriesHours(),
+  cycle?: GfsWaveCycle,
 ): GfsWaveSeriesGrids {
   const windHours: number[] = [];
   const waveHours: number[] = [];
@@ -300,12 +467,13 @@ export function assembleGfsWaveSeries(
   }
   const { hoursCovered, complete } = seriesHoursCovered(wantedHours, fetched);
   return {
-    windKt: stackLayer(windHours, windPlanes, hoursCovered, complete),
-    waveFt: stackLayer(waveHours, wavePlanes, hoursCovered, complete),
+    windKt: stackLayer(windHours, windPlanes, hoursCovered, complete, cycle),
+    waveFt: stackLayer(waveHours, wavePlanes, hoursCovered, complete, cycle),
     fetchedHours: fetched,
     wantedHours,
     hoursCovered,
     complete,
+    cycle,
   };
 }
 
@@ -317,4 +485,5 @@ export {
   isGfsHonestyNote,
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
+  formatGfsWaveCycle,
 } from "./noaa-gfs-merge";

@@ -38,11 +38,13 @@ import {
   GFS_WAVE_PACE_MS,
   assembleGfsWaveSeries,
   fetchGfsWaveSeries,
+  formatGfsWaveCycle,
   gfsWaveCycleCandidates,
   gfsWaveFilterUrl,
   gfsWaveSeriesEnabled,
   gfsWaveSeriesHours,
   isGrib2,
+  pickGfsWaveSeriesCycleFromNomads,
   type GfsWaveIngest,
   type GfsWaveSeriesGrids,
 } from "./noaa-gfs";
@@ -678,8 +680,10 @@ async function liveGfsWaveSeries(
   now = new Date(),
 ): Promise<{ ingest?: GfsWaveIngest; series?: GfsWaveSeriesGrids }> {
   const hours = series.hours ?? gfsWaveSeriesHours();
-  const cycles =
-    series.ymd && series.cc ? [{ ymd: series.ymd, cc: series.cc }] : gfsWaveCycleCandidates(now);
+  const pinned = Boolean(series.ymd && series.cc);
+  const cycles = pinned
+    ? [{ ymd: series.ymd!, cc: series.cc! }]
+    : gfsWaveCycleCandidates(now);
   const pacedFetch: FetchLike = async (input, init) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -689,47 +693,70 @@ async function liveGfsWaveSeries(
       clearTimeout(t);
     }
   };
-  for (const cycle of cycles) {
-    const files = await fetchGfsWaveSeries({
+  const prefetched = new Map<string, Uint8Array>();
+  let chosen = cycles[0];
+  if (!chosen) {
+    errors.push("gfs-wave-series: fetch failed");
+    return {};
+  }
+  // First-cycle-wins on any files preferred a publishing 00z with f000–f027
+  // over a complete 18z. Newest cycle that actually has the horizon wins.
+  if (!pinned && cycles.length > 1) {
+    const pick = await pickGfsWaveSeriesCycleFromNomads({
       bbox,
-      ymd: cycle.ymd,
-      cc: cycle.cc,
+      cycles,
       hours,
       fetchImpl: pacedFetch,
-      paceMs: series.paceMs ?? GFS_WAVE_PACE_MS,
-      budgetMs: series.budgetMs,
-      enabled: true,
-      sleep: series.sleep,
+      prefetched,
     });
-    if (!files.length) continue;
-    const assembled = assembleGfsWaveSeries(files, hours);
-    const f000 = files.find((f) => f.hour === 0) ?? files[0];
-    let ingest: GfsWaveIngest | undefined;
-    if (f000) {
-      const hash = await sha256Hex(f000.bytes);
-      const painted = Boolean(assembled.windKt || assembled.waveFt);
-      ingest = {
-        live: true,
-        source: "nomads-gfswave",
-        grid: "atlocn.0p16",
-        forecastHour: f000.hour,
-        cycle: `${cycle.ymd}${cycle.cc}`,
-        url: f000.url,
-        bytes: files.reduce((n, f) => n + f.bytes.byteLength, 0),
-        sha256: hash,
-        contentType: "application/wmo-grib",
-        note:
-          assembled.complete && assembled.hoursCovered >= 72
-            ? "NCEP Atlantic 0p16 f000–f072 / 3 h parsed."
-            : `NCEP Atlantic 0p16 series hours ${assembled.fetchedHours.join(",")} — hoursCovered ${assembled.hoursCovered}, not 72 h ready.`,
-        parsed: painted ? { windKt: assembled.windKt, waveFt: assembled.waveFt } : undefined,
-        parseError: painted ? undefined : "no wind/wave fields",
-      };
+    if (!pick) {
+      errors.push("gfs-wave-series: fetch failed");
+      return {};
     }
-    return { ingest, series: assembled };
+    chosen = pick;
   }
-  errors.push("gfs-wave-series: fetch failed");
-  return {};
+  const files = await fetchGfsWaveSeries({
+    bbox,
+    ymd: chosen.ymd,
+    cc: chosen.cc,
+    hours,
+    fetchImpl: pacedFetch,
+    paceMs: series.paceMs ?? GFS_WAVE_PACE_MS,
+    budgetMs: series.budgetMs,
+    enabled: true,
+    sleep: series.sleep,
+    prefetched,
+  });
+  if (!files.length) {
+    errors.push("gfs-wave-series: fetch failed");
+    return {};
+  }
+  const assembled = assembleGfsWaveSeries(files, hours, chosen);
+  const f000 = files.find((f) => f.hour === 0) ?? files[0];
+  let ingest: GfsWaveIngest | undefined;
+  if (f000) {
+    const hash = await sha256Hex(f000.bytes);
+    const painted = Boolean(assembled.windKt || assembled.waveFt);
+    const named = formatGfsWaveCycle(chosen);
+    ingest = {
+      live: true,
+      source: "nomads-gfswave",
+      grid: "atlocn.0p16",
+      forecastHour: f000.hour,
+      cycle: `${chosen.ymd}${chosen.cc}`,
+      url: f000.url,
+      bytes: files.reduce((n, f) => n + f.bytes.byteLength, 0),
+      sha256: hash,
+      contentType: "application/wmo-grib",
+      note:
+        assembled.complete && assembled.hoursCovered >= 72
+          ? `NCEP Atlantic 0p16 ${named} f000–f072 / 3 h parsed.`
+          : `NCEP Atlantic 0p16 ${named} series hours ${assembled.fetchedHours.join(",")} — hoursCovered ${assembled.hoursCovered}, not 72 h ready.`,
+      parsed: painted ? { windKt: assembled.windKt, waveFt: assembled.waveFt } : undefined,
+      parseError: painted ? undefined : "no wind/wave fields",
+    };
+  }
+  return { ingest, series: assembled };
 }
 
 /**
@@ -891,6 +918,9 @@ export {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
   workerGfsWaveSeriesFlag,
+  pickGfsWaveSeriesCycle,
+  pickGfsWaveSeriesCycleFromNomads,
+  formatGfsWaveCycle,
 } from "./noaa-gfs";
 export {
   SST_ENDPOINTS,

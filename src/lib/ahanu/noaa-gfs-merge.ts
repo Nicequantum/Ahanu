@@ -11,22 +11,61 @@ import type { PackBBox, PackedGrid } from "./pack-fixtures";
 
 export const GFS_HOUR0_FIXTURE_NOTE = "gfs: hour-0 live; hours 3–72 fixture (series off)";
 
+export type GfsNoteCycle = { ymd: string; cc: string } | string;
+
+export function formatGfsWaveCycle(cycle: GfsNoteCycle): string {
+  if (typeof cycle === "string") {
+    const compact = cycle.match(/^(\d{8})(\d{2})$/);
+    if (compact) return `${compact[1]} ${compact[2]}z`;
+    const spaced = cycle.match(/^(\d{8})\s*(\d{2})z?$/i);
+    if (spaced) return `${spaced[1]} ${spaced[2]}z`;
+    return cycle.trim();
+  }
+  return `${cycle.ymd} ${cycle.cc}z`;
+}
+
 export function gfsHour0FixtureNote(kind: "off" | "incomplete" = "off"): string {
   return kind === "off"
     ? GFS_HOUR0_FIXTURE_NOTE
     : "gfs: hour-0 live; hours 3–72 fixture (series incomplete)";
 }
 
-/** Honest live-vs-fixture line. Empty when every requested hour is live. */
-export function gfsLiveHoursNote(liveHours: number[], maxHour = 72): string {
+function formatLiveHourList(sorted: number[]): string {
+  if (sorted.length >= 5) {
+    const step = sorted[1]! - sorted[0]!;
+    let regular = true;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i]! - sorted[i - 1]! !== step) {
+        regular = false;
+        break;
+      }
+    }
+    if (regular) return `${sorted[0]}–${sorted[sorted.length - 1]}`;
+  }
+  return sorted.join(",");
+}
+
+/** Honest live-vs-fixture line. Names the cycle when known. Empty when complete and unnamed. */
+export function gfsLiveHoursNote(liveHours: number[], maxHour = 72, cycle?: GfsNoteCycle): string {
   const sorted = [...new Set(liveHours)].filter((h) => Number.isFinite(h)).sort((a, b) => a - b);
-  if (!sorted.length) return GFS_HOUR0_FIXTURE_NOTE;
-  if (sorted.length === 1 && sorted[0] === 0) return gfsHour0FixtureNote("incomplete");
+  const named = cycle ? `${formatGfsWaveCycle(cycle)} ` : "";
+  if (!sorted.length) {
+    return cycle
+      ? `gfs: ${formatGfsWaveCycle(cycle)} no live hours; remaining hours through ${maxHour} fixture (series incomplete)`
+      : GFS_HOUR0_FIXTURE_NOTE;
+  }
+  if (sorted.length === 1 && sorted[0] === 0) {
+    return cycle
+      ? `gfs: ${formatGfsWaveCycle(cycle)} hour-0 live; hours 3–${maxHour} fixture (series incomplete)`
+      : gfsHour0FixtureNote("incomplete");
+  }
   const last = sorted[sorted.length - 1]!;
   const step = sorted.length > 1 ? Math.max(1, sorted[1]! - sorted[0]!) : 3;
   const expected = Math.floor(maxHour / step) + 1;
-  if (sorted[0] === 0 && last >= maxHour && sorted.length >= expected) return "";
-  return `gfs: hours ${sorted.join(",")} live; remaining hours through ${maxHour} fixture (series incomplete)`;
+  if (sorted[0] === 0 && last >= maxHour && sorted.length >= expected) {
+    return cycle ? `gfs: ${formatGfsWaveCycle(cycle)} hours ${formatLiveHourList(sorted)} live` : "";
+  }
+  return `gfs: ${named}hours ${formatLiveHourList(sorted)} live; remaining hours through ${maxHour} fixture (series incomplete)`;
 }
 
 export function isGfsHonestyNote(line: string): boolean {
