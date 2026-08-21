@@ -731,3 +731,53 @@ describe("encLayerPaint — skipper toggle", () => {
     assert.equal(set["enc-soundings"]?.["circle-opacity"], 0);
   });
 });
+
+const { HMS_PAINT_LAYERS, applyHmsLayerPaint, hmsLayerPaint } = await import("../src/lib/ahanu/hms-paint.ts");
+
+describe("hmsLayerPaint — skipper toggle", () => {
+  it("toggle on → fill and outline paint at the slider", () => {
+    const paint = hmsLayerPaint(true, 0.35);
+    assert.equal(paint.hms.opacity, 0.35);
+    assert.equal(paint.hms.prop, "fill-opacity");
+    assert.equal(paint["hms-outline"].opacity, 0.7);
+    assert.equal(paint["hms-outline"].prop, "line-opacity");
+    for (const id of HMS_PAINT_LAYERS) {
+      assert.ok(paint[id].opacity > 0, `${id} should paint when HMS is on`);
+    }
+  });
+
+  it("toggle off → fill and outline stay 0 even at a high slider", () => {
+    const paint = hmsLayerPaint(false, 0.95);
+    for (const id of HMS_PAINT_LAYERS) {
+      assert.equal(paint[id].opacity, 0, `${id} must stay 0 when HMS is off`);
+    }
+  });
+
+  it("default helm HMS (off, 0.35) stays 0; on at slider does not stay at the old addLayer 0", () => {
+    const d = DEFAULT_LAYERS.hms_zones;
+    assert.equal(d.visible, false);
+    assert.equal(d.opacity, 0.35);
+    const off = hmsLayerPaint(d.visible, d.opacity);
+    assert.equal(off.hms.opacity, 0);
+    assert.equal(off["hms-outline"].opacity, 0);
+    const on = hmsLayerPaint(true, d.opacity);
+    assert.equal(on.hms.opacity, 0.35);
+    assert.ok(on["hms-outline"].opacity > 0);
+  });
+
+  it("applyHmsLayerPaint writes on/off onto existing layers only", () => {
+    const set: Record<string, Record<string, number>> = {};
+    const layers = new Set(["hms"]);
+    const map = {
+      getLayer: (id: string) => (layers.has(id) ? {} : undefined),
+      setPaintProperty: (id: string, prop: string, value: number) => {
+        set[id] = { ...(set[id] ?? {}), [prop]: value };
+      },
+    };
+    applyHmsLayerPaint(map, true, 0.35);
+    assert.equal(set.hms?.["fill-opacity"], 0.35);
+    assert.equal(set["hms-outline"], undefined, "missing layer is not invented");
+    applyHmsLayerPaint(map, false, 0.35);
+    assert.equal(set.hms?.["fill-opacity"], 0);
+  });
+});

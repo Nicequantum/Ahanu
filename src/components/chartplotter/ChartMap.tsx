@@ -30,6 +30,7 @@ import {
   hmsForChart,
 } from "@/lib/ahanu/packed-chart";
 import { applyEncLayerPaint, encLayerPaint } from "@/lib/ahanu/enc-paint";
+import { applyHmsLayerPaint, hmsLayerPaint } from "@/lib/ahanu/hms-paint";
 import { isColorEdge, isTempBreak, sstC } from "@/lib/ahanu/ocean";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
 import { aisGeo, aisTargets } from "@/lib/data/ais";
@@ -153,6 +154,16 @@ function applyEncPaintFromStore(
   applyEncLayerPaint(map, Boolean(enc?.visible), enc?.opacity);
 }
 
+function applyHmsPaintFromStore(
+  map: {
+    getLayer: (id: string) => unknown;
+    setPaintProperty: (id: string, prop: string, value: number) => void;
+  },
+) {
+  const hms = useAhanu.getState().layers.hms_zones;
+  applyHmsLayerPaint(map, Boolean(hms?.visible), hms?.opacity);
+}
+
 export function ChartMap() {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -204,8 +215,11 @@ export function ChartMap() {
 
       map.on("load", () => {
         if (!map) return;
-        const encNow = useAhanu.getState().layers.enc;
+        const skipperLayers = useAhanu.getState().layers;
+        const encNow = skipperLayers.enc;
         const encPaint = encLayerPaint(Boolean(encNow?.visible), encNow?.opacity);
+        const hmsNow = skipperLayers.hms_zones;
+        const hmsPaint = hmsLayerPaint(Boolean(hmsNow?.visible), hmsNow?.opacity);
         const land: GeoJSON.FeatureCollection = {
           type: "FeatureCollection",
           features: [landPolygon()],
@@ -235,6 +249,12 @@ export function ChartMap() {
           ssh: fieldImage("ssh", hour, 180, 120),
           habitat: habitatImage(species, hour, packClock, 120, 82),
         };
+        const rasterOp = {
+          sst: skipperLayers.sst.visible ? skipperLayers.sst.opacity : 0,
+          chl: skipperLayers.chlorophyll.visible ? skipperLayers.chlorophyll.opacity : 0,
+          ssh: skipperLayers.altimetry.visible ? skipperLayers.altimetry.opacity : 0,
+          habitat: skipperLayers.habitat.visible ? skipperLayers.habitat.opacity : 0,
+        };
         for (const id of ["sst", "chl", "ssh", "habitat"] as const) {
           const img = rasterOrEmpty(initial[id]);
           map.addSource(id, { type: "image", url: img.url, coordinates: img.coordinates });
@@ -242,7 +262,7 @@ export function ChartMap() {
             id,
             type: "raster",
             source: id,
-            paint: { "raster-opacity": 0, "raster-fade-duration": 0 },
+            paint: { "raster-opacity": rasterOp[id], "raster-fade-duration": 0 },
           });
         }
 
@@ -288,13 +308,13 @@ export function ChartMap() {
           id: "hms",
           type: "fill",
           source: "hms",
-          paint: { "fill-color": "#e06b5a", "fill-opacity": 0 },
+          paint: { "fill-color": "#e06b5a", "fill-opacity": hmsPaint.hms.opacity },
         });
         map.addLayer({
           id: "hms-outline",
           type: "line",
           source: "hms",
-          paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": 0 },
+          paint: { "line-color": "#e06b5a", "line-width": 1.2, "line-opacity": hmsPaint["hms-outline"].opacity },
         });
 
         map.addSource("enc-land", { type: "geojson", data: encLandPolygons() });
@@ -445,7 +465,7 @@ export function ChartMap() {
           paint: {
             "circle-radius": 2,
             "circle-color": "#4ecdc4",
-            "circle-opacity": 0,
+            "circle-opacity": skipperLayers.chl_edges.visible ? 0.8 : 0,
           },
         });
 
@@ -465,7 +485,7 @@ export function ChartMap() {
               "#e0b15a",
               "#e06b5a",
             ],
-            "circle-opacity": 0,
+            "circle-opacity": skipperLayers.waves.visible ? skipperLayers.waves.opacity : 0,
           },
         });
 
@@ -474,7 +494,11 @@ export function ChartMap() {
           id: "wind",
           type: "line",
           source: "wind",
-          paint: { "line-color": "#e6eef2", "line-width": 1.2, "line-opacity": 0 },
+          paint: {
+            "line-color": "#e6eef2",
+            "line-width": 1.2,
+            "line-opacity": skipperLayers.wind.visible ? skipperLayers.wind.opacity : 0,
+          },
         });
 
         map.addSource("route", { type: "geojson", data: steamRouteGeo() });
@@ -589,7 +613,7 @@ export function ChartMap() {
               "#8aa0ab",
               "#4ecdc4",
             ],
-            "circle-opacity": 0,
+            "circle-opacity": skipperLayers.ais.visible ? skipperLayers.ais.opacity : 0,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
           },
@@ -638,6 +662,7 @@ export function ChartMap() {
             .setLngLat([c.lon, c.lat])
             .addTo(map!);
         });
+        applyHmsPaintFromStore(map);
         applyEncPaintFromStore(map);
       });
 
@@ -717,16 +742,7 @@ export function ChartMap() {
     vis("waves", layers.waves.visible, 0.45);
     vis("ais", layers.ais.visible, 0.9);
     vis("community", layers.spots.visible, 0.55);
-    if (map.getLayer("hms")) {
-      map.setPaintProperty("hms", "fill-opacity", layers.hms_zones.visible ? layers.hms_zones.opacity : 0);
-    }
-    if (map.getLayer("hms-outline")) {
-      map.setPaintProperty(
-        "hms-outline",
-        "line-opacity",
-        layers.hms_zones.visible ? Math.min(1, layers.hms_zones.opacity + 0.35) : 0,
-      );
-    }
+    applyHmsPaintFromStore(map);
     applyEncPaintFromStore(map);
     for (const m of encLabelRefs.current) {
       const el = m.getElement();
@@ -777,6 +793,7 @@ export function ChartMap() {
     set("enc-aids", encAidsForChart());
     set("enc-soundings", encSoundingsForChart());
     set("enc-hazards", encHazardPoints());
+    applyHmsPaintFromStore(map);
     applyEncPaintFromStore(map);
     set("buoys", buoyPointsGeo(buoysForChart()));
     void import("maplibre-gl").then((maplibregl) => {
