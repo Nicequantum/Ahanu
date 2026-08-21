@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (PWA GET/HEAD /health, 2026-08-21)
+
+PWA Worker had no `/health` — GET and HEAD were 404 HTML (SPA miss) so ahanu.dev uptime checks failed. GET/HEAD `/health` now return 200 JSON `{ ok: true, service: "ahanu" }` (HEAD empty body) with the same PWA security headers as other documents. SPA `/` and `/login` unchanged. Packs HEAD /health, NDBC probe cache, skipCache limit, catch bind, ENC, GFS, security header values unchanged. No Worker scoring. No Flutter.
+
 ## This pass (HEAD /health for load balancers, 2026-08-21)
 
 `GET /health` and `GET /` were 200 with `Cache-Control: no-store` + `X-Ahanu-Ndbc` + packs security headers. `HEAD` of the same paths was 404 because the router only matched GET. HEAD now returns 200 with those same headers (empty body). PWA `HEAD /` was already 200. NDBC probe cache, skipCache limit, catch bind, ENC, GFS, security header values unchanged. No Worker scoring. No Flutter.

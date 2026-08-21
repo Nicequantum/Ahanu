@@ -18,6 +18,11 @@ const {
   pwaContentSecurityPolicy,
   pwaSecurityHeaders,
 } = await import("../src/lib/ahanu/security-headers.ts");
+const {
+  isPwaHealthMethod,
+  isPwaHealthPath,
+  pwaHealthResponse,
+} = await import("../src/lib/ahanu/pwa-health.ts");
 const { handlePacksRequest } = await import("../src/lib/ahanu/pack-http.ts");
 const worker = (await import("../cloudflare/src/index.ts")).default;
 
@@ -107,6 +112,47 @@ describe("PWA security headers", () => {
     assert.ok(out.headers.get("set-cookie")?.includes("a=1"));
   });
 });
+
+describe("PWA /health", () => {
+  it("matches only GET/HEAD /health, not the SPA catch-all", () => {
+    assert.equal(isPwaHealthPath("/health"), true);
+    assert.equal(isPwaHealthPath("/health/"), true);
+    assert.equal(isPwaHealthPath("/"), false);
+    assert.equal(isPwaHealthPath("/login"), false);
+    assert.equal(isPwaHealthPath("/healthz"), false);
+    assert.equal(isPwaHealthMethod("GET"), true);
+    assert.equal(isPwaHealthMethod("HEAD"), true);
+    assert.equal(isPwaHealthMethod("POST"), false);
+  });
+
+  it("GET is 200 JSON and HEAD is empty, with the same PWA security headers", async () => {
+    const headers = { host: "ahanu.dev" };
+    const getReq = new Request("https://ahanu.dev/health", { headers });
+    const get = applyPwaSecurityHeaders(getReq, pwaHealthResponse(getReq));
+    assert.equal(get.status, 200);
+    const body = JSON.parse(await get.text());
+    assert.equal(body.ok, true);
+    assert.equal(body.service, "ahanu");
+    assert.equal(get.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(get.headers.get("Cache-Control"), "no-store");
+    assert.equal(get.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(get.headers.get("X-Frame-Options"), "DENY");
+    assert.equal(get.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin");
+    assert.ok(get.headers.get("Strict-Transport-Security")?.includes("max-age=31536000"));
+    assert.match(get.headers.get("Content-Security-Policy") ?? "", /worker-src 'self' blob:/);
+
+    const headReq = new Request("https://ahanu.dev/health", { method: "HEAD", headers });
+    const head = applyPwaSecurityHeaders(headReq, pwaHealthResponse(headReq));
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    assert.equal(head.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(head.headers.get("Cache-Control"), "no-store");
+    assert.equal(head.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(head.headers.get("X-Frame-Options"), "DENY");
+    assert.ok(head.headers.get("Strict-Transport-Security")?.includes("max-age=31536000"));
+  });
+});
+
 
 describe("packs CORS + security headers", () => {
   it("reflects helm Origin and never sends *", () => {
