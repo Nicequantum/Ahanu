@@ -19,7 +19,10 @@ export const ENC_AID_NOTE =
   "Live NOAA ENC product-catalog excerpt — cell list and zip URLs, not official S-57. Ahanu is an aid to navigation, not a substitute for a current official ENC.";
 
 export const ENC_S57_NOTE =
-  "Official NOAA S-57 exchange-set cells from charts.noaa.gov (ISO 8211 .000). Ahanu is an aid to navigation — not an ECDIS and not a substitute for a current official ENC on the bridge.";
+  "Official NOAA S-57 exchange-set cells from charts.noaa.gov (ISO 8211 .000 plus .00n updates when the zip contains them). Ahanu is an aid to navigation — not an ECDIS and not a substitute for a current official ENC on the bridge.";
+
+/** Packed zip has no .001/.002 cell updates. Not a currency claim. */
+export const ENC_S57_BASE_ONLY_NOTE = "base .000 only — no update files in this exchange set";
 
 /** Dock-to-offshore clip: harbor at PJ/Montauk/Newport + coastal + approach. */
 export const ENC_S57_MAX_CELLS = 8;
@@ -59,6 +62,15 @@ export interface EncCatalogCell {
   s57?: EncS57File;
 }
 
+export interface EncS57UpdateFile {
+  file: string;
+  bytes: number;
+  iso8211: true;
+  leader: string;
+  edition?: string;
+  update?: string;
+}
+
 export interface EncS57File {
   id: string;
   official: true;
@@ -72,6 +84,11 @@ export interface EncS57File {
   zipSha256: string;
   zipBase64: string;
   zipUrl?: string;
+  edition?: string;
+  updn?: string;
+  updates?: EncS57UpdateFile[];
+  updateCount?: number;
+  baseOnly?: boolean;
 }
 
 export interface EncTileMeta {
@@ -266,6 +283,92 @@ export function pickOfficialEncCells(
   return out;
 }
 
+/** Cell update files are NAME.001 … NAME.999. CATALOG.031 is the exchange catalog, not an update. */
+export function isS57UpdateFileName(name: string): boolean {
+  const base = name.split("/").pop() ?? name;
+  if (/catalog/i.test(base)) return false;
+  return /\.[0-9]{3}$/i.test(base) && !/\.000$/i.test(base);
+}
+
+export function s57UpdateNumber(name: string): number | null {
+  if (!isS57UpdateFileName(name)) return null;
+  const m = (name.split("/").pop() ?? name).match(/\.([0-9]{3})$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+function latin1Enc(bytes: Uint8Array): string {
+  return new TextDecoder("latin1").decode(bytes);
+}
+
+/** DSID DSNM / EDTN / UPDN from an ISO 8211 cell or update file. */
+export function parseS57DsidMeta(bytes: Uint8Array): { dsnm?: string; edition?: string; update?: string } {
+  let off = 0;
+  while (off + 24 <= bytes.byteLength) {
+    const ln = Number(latin1Enc(bytes.subarray(off, off + 5)));
+    if (!Number.isFinite(ln) || ln < 24 || off + ln > bytes.byteLength) break;
+    const rec = bytes.subarray(off, off + ln);
+    off += ln;
+    const leader = latin1Enc(rec.subarray(0, 24));
+    if ((leader[6] ?? "") !== "D") continue;
+    const base = Number(leader.slice(12, 17));
+    const sizeLen = Number(leader[20]);
+    const sizePos = Number(leader[21]);
+    const sizeTag = Number(leader[23]);
+    if (!Number.isFinite(base) || !Number.isFinite(sizeLen) || !Number.isFinite(sizePos) || !Number.isFinite(sizeTag)) continue;
+    const directory = rec.subarray(24, Math.min(base, rec.byteLength));
+    const area = rec.subarray(base, ln);
+    const es = sizeTag + sizeLen + sizePos;
+    let i = 0;
+    while (i + es <= directory.byteLength) {
+      if (directory[i] === 0x1e) break;
+      const tag = latin1Enc(directory.subarray(i, i + sizeTag)).trim();
+      const flen = Number(latin1Enc(directory.subarray(i + sizeTag, i + sizeTag + sizeLen)));
+      const fpos = Number(latin1Enc(directory.subarray(i + sizeTag + sizeLen, i + es)));
+      i += es;
+      if (tag !== "DSID" || !Number.isFinite(flen) || !Number.isFinite(fpos) || fpos < 0) continue;
+      let raw = area.subarray(fpos, fpos + flen);
+      if (raw.byteLength && raw[raw.byteLength - 1] === 0x1e) raw = raw.subarray(0, raw.byteLength - 1);
+      if (raw.byteLength < 8 || raw[0] !== 10) continue;
+      const parts = latin1Enc(raw.subarray(7)).split("\x1f");
+      return { dsnm: parts[0] || undefined, edition: parts[1] || undefined, update: parts[2] || undefined };
+    }
+  }
+  return {};
+}
+
+export function encOfficialNote(files: EncS57File[]): string {
+  const bits = [ENC_S57_NOTE];
+  const withUp = files.filter((f) => (f.updateCount ?? f.updates?.length ?? 0) > 0);
+  const none = files.filter((f) => (f.updateCount ?? f.updates?.length ?? 0) === 0);
+  if (withUp.length) {
+    bits.push(
+      "Exchange set update files (ISO 8211): " +
+        withUp
+          .map((f) => {
+            const n = f.updateCount ?? f.updates?.length ?? 0;
+            const names = (f.updates ?? []).map((u) => `${u.file} ${u.bytes} B`).join(", ");
+            return `${f.id} edition ${f.edition ?? "?"} update ${f.updn ?? n} (${n} file${n === 1 ? "" : "s"}${names ? `: ${names}` : ""})`;
+          })
+          .join("; ") +
+        ". Device extract applies those updates.",
+    );
+  }
+  if (none.length) {
+    bits.push(
+      `${none.map((f) => `${f.id}${f.edition ? ` edition ${f.edition}` : ""}`).join(", ")}: ${ENC_S57_BASE_ONLY_NOTE}.`,
+    );
+  }
+  return bits.join(" ");
+}
+
+function finalizeS57File(f: EncS57File): EncS57File {
+  const updates = f.updates ?? [];
+  const updateCount = f.updateCount ?? updates.length;
+  return { ...f, updates, updateCount, baseOnly: f.baseOnly ?? updateCount === 0 };
+}
+
 export function isIso8211(bytes: Uint8Array): boolean {
   if (bytes.byteLength < 24) return false;
   const leader = new TextDecoder("latin1").decode(bytes.subarray(0, 24));
@@ -448,6 +551,11 @@ export async function parseS57ExchangeSet(zip: Uint8Array): Promise<{
   file000?: string;
   file000Bytes: number;
   leader: string;
+  edition?: string;
+  updn?: string;
+  updates: EncS57UpdateFile[];
+  updateCount: number;
+  baseOnly: boolean;
 } | null> {
   if (zip.byteLength < 4 || zip[0] !== 0x50 || zip[1] !== 0x4b || zip[2] !== 0x03 || zip[3] !== 0x04) {
     return null;
@@ -456,12 +564,33 @@ export async function parseS57ExchangeSet(zip: Uint8Array): Promise<{
   if (!entries.length) return null;
   const file000 = entries.find((e) => e.name.toUpperCase().endsWith(".000"));
   if (!file000 || !isIso8211(file000.data)) return null;
+  const updates = entries
+    .filter((e) => isS57UpdateFileName(e.name) && isIso8211(e.data))
+    .map((e) => {
+      const meta = parseS57DsidMeta(e.data);
+      return {
+        file: e.name.split("/").pop() ?? e.name,
+        bytes: e.data.byteLength,
+        iso8211: true as const,
+        leader: iso8211Leader(e.data),
+        edition: meta.edition,
+        update: meta.update,
+      };
+    })
+    .sort((a, b) => (s57UpdateNumber(a.file) ?? 0) - (s57UpdateNumber(b.file) ?? 0));
+  const baseMeta = parseS57DsidMeta(file000.data);
+  const last = updates[updates.length - 1];
   return {
     iso8211: true,
     catalog031: entries.some((e) => e.name.toUpperCase().endsWith("CATALOG.031")),
     file000: file000.name.split("/").pop(),
     file000Bytes: file000.data.byteLength,
     leader: iso8211Leader(file000.data),
+    edition: last?.edition ?? baseMeta.edition,
+    updn: last?.update ?? baseMeta.update ?? "0",
+    updates,
+    updateCount: updates.length,
+    baseOnly: updates.length === 0,
   };
 }
 
@@ -519,7 +648,7 @@ export function encToPackedJson(
   },
 ): PackedJson {
   const harbor = harborApproachNames(cells);
-  const official = extras.officialS57 ?? [];
+  const official = (extras.officialS57 ?? []).map(finalizeS57File);
   const byId = new Map(official.map((f) => [f.id, f]));
   const hasOfficial = official.length > 0;
   return {
@@ -531,7 +660,7 @@ export function encToPackedJson(
       official: hasOfficial,
       encoding: hasOfficial ? ("s-57" as const) : undefined,
       source: hasOfficial ? "noaa" : "noaa-enc-catalog",
-      note: hasOfficial ? ENC_S57_NOTE : ENC_AID_NOTE,
+      note: hasOfficial ? encOfficialNote(official) : ENC_AID_NOTE,
       bbox,
       catalog: { url: extras.catalogUrl, dateValid: extras.catalogDate },
       tiles: extras.tiles ?? {
@@ -550,6 +679,7 @@ export function encToPackedJson(
             official: true,
             cellIds: official.map((f) => f.id),
             zipBytes: official.reduce((s, f) => s + f.zipBytes, 0),
+            updateCount: official.reduce((s, f) => s + (f.updateCount ?? 0), 0),
             files: official,
           }
         : undefined,

@@ -300,7 +300,7 @@ function workerManifest(manifest: Awaited<ReturnType<typeof buildTripPack>>["man
     notes:
       "SHA-256 of pack object bytes. Live NOAA overlays land where fetch succeeded " +
       "(NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS / ETOPO bathymetry / GFS-Wave). " +
-      "Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
+      "Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; .00n update files in the zip are packed with the cell. SST is live NOAA when a public ERDDAP grid parses — not CMEMS. " +
       "GFS-Wave fetches NOMADS atlocn.0p16 f000–f072 / 3 h (pace 0, 25 s budget). " +
       "Newest cycle that has the requested horizon wins; a publishing 00z that 404s f072 does not beat a complete 18z. " +
       "A complete series is 72 h noaa. A short prefix paints those hours and keeps a fixture tail — liveErrors name the cycle and which hours are live vs fixture. " +

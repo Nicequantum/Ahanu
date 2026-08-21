@@ -5,10 +5,12 @@
  * coastline, shoreline, depth, land, wrecks, and obstructions.
  */
 
-import { base64ToBytes, isIso8211, unzipEntries } from "./noaa-enc";
+import { base64ToBytes, isIso8211, isS57UpdateFileName, parseS57DsidMeta, s57UpdateNumber, unzipEntries } from "./noaa-enc";
 import type { EncClip, EncS57Packed } from "./packed-fields";
 
 export const S57_EXTRACT_NOTE = "S-57 extract — not ECDIS";
+export const S57_UPDATES_APPLIED_NOTE = "includes ENC updates";
+export const S57_BASE_ONLY_NOTE = "base .000 only — no update files in this exchange set";
 export const ENC_OFFICIAL_ROW_LABEL = "NOAA ENC (official S-57)";
 export const ENC_CATALOG_ROW_LABEL = "NOAA ENC (catalog aid)";
 
@@ -135,6 +137,12 @@ export interface S57Extract {
   file000?: string;
   official: true;
   note: typeof S57_EXTRACT_NOTE;
+  applyNote?: string;
+  edition?: string;
+  updn?: string;
+  updatesApplied?: number;
+  updateFiles?: string[];
+  baseOnly?: boolean;
   bounds?: S57ExtractBounds;
   features: GeoJSON.Feature[];
   counts: S57ExtractCounts;
@@ -143,12 +151,13 @@ export interface S57Extract {
 
 export interface S57ExtractSet {
   official: true;
-  note: typeof S57_EXTRACT_NOTE;
+  note: string;
+  updatesApplied?: number;
   cells: S57Extract[];
   features: GeoJSON.Feature[];
 }
 
-interface IsoRecord {
+export interface IsoRecord {
   ident: string;
   fields: Record<string, Uint8Array>;
 }
@@ -541,10 +550,162 @@ export function countS57ObjectClasses(bytes: Uint8Array): { acronym: string; obj
     .map(([objl, count]) => ({ acronym: acronymOf(objl), objl, count }));
 }
 
+const RUIN_INSERT = 1;
+const RUIN_DELETE = 2;
+const RUIN_MODIFY = 3;
+const ATTR_DELETED = "\x7f";
+
+function cloneRec(rec: IsoRecord): IsoRecord {
+  const fields: Record<string, Uint8Array> = {};
+  for (const [k, v] of Object.entries(rec.fields)) fields[k] = v.slice();
+  return { ident: rec.ident, fields };
+}
+
+function recNameKey(field: Uint8Array | undefined): string | null {
+  if (!field || field.byteLength < 5) return null;
+  return `${field[0]}:${u32(field, 1)}`;
+}
+
+function ruinOf(field: Uint8Array, offset: number): number {
+  return field.byteLength > offset ? field[offset]! : RUIN_INSERT;
+}
+
+function encodeAttrs(attrs: Record<number, string>): Uint8Array {
+  const parts: Uint8Array[] = [];
+  for (const [k, v] of Object.entries(attrs)) {
+    parts.push(concatBytes([u16le(Number(k)), ascii(`${v}\x1f`)]));
+  }
+  return concatBytes(parts);
+}
+
+function mergeAttrField(prev: Uint8Array | undefined, patch: Uint8Array | undefined): Uint8Array | undefined {
+  if (!patch) return prev;
+  if (!prev) return patch.slice();
+  const a = parseAttrs(prev);
+  const b = parseAttrs(patch);
+  for (const [k, v] of Object.entries(b)) {
+    const id = Number(k);
+    if (v === ATTR_DELETED || (v.length > 0 && v.charCodeAt(0) === 0x7f)) delete a[id];
+    else a[id] = v;
+  }
+  return encodeAttrs(a);
+}
+
+function applyPointerControl(
+  existing: Uint8Array | undefined,
+  stride: number,
+  control: Uint8Array,
+  incoming: Uint8Array | undefined,
+): Uint8Array {
+  const items: Uint8Array[] = [];
+  if (existing) {
+    for (let i = 0; i + stride <= existing.byteLength; i += stride) items.push(existing.subarray(i, i + stride));
+  }
+  if (control.byteLength < 5) return existing?.slice() ?? new Uint8Array();
+  const ui = control[0]!;
+  const ix = u16(control, 1);
+  const n = u16(control, 3);
+  const start = Math.max(0, ix - 1);
+  const neu: Uint8Array[] = [];
+  if (incoming) {
+    for (let i = 0; i + stride <= incoming.byteLength; i += stride) neu.push(incoming.subarray(i, i + stride));
+  }
+  if (ui === RUIN_DELETE) items.splice(start, n);
+  else if (ui === RUIN_INSERT) items.splice(start, 0, ...neu);
+  else if (ui === RUIN_MODIFY) items.splice(start, n, ...neu);
+  return concatBytes(items.map((p) => p.slice()));
+}
+
+function modifyRecord(prev: IsoRecord, patch: IsoRecord, kind: "feature" | "vector"): IsoRecord {
+  const out = cloneRec(prev);
+  if (kind === "feature" && patch.fields.FRID) out.fields.FRID = patch.fields.FRID.slice();
+  if (kind === "vector" && patch.fields.VRID) out.fields.VRID = patch.fields.VRID.slice();
+  if (patch.fields.FOID) out.fields.FOID = patch.fields.FOID.slice();
+  if (patch.fields.ATTF) {
+    const merged = mergeAttrField(prev.fields.ATTF, patch.fields.ATTF);
+    if (merged) out.fields.ATTF = merged;
+  }
+  if (patch.fields.ATTV) {
+    const merged = mergeAttrField(prev.fields.ATTV, patch.fields.ATTV);
+    if (merged) out.fields.ATTV = merged;
+  }
+  if (patch.fields.NATF) {
+    const merged = mergeAttrField(prev.fields.NATF, patch.fields.NATF);
+    if (merged) out.fields.NATF = merged;
+  }
+  if (kind === "feature") {
+    if (patch.fields.FSPC) out.fields.FSPT = applyPointerControl(prev.fields.FSPT, 8, patch.fields.FSPC, patch.fields.FSPT);
+    else if (patch.fields.FSPT) out.fields.FSPT = patch.fields.FSPT.slice();
+    if (patch.fields.FFPC) out.fields.FFPT = applyPointerControl(prev.fields.FFPT, 9, patch.fields.FFPC, patch.fields.FFPT);
+    else if (patch.fields.FFPT) out.fields.FFPT = patch.fields.FFPT.slice();
+  } else {
+    if (patch.fields.VRPC) out.fields.VRPT = applyPointerControl(prev.fields.VRPT, 9, patch.fields.VRPC, patch.fields.VRPT);
+    else if (patch.fields.VRPT) out.fields.VRPT = patch.fields.VRPT.slice();
+    const use3 = Boolean(patch.fields.SG3D || prev.fields.SG3D);
+    const sgKey = use3 ? "SG3D" : "SG2D";
+    const sgStride = use3 ? 12 : 8;
+    if (patch.fields.SGCC) {
+      const src = patch.fields[sgKey] ?? patch.fields.SG2D ?? patch.fields.SG3D;
+      out.fields[sgKey] = applyPointerControl(prev.fields[sgKey], sgStride, patch.fields.SGCC, src);
+    } else {
+      if (patch.fields.SG2D) out.fields.SG2D = patch.fields.SG2D.slice();
+      if (patch.fields.SG3D) out.fields.SG3D = patch.fields.SG3D.slice();
+    }
+  }
+  return out;
+}
+
+/** Apply one ISO 8211 update file's records onto the base/previous cell records. */
+export function applyS57UpdateRecords(base: IsoRecord[], update: IsoRecord[]): IsoRecord[] {
+  const other: IsoRecord[] = [];
+  const vMap = new Map<string, IsoRecord>();
+  const fMap = new Map<string, IsoRecord>();
+  for (const rec of base) {
+    if (rec.ident !== "D") {
+      other.push(cloneRec(rec));
+      continue;
+    }
+    const fk = rec.fields.FRID && rec.fields.FRID[0] === RCNM_FE ? recNameKey(rec.fields.FRID) : null;
+    const vk = rec.fields.VRID ? recNameKey(rec.fields.VRID) : null;
+    if (fk) fMap.set(fk, cloneRec(rec));
+    else if (vk) vMap.set(vk, cloneRec(rec));
+    else other.push(cloneRec(rec));
+  }
+  for (const rec of update) {
+    if (rec.ident !== "D") continue;
+    if (rec.fields.FRID && rec.fields.FRID[0] === RCNM_FE) {
+      const key = recNameKey(rec.fields.FRID);
+      if (!key) continue;
+      const ruin = ruinOf(rec.fields.FRID, 11);
+      if (ruin === RUIN_DELETE) fMap.delete(key);
+      else if (ruin === RUIN_INSERT) fMap.set(key, cloneRec(rec));
+      else if (ruin === RUIN_MODIFY) {
+        const prev = fMap.get(key);
+        fMap.set(key, prev ? modifyRecord(prev, rec, "feature") : cloneRec(rec));
+      }
+    } else if (rec.fields.VRID) {
+      const key = recNameKey(rec.fields.VRID);
+      if (!key) continue;
+      const ruin = ruinOf(rec.fields.VRID, 7);
+      if (ruin === RUIN_DELETE) vMap.delete(key);
+      else if (ruin === RUIN_INSERT) vMap.set(key, cloneRec(rec));
+      else if (ruin === RUIN_MODIFY) {
+        const prev = vMap.get(key);
+        vMap.set(key, prev ? modifyRecord(prev, rec, "vector") : cloneRec(rec));
+      }
+    }
+  }
+  return [...other, ...vMap.values(), ...fMap.values()];
+}
+
 export function extractS57FromDot000(bytes: Uint8Array, cellId = "UNKNOWN"): S57Extract | null {
   if (!isIso8211(bytes) && !/^[0-9]{5}[ 3][LD]/.test(latin1(bytes.subarray(0, 8)))) return null;
   const records = parseIso8211Records(bytes);
   if (!records.length) return null;
+  return extractS57FromRecords(records, cellId);
+}
+
+export function extractS57FromRecords(records: IsoRecord[], cellId = "UNKNOWN"): S57Extract | null {
 
   let comf = 10_000_000;
   let somf = 10;
@@ -786,8 +947,29 @@ export async function extractS57FromZip(zip: Uint8Array, cellId?: string): Promi
   const file000 = entries.find((e) => e.name.toUpperCase().endsWith(".000"));
   if (!file000 || !isIso8211(file000.data)) return null;
   const id = cellId ?? file000.name.split("/").pop()?.replace(/\.000$/i, "") ?? "UNKNOWN";
-  const extracted = extractS57FromDot000(file000.data, id);
-  if (extracted) extracted.file000 = file000.name.split("/").pop();
+  let records = parseIso8211Records(file000.data);
+  const updateEntries = entries
+    .filter((e) => isS57UpdateFileName(e.name) && isIso8211(e.data))
+    .sort((a, b) => (s57UpdateNumber(a.name) ?? 0) - (s57UpdateNumber(b.name) ?? 0));
+  const applied: string[] = [];
+  for (const u of updateEntries) {
+    const next = parseIso8211Records(u.data);
+    if (!next.length) continue;
+    records = applyS57UpdateRecords(records, next);
+    applied.push(u.name.split("/").pop() ?? u.name);
+  }
+  const extracted = extractS57FromRecords(records, id);
+  if (!extracted) return null;
+  extracted.file000 = file000.name.split("/").pop();
+  extracted.updatesApplied = applied.length;
+  extracted.updateFiles = applied;
+  extracted.baseOnly = applied.length === 0;
+  extracted.applyNote = applied.length ? S57_UPDATES_APPLIED_NOTE : S57_BASE_ONLY_NOTE;
+  const baseMeta = parseS57DsidMeta(file000.data);
+  const lastUp = updateEntries[updateEntries.length - 1];
+  const upMeta = lastUp ? parseS57DsidMeta(lastUp.data) : undefined;
+  extracted.edition = upMeta?.edition ?? baseMeta.edition;
+  extracted.updn = applied.length ? (upMeta?.update ?? String(applied.length)) : (baseMeta.update ?? "0");
   return extracted;
 }
 
@@ -814,9 +996,11 @@ export async function extractPackedS57(enc: EncClip): Promise<S57ExtractSet | un
     }
   }
   if (!cells.length) return undefined;
+  const updatesApplied = cells.reduce((n, c) => n + (c.updatesApplied ?? 0), 0);
   return {
     official: true,
-    note: S57_EXTRACT_NOTE,
+    note: updatesApplied ? `${S57_EXTRACT_NOTE} — ${S57_UPDATES_APPLIED_NOTE}` : S57_EXTRACT_NOTE,
+    updatesApplied,
     cells,
     features: cells.flatMap((c) => c.features),
   };
@@ -914,12 +1098,12 @@ function dspmField(comf: number, somf: number): Uint8Array {
   ]);
 }
 
-function vridNode(rcnm: number, rcid: number): Uint8Array {
-  return concatBytes([new Uint8Array([rcnm]), u32le(rcid), u16le(1), new Uint8Array([1])]);
+function vridNode(rcnm: number, rcid: number, ruin = 1): Uint8Array {
+  return concatBytes([new Uint8Array([rcnm]), u32le(rcid), u16le(1), new Uint8Array([ruin])]);
 }
 
-function fridGeom(rcid: number, prim: number, objl: number): Uint8Array {
-  return concatBytes([new Uint8Array([RCNM_FE]), u32le(rcid), new Uint8Array([prim, 2]), u16le(objl), u16le(1)]);
+function fridGeom(rcid: number, prim: number, objl: number, ruin = 1): Uint8Array {
+  return concatBytes([new Uint8Array([RCNM_FE]), u32le(rcid), new Uint8Array([prim, 2]), u16le(objl), u16le(1), new Uint8Array([ruin])]);
 }
 
 function fsptEdge(rcid: number, ornt = 1, usag = 255): Uint8Array {
@@ -1073,6 +1257,37 @@ export function sampleS57ExtractDot000(cellId = "US5TESTA"): Uint8Array {
       { tag: "FRID", data: fridGeom(6, PRIM_AREA, OBJL_DEPARE) },
       { tag: "ATTF", data: attfPairs([[ATTL_DRVAL1, "0"], [ATTL_DRVAL2, "5"]]) },
       { tag: "FSPT", data: concatBytes([fsptEdge(10, 1, 1), fsptEdge(11, 1, 1), fsptEdge(12, 1, 1)]) },
+    ]),
+  ]);
+}
+
+/**
+ * Synthetic ISO 8211 update (not NOAA). Deletes the sample LIGHTS and inserts a BOYLAT.
+ */
+export function sampleS57UpdateDot001(cellId = "US5TESTA"): Uint8Array {
+  const comf = 10_000_000;
+  const lon = -71.513;
+  const lat = 41.362;
+  return concatBytes([
+    makeIso8211Ddr(),
+    makeIso8211DataRecord([
+      { tag: "0001", data: new Uint8Array([1, 0]) },
+      { tag: "DSID", data: ascii(`\n\x01\x00\x00\x00\x02\x05${cellId}.001\x1f1\x1f1\x1f`) },
+    ]),
+    makeIso8211DataRecord([
+      { tag: "0001", data: new Uint8Array([2, 0]) },
+      { tag: "FRID", data: fridGeom(1, PRIM_POINT, OBJL_LIGHTS, RUIN_DELETE) },
+    ]),
+    makeIso8211DataRecord([
+      { tag: "0001", data: new Uint8Array([3, 0]) },
+      { tag: "VRID", data: vridNode(RCNM_VI, 20, RUIN_INSERT) },
+      { tag: "SG2D", data: sg2(lat, lon, comf) },
+    ]),
+    makeIso8211DataRecord([
+      { tag: "0001", data: new Uint8Array([4, 0]) },
+      { tag: "FRID", data: fridGeom(20, PRIM_POINT, OBJL_BOYLAT, RUIN_INSERT) },
+      { tag: "ATTF", data: attfName("Update Buoy") },
+      { tag: "FSPT", data: fsptIsolated(20) },
     ]),
   ]);
 }

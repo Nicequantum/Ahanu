@@ -1986,6 +1986,9 @@ describe("official S-57 pack", () => {
     assert.equal(parsed.file000, "US5PVDBB.000");
     assert.ok(parsed.file000Bytes >= 24);
     assert.match(parsed.leader, /^015823LE1/);
+    assert.equal(parsed.updateCount, 0);
+    assert.equal(parsed.baseOnly, true);
+    assert.deepEqual(parsed.updates, []);
     assert.equal(await parseS57ExchangeSet(new Uint8Array([80, 75, 3, 4, 0, 0])), null);
   });
 

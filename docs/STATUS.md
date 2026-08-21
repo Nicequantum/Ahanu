@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (ENC updates in packed zips, 2026-08-21)
+
+Probed charts.noaa.gov zips for the eight packed cells (HTTP 200, application/zip). **ISO 8211 updates present:** US5PVDCB `.001` 4767 B (leader `017903LE1`, edition 3 UPDN 1); US5NY2GL `.001` 9277 / `.002` 3625 / `.003` 2108 / `.004` 7168 B (edition 4 UPDN 1–4); US5PVDDD `.001` 3471 / `.002` 2430 / `.003` 11876 B (edition 5 UPDN 1–3); US3RI1AA `.001` 14775 B (edition 1 UPDN 1). **Base .000 only (no cell .00n):** US5PVDBB, US3NY01M, US3MA1AD, US3MA1AC — CATALOG.031 is the exchange catalog, not an update. Helm extract now applies RUIN insert/delete/modify (plus FSPC/VRPC/SGCC pointer-control) from those ISO 8211 files in order. Pack JSON lists edition + update file names/sizes. Copy says **includes ENC updates** only after extract applied them; base-only cells say **base .000 only — no update files in this exchange set**. Not an ECDIS. Did not invent S-57. GFS complete-cycle, R2 persist, ingest lock, MapLibre worker, domains unchanged. No Worker scoring. No Flutter.
+
 ## This pass (GET /api/packs serves last R2 manifest, 2026-08-21)
 
 GET `/api/packs` without skipCache now serves `packs/{packId}/manifest.json` when it is present and the request is the same 6 h packId window or an explicit packId. That path does not rebuild NOAA. skipCache=1 or a miss is the current live build + persistBuiltPack. Objects GET stays R2-first on a cold isolate; hashes match the served manifest. Helm Download 72h no longer forces skipCache (Retry live overlays still does). No ENC/S-57 invented. Ingest stay fail-closed. GFS 72 h, SST stride-2, domains unchanged. No Worker scoring. No Flutter.

@@ -40,15 +40,27 @@ export interface EncS57Packed {
   zipSha256?: string;
   zipBase64?: string;
   zipUrl?: string;
+  edition?: string;
+  updn?: string;
+  updates?: { file: string; bytes: number; iso8211?: boolean; leader?: string; edition?: string; update?: string }[];
+  updateCount?: number;
+  baseOnly?: boolean;
 }
 
 /** Client-side parse of packed official .000 bytes. Not stored in the pack hash. */
 export interface EncS57Extract {
   official: true;
   note: string;
+  updatesApplied?: number;
   cells: {
     cellId: string;
     file000?: string;
+    edition?: string;
+    updn?: string;
+    updatesApplied?: number;
+    updateFiles?: string[];
+    baseOnly?: boolean;
+    applyNote?: string;
     bounds?: { west: number; south: number; east: number; north: number };
     features: GeoJSON.Feature[];
     counts: {
@@ -81,7 +93,7 @@ export interface EncClip {
   note: string;
   bbox?: PackBBox;
   coverage?: { harborApproach: string[]; coastalTo100fm: boolean };
-  s57?: { source?: string; encoding?: string; official?: boolean; cellIds?: string[]; zipBytes?: number; files?: EncS57Packed[] };
+  s57?: { source?: string; encoding?: string; official?: boolean; cellIds?: string[]; zipBytes?: number; updateCount?: number; files?: EncS57Packed[] };
   cells: {
     id: string;
     usage: number;

@@ -76,8 +76,9 @@ function meta(
  *
  * Adapter honesty: live Worker fetches a dock-to-offshore S-57 subset
  * (harbor at PJ/Montauk/Newport + coastal + approach) when those zips are
- * public and the .000 is ISO 8211. Full-box 237 cells / ~21 MB is too many
- * subrequests for one pack GET. S-101 dual-issue later, same layer id.
+ * public and the .000 is ISO 8211. .00n update files in the zip are packed
+ * with the cell; helm extract applies them. Full-box 237 cells / ~21 MB is
+ * too many subrequests for one pack GET. S-101 dual-issue later, same layer id.
  */
 export function noaaEnc(): IngestMeta {
   return meta({
@@ -107,7 +108,7 @@ export function noaaEnc(): IngestMeta {
       },
     ],
     notes:
-      "Live packs a dock-to-offshore S-57 subset (≤8 cells, ≤1.8 MB catalog size) when NOAA zips fetch and parse ISO 8211. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
+      "Live packs a dock-to-offshore S-57 subset (≤8 cells, ≤1.8 MB catalog size) when NOAA zips fetch and parse ISO 8211. .00n updates in those zips stay packed; extract applies them. Catalog excerpt still lands. Full 237-cell / ~21 MB box is not fetched on GET. S-101 later. Weekly or on NtM.",
   });
 }
 

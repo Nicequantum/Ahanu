@@ -16,7 +16,7 @@ export const ENC_AID_DISCLAIMER =
   "ENC in this pack is a cell list (fixture or live NOAA catalog), not official S-57. Ahanu is an aid to navigation — not a substitute for current official ENC.";
 
 export const ENC_S57_DISCLAIMER =
-  "ENC in this pack is official NOAA S-57 (ISO 8211 .000 exchange set). Ahanu is an aid — not an ECDIS.";
+  "ENC in this pack is official NOAA S-57 (ISO 8211 .000 exchange set, plus .00n updates when present). Ahanu is an aid — not an ECDIS.";
 
 export const ENC_S57_EXTRACT_NOTE = "S-57 extract — not ECDIS";
 
@@ -188,7 +188,18 @@ export type PackedEncCell = {
   south?: number;
   east?: number;
   north?: number;
-  s57?: { iso8211?: boolean; official?: boolean; file000Bytes?: number; leader?: string; zipBase64?: string };
+  s57?: {
+    iso8211?: boolean;
+    official?: boolean;
+    file000Bytes?: number;
+    leader?: string;
+    zipBase64?: string;
+    edition?: string;
+    updn?: string;
+    updateCount?: number;
+    baseOnly?: boolean;
+    updates?: { file: string; bytes: number }[];
+  };
 };
 
 export function packedEncCells(): PackedEncCell[] {
@@ -217,9 +228,35 @@ export function packedOfficialEncCells(): PackedEncCell[] {
 }
 
 export function encHelmLabel(source?: string): string {
-  if (packedEncOfficial()) return source === "noaa" || source === "r2" ? "ENC official S-57 · NOAA" : "ENC official S-57";
+  if (packedEncOfficial()) {
+    const applied = packedEncExtract()?.updatesApplied ?? 0;
+    const base = source === "noaa" || source === "r2" ? "ENC official S-57 · NOAA" : "ENC official S-57";
+    return applied > 0 ? `${base} · includes ENC updates` : base;
+  }
   if (source === "noaa") return "ENC catalog (aid · NOAA)";
   return "ENC catalog (aid)";
+}
+
+/** Per-cell edition / update line. Does not say "includes ENC updates" unless extract applied them. */
+export function encCellUpdateLine(cell: PackedEncCell): string {
+  const extract = packedEncExtract()?.cells.find((c) => c.cellId === cell.id);
+  const bits: string[] = [];
+  const edition = extract?.edition ?? cell.s57?.edition;
+  const updn = extract?.updn ?? cell.s57?.updn;
+  if (edition) bits.push(`ed ${edition}`);
+  if (extract) {
+    const n = extract.updatesApplied ?? 0;
+    if (n > 0) bits.push(`${n} update${n === 1 ? "" : "s"} applied`);
+    else bits.push("base .000 only");
+  } else if ((cell.s57?.updateCount ?? 0) > 0) {
+    bits.push(`${cell.s57!.updateCount} update file${cell.s57!.updateCount === 1 ? "" : "s"} in zip`);
+  } else if (cell.s57?.baseOnly || cell.s57?.iso8211) {
+    bits.push("base .000 only");
+  }
+  if (updn != null && updn !== "" && (extract?.updatesApplied ?? cell.s57?.updateCount ?? 0) > 0) {
+    bits.push(`UPDN ${updn}`);
+  }
+  return bits.join(" · ");
 }
 
 export function encPackRowLabel(stored?: string): string {

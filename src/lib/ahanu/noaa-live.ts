@@ -11,7 +11,8 @@
  * if a coarser public grid is what arrived. Bathymetry is the public
  * relief grid that parsed (ETOPO 2022 subsampled here) — not official ENC.
  * Not CMEMS. Official S-57 packs only when a NOAA zip fetches and the .000
- * is ISO 8211. Catalog-only otherwise.
+ * is ISO 8211. .00n update files in that zip are packed with the cell.
+ * Catalog-only otherwise.
  *
  * Keep this file free of `@/` aliases so the ahanu-packs Worker can import it.
  */
@@ -584,6 +585,11 @@ async function liveEnc(
         zipSha256: cell.zipSha256,
         zipBase64: bytesToBase64(zip),
         zipUrl: cell.zipUrl,
+        edition: parsed.edition,
+        updn: parsed.updn,
+        updates: parsed.updates,
+        updateCount: parsed.updateCount,
+        baseOnly: parsed.baseOnly,
       });
     }
   } else {

@@ -8,11 +8,15 @@ import { describe, it } from "node:test";
 const {
   countS57ObjectClasses,
   extractS57FromDot000,
+  extractS57FromZip,
   extractCapsForCell,
   sampleS57ExtractDot000,
+  sampleS57UpdateDot001,
   S57_EXTRACT_NOTE,
+  S57_UPDATES_APPLIED_NOTE,
+  S57_BASE_ONLY_NOTE,
 } = await import("../src/lib/ahanu/s57-extract.ts");
-const { isIso8211 } = await import("../src/lib/ahanu/noaa-enc.ts");
+const { isIso8211, isS57UpdateFileName, makeStoredZip, parseS57DsidMeta, parseS57ExchangeSet, encOfficialNote, ENC_S57_BASE_ONLY_NOTE } = await import("../src/lib/ahanu/noaa-enc.ts");
 
 const here = dirname(fileURLToPath(import.meta.url));
 const harbor000 = join(here, "fixtures/US5PVDCB.000");
@@ -118,5 +122,89 @@ describe("S-57 extract sample (not NOAA)", () => {
     assert.ok(Math.abs(wlon - -71.512) < 1e-5);
     assert.ok(Math.abs(wlat - 41.361) < 1e-5);
     assert.equal((wreck.properties as { valsou?: number }).valsou, 8.2);
+  });
+});
+
+const harbor001 = join(here, "fixtures/US5PVDCB.001");
+
+describe("S-57 update file names", () => {
+  it("treats .001–.999 as updates and CATALOG.031 as catalog", () => {
+    assert.equal(isS57UpdateFileName("ENC_ROOT/US5PVDCB/US5PVDCB.001"), true);
+    assert.equal(isS57UpdateFileName("US5NY2GL.004"), true);
+    assert.equal(isS57UpdateFileName("ENC_ROOT/US5PVDCB/US5PVDCB.000"), false);
+    assert.equal(isS57UpdateFileName("ENC_ROOT/CATALOG.031"), false);
+  });
+});
+
+describe("S-57 extract applies synthetic update records", () => {
+  it("deletes LIGHTS and inserts BOYLAT, and only then says includes ENC updates", async () => {
+    const base = sampleS57ExtractDot000("US5TESTA");
+    const upd = sampleS57UpdateDot001("US5TESTA");
+    assert.equal(isIso8211(upd), true);
+    const before = extractS57FromDot000(base, "US5TESTA");
+    assert.ok(before);
+    assert.equal(before.counts.lights, 1);
+    const zip = makeStoredZip([
+      { name: "ENC_ROOT/US5TESTA/US5TESTA.000", data: base },
+      { name: "ENC_ROOT/US5TESTA/US5TESTA.001", data: upd },
+      { name: "ENC_ROOT/CATALOG.031", data: new TextEncoder().encode("002623LE1 0900073   66040000000019000000") },
+    ]);
+    const parsed = await parseS57ExchangeSet(zip);
+    assert.ok(parsed);
+    assert.equal(parsed.updateCount, 1);
+    assert.equal(parsed.baseOnly, false);
+    assert.equal(parsed.updates[0]?.file, "US5TESTA.001");
+    assert.equal(parsed.updates[0]?.iso8211, true);
+    const extracted = await extractS57FromZip(zip, "US5TESTA");
+    assert.ok(extracted);
+    assert.equal(extracted.updatesApplied, 1);
+    assert.deepEqual(extracted.updateFiles, ["US5TESTA.001"]);
+    assert.equal(extracted.applyNote, S57_UPDATES_APPLIED_NOTE);
+    assert.equal(extracted.baseOnly, false);
+    assert.equal(extracted.counts.lights, 0, "LIGHTS deleted by update");
+    assert.ok(extracted.counts.aids >= before.counts.aids);
+    const buoy = extracted.features.find((f) => (f.properties as { name?: string })?.name === "Update Buoy");
+    assert.ok(buoy);
+    const [lon, lat] = (buoy.geometry as GeoJSON.Point).coordinates;
+    assert.ok(Math.abs(lon - -71.513) < 1e-4);
+    assert.ok(Math.abs(lat - 41.362) < 1e-4);
+    const baseZip = makeStoredZip([{ name: "ENC_ROOT/US5TESTA/US5TESTA.000", data: base }]);
+    const baseOnly = await extractS57FromZip(baseZip, "US5TESTA");
+    assert.ok(baseOnly);
+    assert.equal(baseOnly.updatesApplied, 0);
+    assert.equal(baseOnly.baseOnly, true);
+    assert.equal(baseOnly.applyNote, S57_BASE_ONLY_NOTE);
+    assert.equal(baseOnly.counts.lights, 1);
+    assert.equal(encOfficialNote([{ id: "US5TESTA", official: true, encoding: "s-57", iso8211: true, catalog031: true, file000: "US5TESTA.000", file000Bytes: base.byteLength, leader: "015823LE1", zipBytes: 1, zipSha256: "x", zipBase64: "e", updateCount: 0, baseOnly: true }]).includes(ENC_S57_BASE_ONLY_NOTE), true);
+  });
+});
+
+describe("S-57 extract applies recorded official US5PVDCB.001", () => {
+  it("is ISO 8211 and changes the harbor extract vs base .000 only", async () => {
+    const base = new Uint8Array(readFileSync(harbor000));
+    const upd = new Uint8Array(readFileSync(harbor001));
+    assert.equal(isIso8211(upd), true);
+    assert.match(new TextDecoder("latin1").decode(upd.subarray(0, 24)), /^017903LE1/);
+    const meta = parseS57DsidMeta(upd);
+    assert.equal(meta.edition, "3");
+    assert.equal(meta.update, "1");
+    const before = extractS57FromDot000(base, "US5PVDCB");
+    assert.ok(before);
+    const zip = makeStoredZip([
+      { name: "ENC_ROOT/US5PVDCB/US5PVDCB.000", data: base },
+      { name: "ENC_ROOT/US5PVDCB/US5PVDCB.001", data: upd },
+    ]);
+    const parsed = await parseS57ExchangeSet(zip);
+    assert.ok(parsed);
+    assert.equal(parsed.updateCount, 1);
+    assert.equal(parsed.updates[0]?.file, "US5PVDCB.001");
+    assert.equal(parsed.updates[0]?.bytes, upd.byteLength);
+    const extracted = await extractS57FromZip(zip, "US5PVDCB");
+    assert.ok(extracted);
+    assert.equal(extracted.applyNote, S57_UPDATES_APPLIED_NOTE);
+    assert.equal(extracted.updatesApplied, 1);
+    assert.equal(extracted.edition, "3");
+    assert.equal(extracted.updn, "1");
+    assert.notEqual(JSON.stringify(extracted.counts), JSON.stringify(before.counts), "update must change extract counts");
   });
 });

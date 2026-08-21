@@ -16,7 +16,7 @@ import {
   sstStaleReadyCue,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
-import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, ENC_S57_EXTRACT_NOTE, encHelmLabel, encPackRowLabel, packedEncCells, packedEncExtract, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
+import { ENC_AID_DISCLAIMER, ENC_S57_DISCLAIMER, ENC_S57_EXTRACT_NOTE, encCellUpdateLine, encHelmLabel, encPackRowLabel, packedEncCells, packedEncExtract, packedEncOfficial, packedOfficialEncCells } from "@/lib/ahanu/packed-chart";
 
 /** Helm-only: honest Live NOAA copy + NOAA/fixture count + live ingest errors and Retry. ENC paints an S-57 extract (coastline, shoreline, depth, wrecks/obstructions when present) from packed official zips when those bytes parse; otherwise catalog aid boxes. GFS line comes from liveErrors / layer hours. */
 
@@ -112,7 +112,7 @@ export function PacksPanel() {
       </div>
 
       <p className="mb-3 text-xs text-muted">
-        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC. Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211. Client re-checks hashes after download.
+        Point Judith canyon box. Default download is hashed fixtures. Live NOAA can land SST, chlorophyll, SSH, HMS, bathymetry, canyon heads, GFS-Wave wind/wave, buoys, tides, and ENC. Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; helm extract applies .00n updates when those files are in the zip. Client re-checks hashes after download.
         Worker ready flag is a hint only
         {workerHint == null ? "" : workerHint ? " (hint: yes)" : " (hint: no)"}.
       </p>
@@ -289,12 +289,19 @@ export function PacksPanel() {
               <li key={c.id}>
                 {c.id} · {c.name}
                 {c.s57?.iso8211 ? " · S-57" : ""}
+                {encCellUpdateLine(c) ? ` · ${encCellUpdateLine(c)}` : ""}
               </li>
             ))}
           </ul>
           <p className="text-xs text-muted">
             {packedEncOfficial()
-              ? `${ENC_S57_DISCLAIMER}${packedEncExtract() ? ` ${ENC_S57_EXTRACT_NOTE}.` : ""}`
+              ? `${ENC_S57_DISCLAIMER}${packedEncExtract() ? ` ${ENC_S57_EXTRACT_NOTE}.` : ""}${
+                  packedEncExtract()
+                    ? (packedEncExtract()!.updatesApplied ?? 0) > 0
+                      ? " includes ENC updates."
+                      : " base .000 only — no update files in this exchange set."
+                    : ""
+                }`
               : ENC_AID_DISCLAIMER}
           </p>
         </div>
