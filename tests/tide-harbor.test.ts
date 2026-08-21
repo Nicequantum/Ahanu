@@ -13,9 +13,13 @@ const {
   resolveTideHarbor,
   writePersistedTideHarbor,
 } = await import("../src/lib/ahanu/tide-curve.ts");
-const { COOPS_HARBOR_STATIONS, POINT_JUDITH_COOPS, coopsStationsForBox } = await import(
-  "../src/lib/ahanu/noaa-live.ts"
-);
+const {
+  COOPS_HARBOR_STATIONS,
+  POINT_JUDITH_COOPS,
+  coopsStationsForBox,
+  packedTideStationIds,
+  packedTidesNeedRefresh,
+} = await import("../src/lib/ahanu/noaa-live.ts");
 const { POINT_JUDITH_CANYON_BBOX } = await import("../src/lib/ahanu/pack-fixtures.ts");
 const { STORE_PERSIST_KEY } = await import("../src/lib/ahanu/display-mode.ts");
 const { packedOceanFromBodies, setPackedOcean, clearPackedOcean } = await import(
@@ -234,5 +238,40 @@ describe("CO-OPS Point Judith catalog", () => {
     assert.equal(row.required, true);
     const boxed = coopsStationsForBox(POINT_JUDITH_CANYON_BBOX);
     assert.ok(boxed.some((s) => s.id === "8455083" && s.name === "POINT JUDITH, HARBOR OF REFUGE"));
+  });
+
+  it("packedTidesNeedRefresh is true for live 4-station CO-OPS missing 8455083", () => {
+    const stale = {
+      fixture: false,
+      live: true,
+      source: "coops",
+      stations: [
+        { id: "8452660", name: "Newport" },
+        { id: "8452944", name: "Quonset Point" },
+        { id: "8510560", name: "Montauk" },
+        { id: "8461490", name: "New London" },
+      ],
+    };
+    assert.deepEqual(packedTideStationIds(stale), ["8452660", "8452944", "8510560", "8461490"]);
+    assert.equal(packedTidesNeedRefresh(stale), true);
+    assert.equal(
+      packedTidesNeedRefresh({
+        ...stale,
+        stations: [{ id: POINT_JUDITH_COOPS.id, name: POINT_JUDITH_COOPS.name }, ...stale.stations],
+      }),
+      false,
+    );
+    assert.equal(
+      packedTidesNeedRefresh({
+        fixture: true,
+        stations: [
+          { id: "8452660", name: "Newport" },
+          { id: "8452944", name: "Quonset Point" },
+          { id: "8510560", name: "Montauk" },
+        ],
+      }),
+      false,
+      "fixture tides are not rewritten — do not invent water levels",
+    );
   });
 });

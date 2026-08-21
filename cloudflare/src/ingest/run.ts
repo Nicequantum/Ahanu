@@ -18,6 +18,9 @@
  * (16) or missing harbor/approach ids the current picker would include
  * for this bbox is refetched on the liveEnc path, persisted, and other
  * R2 layers stay. Catalog-only / fixture ENC is not rebuilt here.
+ * Live CO-OPS tides missing required catalog ids (8455083 POINT JUDITH,
+ * HARBOR OF REFUGE) are refetched on the liveTides path, persisted, and
+ * other R2 layers stay. Fixture tides are not rebuilt here.
  * skipCache=1 or a total miss is a live build + persist.
  * Persist (full, SST refresh, ENC refresh) rewrites layer.label / sources[]
  * from the landed body so R2 cannot keep a MUR label on an ACSPO object.
@@ -56,7 +59,13 @@ import {
   sstAgeHours,
   type SstIngest,
 } from "../../../src/lib/ahanu/noaa-sst";
-import { fetchLiveEnc } from "../../../src/lib/ahanu/noaa-live";
+import {
+  fetchLiveEnc,
+  fetchLiveTides,
+  packedTideStationIds,
+  packedTidesNeedRefresh,
+  POINT_JUDITH_COOPS,
+} from "../../../src/lib/ahanu/noaa-live";
 import {
   ENC_S57_MAX_CELLS,
   packedEncCellIds,
@@ -238,7 +247,9 @@ export async function headPackManifest(
  * (ACSPO) can replace that layer and persist. Other R2 hashes stay.
  * Official ENC below the current picker cap or missing picker
  * harbor/approach ids is refetched (liveEnc only) and persisted.
- * Other R2 hashes stay. skipCache or miss: live buildTripPack.
+ * Live CO-OPS missing required catalog stations (8455083) is
+ * refetched (liveTides only) and persisted. Other R2 hashes stay.
+ * skipCache or miss: live buildTripPack.
  * Caller persists a live result.
  * HTTP callers pass limitLiveRebuild so a full live rebuild is fail-closed
  * per CF-Connecting-IP. A fresh R2 hit returns before that gate. SST-only
@@ -378,15 +389,18 @@ async function refreshR2PackLayers(
 ): Promise<ResolvedPack> {
   const sst = await refreshStaleR2Sst(env, stored, opts, nowMs);
   const enc = await refreshShortR2Enc(env, sst.manifest, opts, nowMs);
-  const current = enc.built ? enc.manifest : sst.manifest;
+  const afterEnc = enc.built ? enc.manifest : sst.manifest;
+  const tides = await refreshShortR2Tides(env, afterEnc, opts, nowMs);
+  const current = tides.built ? tides.manifest : afterEnc;
   const leftover = await rewriteLeftoverR2Labels(env, current);
   const bodies = {
     ...(sst.built?.bodies ?? {}),
     ...(enc.built?.bodies ?? {}),
+    ...(tides.built?.bodies ?? {}),
     ...(leftover.built?.bodies ?? {}),
   };
   const manifest = leftover.built ? leftover.manifest : current;
-  if (!sst.built && !enc.built && !leftover.built) {
+  if (!sst.built && !enc.built && !tides.built && !leftover.built) {
     return { manifest: current, source: "r2" };
   }
   return { manifest, source: "live", built: { manifest, bodies } };
@@ -587,6 +601,137 @@ async function refreshStaleR2Sst(
     return { manifest: built.manifest, source: "live", built };
   }
   const honesty = sstRefreshKeptLine(sst, ingest, errors, nowMs);
+  return {
+    manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
+    source: "r2",
+  };
+}
+
+function tidesRefreshKeptLine(haveIds: string[], errors: string[]): string {
+  const n = haveIds.length;
+  const why =
+    errors.filter((e) => /^coops\b/i.test(e)).slice(0, 3).join("; ") || "required harbor missing";
+  return `tides: live refresh failed (${why}) — kept CO-OPS (${n} stations)`;
+}
+
+async function loadStoredTidesPayload(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+): Promise<{
+  live?: boolean;
+  source?: string;
+  fixture?: boolean;
+  stations?: { id?: string; name?: string }[];
+} | null> {
+  const body = await loadStoredLayerBody(env, stored, "tides");
+  if (!body) return null;
+  const parsed = parseLayerBody(body);
+  if (!parsed || parsed.kind !== "json" || !("payload" in parsed) || !parsed.payload || typeof parsed.payload !== "object") {
+    return null;
+  }
+  return parsed.payload as {
+    live?: boolean;
+    source?: string;
+    fixture?: boolean;
+    stations?: { id?: string; name?: string }[];
+  };
+}
+
+async function builtPackWithRefreshedTides(
+  stored: BuiltPack["manifest"],
+  tides: NonNullable<Awaited<ReturnType<typeof fetchLiveTides>>>,
+  liveErrors: string[],
+  nowMs: number,
+): Promise<BuiltPack> {
+  const spec = specForLayer("tides");
+  if (!spec) throw new Error("tides spec missing");
+  const body = encodeLayerBody(tides);
+  const hash = await sha256Hex(body);
+  const bytes = utf8Bytes(body).byteLength;
+  const r2Key = hashedLayerR2Key(stored.packId, "tides", hash, spec.ext);
+  const layers = stored.layers.map((layer) =>
+    layer.id === "tides"
+      ? {
+          ...layer,
+          label: spec.label,
+          sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
+          sizeBytes: bytes,
+          status: "ready" as const,
+          updatedAt: new Date(nowMs).toISOString(),
+          hash,
+          r2Key,
+          source: "noaa" as const,
+        }
+      : layer,
+  );
+  const totalBytes = layers.reduce((n, layer) => n + layer.sizeBytes, 0);
+  const generatedAt = new Date(nowMs).toISOString();
+  const evidence = layers.map((layer) => ({
+    id: layer.id,
+    present: true,
+    hashExpected: layer.hash,
+    hashActual: layer.hash,
+    updatedAt: layer.updatedAt,
+    hoursCovered: layer.hours,
+    cycleAt: generatedAt,
+  }));
+  const check = evaluateReadyForOffshore({
+    hours: stored.hours,
+    start: stored.start,
+    now: nowMs,
+    layers: evidence,
+    liveErrors,
+  });
+  const manifest = rewriteLandedManifest(
+    {
+      ...stored,
+      generatedAt,
+      readyForOffshore: check.ready,
+      layers,
+      totalBytes,
+      totalMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
+      liveErrors: capLiveErrors([...(stored.liveErrors ?? []), ...liveErrors]),
+    },
+    { tides: body },
+  );
+  return { manifest, bodies: { tides: body } };
+}
+
+async function refreshShortR2Tides(
+  env: IngestEnv,
+  stored: BuiltPack["manifest"],
+  opts: ResolvePackOptions,
+  nowMs: number,
+): Promise<ResolvedPack> {
+  const payload = await loadStoredTidesPayload(env, stored);
+  if (!packedTidesNeedRefresh(payload)) {
+    return { manifest: stored, source: "r2" };
+  }
+  const errors: string[] = [];
+  let tides: Awaited<ReturnType<typeof fetchLiveTides>>;
+  try {
+    tides = await fetchLiveTides({
+      bbox: opts.bbox,
+      start: opts.start,
+      hours: opts.hours,
+      fetchImpl: opts.fetchImpl ?? defaultNoaaFetch,
+      timeoutMs: opts.timeoutMs ?? NOAA_GRID_TIMEOUT_MS,
+      errors,
+    });
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+  const nextIds = packedTideStationIds(
+    tides && "payload" in tides && tides.payload && typeof tides.payload === "object"
+      ? (tides.payload as { stations?: { id?: string }[] })
+      : null,
+  );
+  const improved = Boolean(tides) && nextIds.includes(POINT_JUDITH_COOPS.id);
+  if (tides && improved) {
+    const built = await builtPackWithRefreshedTides(stored, tides, errors, nowMs);
+    return { manifest: built.manifest, source: "live", built };
+  }
+  const honesty = tidesRefreshKeptLine(packedTideStationIds(payload), errors);
   return {
     manifest: { ...stored, liveErrors: capLiveErrors([honesty, ...(stored.liveErrors ?? [])]) },
     source: "r2",

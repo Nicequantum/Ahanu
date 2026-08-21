@@ -746,3 +746,191 @@ describe("GET /api/packs R2 ENC refresh", () => {
     assert.match(encSrc.name, /update/);
   });
 });
+
+const COOPS_PREDICTIONS = {
+  predictions: [
+    { t: "2026-08-20 12:00", v: "1.20" },
+    { t: "2026-08-20 13:00", v: "1.80" },
+    { t: "2026-08-20 18:00", v: "0.10" },
+  ],
+};
+
+function fourStationLiveTides(start) {
+  const stations = [
+    { id: "8452660", name: "Newport", lat: 41.49, lon: -71.327 },
+    { id: "8452944", name: "Quonset Point", lat: 41.586, lon: -71.41 },
+    { id: "8510560", name: "Montauk", lat: 41.048, lon: -71.959 },
+    { id: "8461490", name: "New London", lat: 41.355, lon: -72.09 },
+  ].map((s) => ({
+    ...s,
+    interval: "h",
+    datum: "MLLW",
+    series: [{ at: start, heightFt: 1.1 }],
+    hilo: [],
+  }));
+  return JSON.stringify({
+    kind: "json",
+    layer: "tides",
+    payload: {
+      fixture: false,
+      live: true,
+      source: "coops",
+      start,
+      hours: 72,
+      harbor: "Point Judith / Newport / Montauk",
+      stations,
+    },
+  });
+}
+
+async function persistLiveTides(env, built, body) {
+  const { specForLayer } = await import("../src/lib/ahanu/pack-fixtures.ts");
+  const hash = await sha256Hex(body);
+  const spec = specForLayer("tides");
+  const r2Key = hashedLayerR2Key(built.manifest.packId, "tides", hash, spec.ext);
+  const bytes = new TextEncoder().encode(body).byteLength;
+  const next = {
+    manifest: {
+      ...built.manifest,
+      layers: built.manifest.layers.map((l) =>
+        l.id === "tides"
+          ? {
+              ...l,
+              hash,
+              r2Key,
+              sizeBytes: bytes,
+              sizeMb: Math.round((bytes / (1024 * 1024)) * 1000) / 1000,
+              source: "noaa",
+              label: "CO-OPS tidal window",
+            }
+          : l,
+      ),
+    },
+    bodies: { ...built.bodies, tides: body },
+  };
+  await persistBuiltPack(env, next);
+  return next;
+}
+
+function coopsLiveFetch() {
+  return async (url) => {
+    if (url.includes("datagetter")) {
+      return new Response(JSON.stringify(COOPS_PREDICTIONS), { status: 200 });
+    }
+    return new Response("no", { status: 404 });
+  };
+}
+
+describe("GET /api/packs R2 tides refresh", () => {
+  const NOW_FRESH = new Date("2026-08-20T19:00:00.000Z");
+
+  it("R2 4-station live tides missing 8455083 refreshes and keeps other hashes", async () => {
+    const { env } = mockEnv();
+    const packed = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_FRESH,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    const stored = await persistLiveTides(env, packed, fourStationLiveTides(START));
+    const oldTides = stored.manifest.layers.find((l) => l.id === "tides");
+    const bathy = stored.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(oldTides && bathy);
+    assert.equal(JSON.parse(stored.bodies.tides).payload.stations.some((s) => s.id === "8455083"), false);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_FRESH,
+      timeoutMs: 2000,
+      fetchImpl: async (url) => {
+        fetches += 1;
+        return coopsLiveFetch()(url);
+      },
+    });
+    assert.equal(hit.source, "live");
+    assert.ok(fetches > 0, "short live CO-OPS must refetch tides");
+    assert.ok(hit.built);
+    const fresh = hit.manifest.layers.find((l) => l.id === "tides");
+    assert.ok(fresh);
+    assert.notEqual(fresh.hash, oldTides.hash);
+    const body = JSON.parse(hit.built.bodies.tides);
+    const stations = body.payload?.stations ?? [];
+    const pj = stations.find((s) => s.id === "8455083");
+    assert.ok(pj, `expected 8455083 in ${stations.map((s) => s.id).join(",")}`);
+    assert.equal(pj.name, "POINT JUDITH, HARBOR OF REFUGE");
+    const kept = hit.manifest.layers.find((l) => l.id === "bathymetry");
+    assert.ok(kept);
+    assert.equal(kept.hash, bathy.hash, "other R2 layers keep hashes");
+
+    await persistBuiltPack(env, { manifest: hit.manifest, bodies: { ...stored.bodies, ...hit.built.bodies } });
+    const served = await layerBody(env, POINT_JUDITH_CANYON_BBOX, START, HOURS, "tides", {
+      packId: hit.manifest.packId,
+      hash: fresh.hash,
+    });
+    assert.ok(served);
+    const servedBody = JSON.parse(served.body);
+    const names = (servedBody.payload?.stations ?? []).map((s) => s.name);
+    assert.ok(names.includes("POINT JUDITH, HARBOR OF REFUGE"));
+    assert.ok((servedBody.payload?.stations ?? []).some((s) => s.id === "8455083"));
+  });
+
+  it("R2 already packing 8455083 does not refetch tides", async () => {
+    const { POINT_JUDITH_COOPS } = await import("../src/lib/ahanu/noaa-live.ts");
+    const { env } = mockEnv();
+    const packed = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_FRESH,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch(NDBC_N),
+    });
+    const withPj = JSON.parse(fourStationLiveTides(START));
+    withPj.payload.stations.unshift({
+      id: POINT_JUDITH_COOPS.id,
+      name: POINT_JUDITH_COOPS.name,
+      lat: POINT_JUDITH_COOPS.lat,
+      lon: POINT_JUDITH_COOPS.lon,
+      interval: "h",
+      datum: "MLLW",
+      series: [{ at: START, heightFt: 1.0 }],
+      hilo: [],
+    });
+    const stored = await persistLiveTides(env, packed, JSON.stringify(withPj));
+    const oldTides = stored.manifest.layers.find((l) => l.id === "tides");
+    assert.ok(oldTides);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    let fetches = 0;
+    const hit = await resolvePackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      now: NOW_FRESH,
+      fetchImpl: async () => {
+        fetches += 1;
+        throw new Error("complete tides must not refetch");
+      },
+    });
+    assert.equal(hit.source, "r2");
+    assert.equal(fetches, 0);
+    assert.equal(hit.built, undefined);
+    assert.equal(hit.manifest.layers.find((l) => l.id === "tides")?.hash, oldTides.hash);
+  });
+});

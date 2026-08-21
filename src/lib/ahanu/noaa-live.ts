@@ -311,6 +311,41 @@ export function coopsStationsForBox(bbox?: PackBBox): (typeof COOPS_HARBOR_STATI
   return COOPS_HARBOR_STATIONS.filter((st) => st.required || inBbox(st.lat, st.lon, bbox));
 }
 
+/** Station ids on a packed CO-OPS / fixture tides body. */
+export function packedTideStationIds(tides: {
+  stations?: { id?: string }[] | null;
+} | null | undefined): string[] {
+  return (tides?.stations ?? [])
+    .map((s) => (typeof s?.id === "string" ? s.id.trim() : ""))
+    .filter(Boolean);
+}
+
+export function requiredCoopsStationIds(): string[] {
+  return COOPS_HARBOR_STATIONS.filter((s) => s.required).map((s) => s.id);
+}
+
+/**
+ * R2 Download (skipCache off): refresh live CO-OPS tides when required
+ * catalog ids are missing (8455083 Point Judith Harbor of Refuge).
+ * Fixture tides are left as-is — do not invent water levels.
+ */
+export function packedTidesNeedRefresh(
+  tides: {
+    live?: boolean;
+    source?: string;
+    fixture?: boolean;
+    stations?: { id?: string }[] | null;
+  } | null | undefined,
+  opts?: { requiredIds?: string[] },
+): boolean {
+  if (!tides || tides.fixture) return false;
+  const live = Boolean(tides.live) || tides.source === "coops" || tides.source === "noaa";
+  if (!live) return false;
+  const have = new Set(packedTideStationIds(tides));
+  const required = opts?.requiredIds ?? requiredCoopsStationIds();
+  return required.some((id) => !have.has(id));
+}
+
 export type GfsWaveSeriesFlag =
   | boolean
   | {
@@ -920,6 +955,27 @@ export async function fetchLiveEnc(options: {
   sleep?: (ms: number) => Promise<void>;
 }): Promise<PackedJson | undefined> {
   return liveEnc(options.bbox, options.fetchImpl, options.timeoutMs, options.errors, options.sleep);
+}
+
+/** Same path as tryLiveNoaa tides. Does not invent water levels. */
+export async function fetchLiveTides(options: {
+  bbox: PackBBox;
+  start: string;
+  hours: number;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  errors: string[];
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<PackedJson | undefined> {
+  return liveTides(
+    options.bbox,
+    options.start,
+    options.hours,
+    options.fetchImpl,
+    options.timeoutMs,
+    options.errors,
+    options.sleep,
+  );
 }
 
 
