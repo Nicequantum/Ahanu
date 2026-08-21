@@ -119,6 +119,65 @@ function isCatalogSource(s: PackSourceRef): boolean {
   return CATALOG_SOURCE_IDS.has(s.id) || CATALOG_SOURCE_NAMES.has(s.name);
 }
 
+const LIVE_NOAA_GRID_IDS = new Set(["sst", "wind", "waves", "bathymetry"]);
+
+function layerIsLiveNoaa(source?: string): boolean {
+  return source === "noaa" || source === "r2";
+}
+
+/**
+ * Leftover API lie: fixture row claims GRIB/SST/CMEMS while those
+ * layers are live NOAA. Honest AIS leftover is not this leftover.
+ */
+export function leftoverFixtureSources(
+  sources?: PackSourceRef[] | null,
+  layers?: { id: string; source?: string }[] | null,
+): boolean {
+  const fixture = (sources ?? []).find((s) => s?.id === "fixture");
+  if (!fixture?.name) return false;
+  if (!/not live GRIB\/SST\/CMEMS/i.test(fixture.name)) return false;
+  return (layers ?? []).some((l) => LIVE_NOAA_GRID_IDS.has(l.id) && layerIsLiveNoaa(l.source));
+}
+
+/** Name leftover fixture ids. AIS miss stays fixture/miss. Does not invent live. */
+export function leftoverFixtureName(
+  fixtureIds: readonly string[],
+  liveErrors?: readonly string[] | null,
+): string {
+  if (fixtureIds.length === 1 && fixtureIds[0] === "ais") {
+    const ais = (liveErrors ?? []).find((e) => /^ais:/i.test(e.trim()));
+    return ais?.trim() || "AIS miss — hashed fixture (not live AIS)";
+  }
+  return `Hashed fixture leftover (${fixtureIds.join(", ")})`;
+}
+
+function applyHonestFixtureSource(
+  byId: Map<string, string>,
+  layers?: { id: string; source?: string }[] | null,
+  liveErrors?: readonly string[] | null,
+): void {
+  const leftover = (layers ?? []).filter((l) => l.source === "fixture").map((l) => l.id);
+  const existing = byId.get("fixture");
+  if (existing && leftoverFixtureSources([{ id: "fixture", name: existing }], layers)) {
+    byId.delete("fixture");
+  }
+  if (!leftover.length) {
+    byId.delete("fixture");
+    return;
+  }
+  const anyLive = (layers ?? []).some((l) => layerIsLiveNoaa(l.source));
+  if (!anyLive) {
+    if (!byId.has("fixture")) {
+      byId.set("fixture", "Hashed fixture objects (not live NOAA/CMEMS)");
+    }
+    return;
+  }
+  const current = byId.get("fixture");
+  if (!current || leftoverFixtureSources([{ id: "fixture", name: current }], layers)) {
+    byId.set("fixture", leftoverFixtureName(leftover, liveErrors));
+  }
+}
+
 /**
  * Sources this pack actually fetched. Drops the static ingest catalog
  * (GHRSST/MUR, ncep-gfswave, …). Does not invent products.
@@ -147,6 +206,7 @@ export function landedPackSources(manifest: {
     const gfs = (manifest.liveErrors ?? []).find((e) => /^gfs:/i.test(e.trim()));
     if (gfs) byId.set("nomads-gfswave", gfs.trim());
   }
+  applyHonestFixtureSource(byId, manifest.layers, manifest.liveErrors);
   return [...byId.entries()].map(([id, name]) => ({ id, name }));
 }
 
@@ -296,6 +356,7 @@ export function rewriteLandedManifest<
     if (s.id === "noaa-sst" || s.id === "noaa-enc") byId.set(s.id, s.name);
     else if (!byId.has(s.id)) byId.set(s.id, s.name);
   }
+  applyHonestFixtureSource(byId, layers, manifest.liveErrors);
 
   const sources = [...byId.entries()].map(([id, name]) => ({ id, name }));
   const next = { ...manifest, layers, sources };
@@ -310,6 +371,8 @@ export function mergePackSources(
   liveIds: string[],
   extra: PackSourceRef[] | undefined,
   overlays: Partial<Record<string, string>>,
+  fixtureIds: string[] = [],
+  liveErrors?: readonly string[] | null,
 ): PackSourceRef[] {
   const byId = new Map<string, string>();
   for (const s of extra ?? []) {
@@ -323,11 +386,14 @@ export function mergePackSources(
     if (s.id === "noaa-sst" || s.id === "noaa-enc") byId.set(s.id, s.name);
     else if (!byId.has(s.id)) byId.set(s.id, s.name);
   }
-  const base: PackSourceRef[] = liveIds.length
-    ? [
-        { id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" },
-        { id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` },
-      ]
-    : [{ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" }];
+  const base: PackSourceRef[] = [];
+  if (fixtureIds.length && !liveIds.length) {
+    base.push({ id: "fixture", name: "Hashed fixture objects (not live NOAA/CMEMS)" });
+  } else if (fixtureIds.length) {
+    base.push({ id: "fixture", name: leftoverFixtureName(fixtureIds, liveErrors) });
+  }
+  if (liveIds.length) {
+    base.push({ id: "noaa", name: `Public NOAA overlay (${liveIds.join(", ")})` });
+  }
   return [...base, ...[...byId.entries()].map(([id, name]) => ({ id, name }))];
 }

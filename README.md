@@ -18,11 +18,11 @@ Ahanu charts, SST, and habitat are an **aid to navigation and fishing**. They ar
 | Helm paint of packed SST / wind / wave / bathy / buoys / tides when bodies exist   | Real                                                                 |
 | Habitat score and go/no-go                                                         | On-device only. Worker does not score.                               |
 | Preview GET /api/packs                                                             | Deterministic hashed fixtures                                        |
-| SST / wind / wave / bathy grids                                                    | Hashed fixtures. Live GHRSST / GFS-Wave / NDFD / CMEMS not ingested. |
+| SST / wind / wave / bathy grids                                                    | Live NOAA when fetch succeeds (ACSPO SST, GFS-Wave, NCEI ETOPO). Not 1 km MUR / CMEMS / NDFD. Miss keeps hashed fixture. |
 | ENC                                                                                | Official S-57 zips when packed; client paints an extract, not ECDIS. |
 | NDBC buoys and CO-OPS tides                                                        | Public fetch when the network allows; failure degrades to fixtures   |
 | AIS                                                                                | Packed AISStream snapshot when the Worker secret lands; else miss    |
-| Production R2 objects / ingest cron                                                | Not provisioned here                                                 |
+| Production R2 objects / ingest cron                                                | Provisioned. R2 ahanu-trip-packs + D1 ahanu-core (ENAM). Cron 15 2,8,14,20. |
 | Flutter helm                                                                       | Not started. flutter/ is a Dart domain stub                          |
 
 Missing stays missing. Packed paint does not silently fall back to a seed model.
@@ -80,7 +80,7 @@ Helm Packs download uses `VITE_AHANU_PACKS_URL` (`packsApiBase()` in `src/lib/ah
 
 Endpoints: GET /health, GET /api/packs, GET /api/objects, GET /api/sources, GET /api/buoys, POST /api/ingest (INGEST_TOKEN), POST /api/catches (device token).
 
-R2 ahanu-trip-packs and D1 ahanu-core exist in ENAM. Live PJ pack on api.ahanu.dev is 12 NOAA / 0 fixture. Preview packs without live=1 stay fixtures.
+R2 ahanu-trip-packs and D1 ahanu-core exist in ENAM. Live PJ pack on api.ahanu.dev is live NOAA for SST/wind/waves/bathy/ENC when those overlays land. AIS miss stays fixture — never invented tracks. Preview packs without live=1 stay fixtures.
 
 ## Pack loop
 
@@ -100,7 +100,7 @@ Workers package bytes. They do not score fish.
 | Preview host         | Nitro/Vercel — Grok web client only, not production                                                       |
 | Production app shell | Cloudflare Worker ahanu (root wrangler.jsonc)                                       |
 | Production data      | Worker ahanu-packs, R2 ahanu-trip-packs, D1 ahanu-core, Durable Object CommunityHub |
-| Ingest               | Public NDBC / CO-OPS now. ENC, GFS-Wave, NDFD, GHRSST, CMEMS later                  |
+| Ingest               | Public NDBC / CO-OPS / ENC S-57 / GFS-Wave / CoastWatch SST / ETOPO now. NDFD / CMEMS / 1 km MUR not ingested. |
 | Native helm          | Planned. Domain stub in flutter/. See docs/FLUTTER_ROADMAP.md                       |
 
 Domain types (CatchRecord, TripPackLayer, Buoy, LayerId, SpeciesId) are the contract. Additive changes only.

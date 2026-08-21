@@ -58,6 +58,7 @@ export {
   landedPackNotes,
   landedPackSources,
   landedProductSources,
+  leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
   rewriteLandedManifest,
@@ -685,6 +686,7 @@ export async function buildFixturePack(options: {
   const layers: PackLayerRecord[] = [];
   const overlays = options.overlays ?? {};
   const liveIds: string[] = [];
+  const fixtureIds: string[] = [];
 
   for (const spec of PACK_LAYER_SPECS) {
     const overlay = overlays[spec.id];
@@ -693,6 +695,7 @@ export async function buildFixturePack(options: {
     const layerHours = overlay ? overlayCoverHours(overlay, fallbackHours) : fallbackHours;
     const source: PackLayerRecord["source"] = overlay ? "noaa" : "fixture";
     if (overlay) liveIds.push(spec.id);
+    else fixtureIds.push(spec.id);
     const hash = await sha256Hex(body);
     const bytes = utf8Bytes(body).byteLength;
     const r2Key = `${r2Prefix}/${spec.id}/${hash.slice(0, 12)}.${spec.ext}`;
@@ -731,7 +734,7 @@ export async function buildFixturePack(options: {
     liveErrors: options.liveErrors,
   });
 
-  const sources = mergePackSources(liveIds, options.extraSources, overlays);
+  const sources = mergePackSources(liveIds, options.extraSources, overlays, fixtureIds, options.liveErrors);
   const liveErrors = capLiveErrors(options.liveErrors);
   const baseNotes = liveIds.length
     ? "Fixture grids plus live NOAA overlays where fetch succeeded (NDBC / CO-OPS / ENC catalog or official S-57 / CoastWatch SST / chlorophyll / SSH / HMS closed areas / CoastWatch ETOPO-GEBCO bathymetry). Official S-57 packs only when NOAA zips fetch and the .000 is ISO 8211; catalog-only otherwise. Packed zips keep .00n update files when NOAA shipped them; helm extract applies those records. Cells with no .001 stay base .000 only. SST is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (a 0.05° public grid is not native 1 km MUR). Chlorophyll is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (PFEG Aqua MODIS 8-day NRT here is 4 km / 0.0417° — not 1 km VIIRS, not CMEMS). SSH / SLA is source noaa only when a public ERDDAP grid parses; resolution is whatever arrived (CoastWatch blended SLA here is 0.25° / ~25 km — not CMEMS L4, not AVISO DUACS). HMS is source noaa only when a public NMFS/NOAA closed-area KMZ or shapefile parses and intersects the box — reminder overlay, not a legal determination. Bathymetry is source noaa only when a public ERDDAP relief grid parses; resolution is whatever arrived (NCEI ETOPO 2022 here is 15″ subsampled to ~0.033° — not native 15″, not official ENC). Cheap 100/200-fm contours are derived from that grid when it paints. Chlorophyll and altimetry do not block Ready. Bathymetry is required for Ready (fixture still counts on a miss). AIS is source noaa only when an AISStream snapshot yields unique MMSI positions — empty fixture on miss, never invented tracks. Hour-0 wind/wave is painted from the NCEP subset when it parses. A 72 h / 3 h GFS-Wave series is fetched on the Worker (pace 0, 25 s budget). A complete series stamps 72 h noaa. A short prefix paints those hours and keeps a fixture tail — the liveErrors line says which. Client must re-hash. Worker readyForOffshore is a hint."

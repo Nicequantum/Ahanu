@@ -21,6 +21,7 @@ const {
   landedPackNotes,
   landedProductSources,
   encSourceName,
+  leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
   rewriteLandedManifest,
@@ -1257,6 +1258,118 @@ describe("landedPackSources", () => {
     assert.equal((next.notes ?? "").match(/GFS-Wave/g)?.length, 1);
     assert.equal((next.notes ?? "").match(/Official NOAA S-57/g)?.length, 1);
     assert.match(next.notes ?? "", /Fixture grids/);
+  });
+});
+
+describe("honest leftover fixture sources[]", () => {
+  function liveGrid(layer: string, extra: Record<string, unknown> = {}) {
+    return encodeLayerBody({
+      kind: "grid",
+      layer,
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: layer === "sst" ? 24 : 72,
+      unit: layer === "sst" ? "degC" : layer === "bathymetry" ? "m" : "kt",
+      values: [[1, 2, 3, 4]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      ...extra,
+    });
+  }
+
+  it("does not label live NOAA SST/wind/waves/bathy as hashed GRIB/SST/CMEMS fixtures", async () => {
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: {
+        sst: liveGrid("sst", {
+          dataset: "noaacwLEOACSPOSSTL3SnrtKDaily",
+          note: "NOAA ACSPO L3S-LEO NRT daily 2 km / 0.02° — not 1 km MUR / GHRSST L4.",
+        }),
+        wind: liveGrid("wind", { note: "GFS-Wave 20260820 18z f000–f072 / 3 h parsed series (72 h)" }),
+        waves: liveGrid("waves", { note: "GFS-Wave 20260820 18z f000–f072 / 3 h parsed series (72 h)" }),
+        bathymetry: liveGrid("bathymetry", { note: "NCEI ETOPO 2022 15″ subsampled to ~0.033°." }),
+      },
+      liveErrors: ["ais: no positions in snapshot (0 frames) — live miss"],
+    });
+    const fixture = live.manifest.sources.find((s) => s.id === "fixture");
+    assert.ok(fixture);
+    assert.doesNotMatch(fixture.name, /not live GRIB\/SST\/CMEMS/);
+    assert.match(fixture.name, /ais/i);
+    assert.match(fixture.name, /miss|fixture/i);
+    const noaa = live.manifest.sources.find((s) => s.id === "noaa");
+    assert.ok(noaa);
+    assert.match(noaa.name, /sst/);
+    assert.match(noaa.name, /wind/);
+    assert.match(noaa.name, /waves/);
+    assert.match(noaa.name, /bathymetry/);
+    assert.equal(live.manifest.layers.find((l) => l.id === "ais")?.source, "fixture");
+    assert.equal(live.manifest.layers.find((l) => l.id === "sst")?.source, "noaa");
+    assert.equal(leftoverFixtureSources(live.manifest.sources, live.manifest.layers), false);
+  });
+
+  it("keeps an all-fixture pack labeled hashed fixtures", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const row = fixture.manifest.sources.find((s) => s.id === "fixture");
+    assert.ok(row);
+    assert.match(row.name, /Hashed fixture objects \(not live NOAA\/CMEMS\)/);
+    assert.ok(!fixture.manifest.sources.some((s) => s.id === "noaa"));
+    assert.equal(leftoverFixtureSources(fixture.manifest.sources, fixture.manifest.layers), false);
+  });
+
+  it("drops leftover GRIB/SST/CMEMS fixture copy when those layers are already live NOAA", () => {
+    const layers = [
+      { id: "sst", label: "SST ACSPO", source: "noaa" as const },
+      { id: "wind", label: "GFS-Wave", source: "noaa" as const },
+      { id: "waves", label: "GFS-Wave", source: "noaa" as const },
+      { id: "bathymetry", label: "Bathymetry", source: "noaa" as const },
+      { id: "ais", label: "AIS", source: "fixture" as const },
+    ];
+    const leftover = [{ id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" }];
+    assert.equal(leftoverFixtureSources(leftover, layers), true);
+    const sources = landedPackSources({
+      sources: leftover,
+      layers,
+      liveErrors: ["ais: no positions in snapshot (0 frames) — live miss"],
+    });
+    const fixture = sources.find((s) => s.id === "fixture");
+    assert.ok(fixture);
+    assert.doesNotMatch(fixture.name, /not live GRIB\/SST\/CMEMS/);
+    assert.match(fixture.name, /ais/i);
+    assert.equal(leftoverFixtureSources(sources, layers), false);
+  });
+
+  it("rewriteLandedManifest strips leftover live-grid fixture sources[]", () => {
+    const layers = [
+      { id: "sst", label: "SST ACSPO", source: "noaa" as const },
+      { id: "wind", label: "GFS-Wave", source: "noaa" as const },
+      { id: "waves", label: "GFS-Wave", source: "noaa" as const },
+      { id: "bathymetry", label: "Bathymetry", source: "noaa" as const },
+      { id: "ais", label: "AIS", source: "fixture" as const },
+    ];
+    const next = rewriteLandedManifest(
+      {
+        sources: [{ id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" }],
+        layers,
+        liveErrors: ["ais: AISSTREAM_API_KEY missing — live miss"],
+      },
+      {},
+    );
+    const fixture = next.sources.find((s) => s.id === "fixture");
+    assert.ok(fixture);
+    assert.doesNotMatch(fixture.name, /not live GRIB\/SST\/CMEMS/);
+    assert.match(fixture.name, /ais/i);
+    assert.equal(leftoverFixtureSources(next.sources, next.layers), false);
   });
 });
 

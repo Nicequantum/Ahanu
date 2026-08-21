@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (honest pack sources[] leftover, 2026-08-21)
+
+Pack `sources[]` still prepended **Hashed fixture objects (not live GRIB/SST/CMEMS)** when SST/wind/waves/bathy were live NOAA. AIS miss may still be the only fixture. Helm ignores `sources[]`; the API lie is leftover. Generation now names leftover fixture ids only (AIS miss stays fixture/miss) and does not label live NOAA grids as fixture. Serving R2 GET/HEAD persist writes that cleanup — no NOAA. README / DATA_PACKS no longer claim hashed SST/wind/wave fixtures or "R2/cron not provisioned" while production cron + R2 + live NOAA are on. CMEMS / NDFD / 1 km MUR stay not ingested. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (honest Packs download copy, 2026-08-21)
 
 Helm Packs still said **Default download is hashed fixtures** and treated Live NOAA as the live path. Production Download 72h already hits api.ahanu.dev with tryLive (Live NOAA off; `?live=1` is preview-only). Relabeled: marina-Wi-Fi Download is live NOAA/ENC/tides; a missed layer (AIS) is a miss, not a fixture pack. Onboarding already honest. STATUS is inventory, not helm. No AIS ingest edit. No Flutter. PR #1 not merged.
@@ -316,7 +320,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - SST is fixture unless the CoastWatch ERDDAP probe parsed a grid (CoralTemp 5 km, not 1 km MUR). Chlorophyll is fixture unless the PFEG ERDDAP probe parsed a grid (Aqua MODIS L3SMI 8-day NRT 4 km, not 1 km VIIRS / CMEMS). Altimetry is fixture unless the CoastWatch ERDDAP probe parsed a grid (blended SLA daily 0.25°, not CMEMS / AVISO). Bathymetry is fixture unless the CoastWatch PFEG ERDDAP probe parsed a relief grid (NCEI ETOPO 2022 15″ subsampled to ~0.033° here — not native 15″, not official ENC). Contours follow that grid when it paints; otherwise they stay fixture. Canyons are fixture unless the MarineCadastre undersea-names probe parsed named heads that intersect the box (heads only — no invented axes). HMS is fixture unless the NMFS/NOAA closed-area probe parsed a polygon that intersects the box (NE PLL KMZ here — reminder only, not a legal determination).
 - 72 h wind and wave **grids** unless the paced series is explicitly enabled and every f000-f072 step decodes (hour 0 may be live; hours 3-72 stay fixture or empty otherwise. NDFD not fetched. Full series is not downloaded in CI).
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
-- GHRSST / CMEMS (keys / licence). Production R2 objects.
+- GHRSST 1 km MUR / CMEMS (keys / licence). NDFD not fetched. Production R2 + cron are on.
 - Preview `/api/packs` without `live=1`.
 - AISStream snapshot when `AISSTREAM_API_KEY` lands; miss otherwise — never the invented demo fleet. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
 

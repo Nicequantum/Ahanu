@@ -15,8 +15,15 @@ const {
 } = await import("../cloudflare/src/ingest/run.ts");
 const { layerBody } = await import("../cloudflare/src/layer-body.ts");
 const worker = (await import("../cloudflare/src/index.ts")).default;
-const { buildTripPack, packIdFor, peekBuiltPack, resetBuiltPackCache, sha256Hex, POINT_JUDITH_CANYON_BBOX } =
-  await import("../src/lib/ahanu/pack.ts");
+const {
+  buildTripPack,
+  leftoverFixtureSources,
+  packIdFor,
+  peekBuiltPack,
+  resetBuiltPackCache,
+  sha256Hex,
+  POINT_JUDITH_CANYON_BBOX,
+} = await import("../src/lib/ahanu/pack.ts");
 const { resetLiveNoaaCache } = await import("../src/lib/ahanu/noaa-live.ts");
 
 afterEach(() => {
@@ -650,6 +657,65 @@ describe("GET /api/packs R2 manifest", () => {
     assert.ok((headed.manifest.liveErrors ?? []).includes(ais));
     assert.ok(headed.built);
     assert.equal(Object.keys(headed.built.bodies).length, 0);
+  });
+
+  it("GET/HEAD persist drops leftover GRIB/SST/CMEMS fixture sources when those layers are live NOAA", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    built.manifest.sources = [
+      { id: "fixture", name: "Hashed fixture objects (not live GRIB/SST/CMEMS)" },
+      ...(built.manifest.sources ?? []).filter((s) => s.id !== "fixture"),
+    ];
+    for (const id of ["sst", "wind", "waves", "bathymetry"] as const) {
+      const layer = built.manifest.layers.find((l) => l.id === id);
+      if (layer) layer.source = "noaa";
+    }
+    const aisLayer = built.manifest.layers.find((l) => l.id === "ais");
+    if (aisLayer) aisLayer.source = "fixture";
+    built.manifest.liveErrors = ["ais: no positions in snapshot (0 frames) — live miss"];
+    assert.equal(leftoverFixtureSources(built.manifest.sources, built.manifest.layers), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    stored.sources = built.manifest.sources;
+    stored.layers = built.manifest.layers;
+    stored.liveErrors = built.manifest.liveErrors;
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as {
+      sources?: { id: string; name: string }[];
+      layers: { id: string; source?: string }[];
+    };
+    const fixture = (man.sources ?? []).find((s) => s.id === "fixture");
+    assert.ok(!fixture || !/not live GRIB\/SST\/CMEMS/i.test(fixture.name), fixture?.name);
+    if (fixture) assert.match(fixture.name, /ais/i);
+    assert.equal(leftoverFixtureSources(man.sources, man.layers), false);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    assert.equal(leftoverFixtureSources(headed.manifest.sources, headed.manifest.layers), false);
+    const headFixture = headed.manifest.sources.find((s) => s.id === "fixture");
+    assert.ok(!headFixture || !/not live GRIB\/SST\/CMEMS/i.test(headFixture.name));
   });
 });
 

@@ -27,7 +27,8 @@
  * Official ENC persist includes cellIds + updateCount. Serving R2 (GET and
  * HEAD) also rewrites a leftover MUR label when the stored SST body is
  * already ACSPO, leftover "02° — not 1 km MUR" notes from the first-period
- * strip of 0.02°, and duplicate sst/enc/tides "live refresh" liveErrors from
+ * strip of 0.02°, leftover sources[] "not live GRIB/SST/CMEMS" when those
+ * layers are live NOAA, and duplicate sst/enc/tides "live refresh" liveErrors from
  * stale-SST GET prepend (no NOAA fetch). HEAD persist writes that catalog rewrite.
  * A stale SST keep-line replaces the previous same-kind line instead of growing.
  *
@@ -43,6 +44,7 @@ import {
   capLiveErrors,
   evaluateReadyForOffshore,
   encSourceName,
+  leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
   packIdFor,
@@ -236,7 +238,8 @@ export type HeadPackResult =
  * HEAD /api/packs: last R2 only. Never buildTripPack, never take a
  * skipCache live-rebuild slot. skipCache on the query is ignored.
  * Serving leftover MUR labels on an already-landed ACSPO body,
- * leftover "02° — not 1 km MUR" notes from the first-period strip, or
+ * leftover "02° — not 1 km MUR" notes from the first-period strip,
+ * leftover sources[] "not live GRIB/SST/CMEMS" when those layers are live NOAA, or
  * duplicate sst/enc/tides live-refresh liveErrors, is the same catalog
  * rewrite GET persist uses — no NOAA.
  */
@@ -500,7 +503,7 @@ async function loadStoredLayerBody(
   return resolveR2LayerBody(env.PACKS, raw);
 }
 
-/** Serving R2: leftover MUR label on an ACSPO body, leftover 02° MUR notes, duplicate live-refresh errors, or official ENC without counts. No NOAA. */
+/** Serving R2: leftover MUR label on an ACSPO body, leftover 02° MUR notes, leftover live-grid fixture sources[], duplicate live-refresh errors, or official ENC without counts. No NOAA. */
 async function rewriteLeftoverR2Labels(
   env: IngestEnv,
   stored: BuiltPack["manifest"],
@@ -524,7 +527,8 @@ async function rewriteLeftoverR2Labels(
   }
   const notesDirty = leftoverMurNotes(stored.notes);
   const errorsDirty = leftoverRefreshKeptErrors(stored.liveErrors);
-  if (!overlays.sst && !overlays.enc && !notesDirty && !errorsDirty) return { manifest: stored, source: "r2" };
+  const sourcesDirty = leftoverFixtureSources(stored.sources, stored.layers);
+  if (!overlays.sst && !overlays.enc && !notesDirty && !errorsDirty && !sourcesDirty) return { manifest: stored, source: "r2" };
   const rewritten = rewriteLandedManifest(stored, overlays);
   const liveErrors = collapseRefreshKeptLiveErrors(rewritten.liveErrors);
   const manifest = { ...rewritten, liveErrors };
@@ -532,7 +536,9 @@ async function rewriteLeftoverR2Labels(
     !overlays.sst &&
     !overlays.enc &&
     (manifest.notes ?? "") === (stored.notes ?? "") &&
-    liveErrorsEqual(liveErrors, stored.liveErrors)
+    liveErrorsEqual(liveErrors, stored.liveErrors) &&
+    !leftoverFixtureSources(manifest.sources, manifest.layers) &&
+    JSON.stringify(manifest.sources ?? []) === JSON.stringify(stored.sources ?? [])
   ) {
     return { manifest: stored, source: "r2" };
   }
