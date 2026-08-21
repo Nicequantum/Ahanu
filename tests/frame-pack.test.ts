@@ -123,7 +123,13 @@ describe("Frame pack bbox", () => {
 describe("Frame pack store", () => {
   afterEach(() => {
     globalThis.localStorage.removeItem(FOLLOW_KEY);
-    useAhanu.setState({ followShip: true, framePackSeq: 0, replayT: null, packManifest: null });
+    useAhanu.setState({
+      followShip: true,
+      framePackSeq: 0,
+      frameHarborSeq: 0,
+      replayT: null,
+      packManifest: null,
+    });
   });
 
   it("drops Follow the same way a skipper pan does and bumps the frame seq", () => {

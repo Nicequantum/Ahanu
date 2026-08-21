@@ -21,6 +21,20 @@ export const POINT_JUDITH_CANYON_BBOX = {
   east: -68.8,
   north: 41.5,
 } as const;
+
+/**
+ * Official NOAA ENCProdCat 2026-08-21 / S-57 extract footprint for
+ * US5PVDBB (Block Island Sound — Matunuck Point to Point Judith).
+ * Same vertices as the packed catalog and US5PVDBB.000 extract:
+ * west -71.55, south 41.325, east -71.475, north 41.4.
+ * Harbor-scale fallback when packed cells are missing. Not invented.
+ */
+export const POINT_JUDITH_HARBOR_BBOX = {
+  west: -71.55,
+  south: 41.325,
+  east: -71.475,
+  north: 41.4,
+} as const;
 export const MONTAUK = { lat: 41.048, lon: -71.959 };
 export const NEWPORT = { lat: 41.49, lon: -71.327 };
 export const VEATCH_HEAD = { lat: 39.9, lon: -69.62 };

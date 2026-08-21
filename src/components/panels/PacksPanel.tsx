@@ -61,6 +61,7 @@ export function PacksPanel() {
   const sstStaleOverride = useAhanu((s) => s.sstStaleOverride);
   const setSstStaleOverride = useAhanu((s) => s.setSstStaleOverride);
   const framePack = useAhanu((s) => s.framePack);
+  const frameHarbor = useAhanu((s) => s.frameHarbor);
   const workerHint = useAhanu((s) => s.packManifest?.readyForOffshore);
   const builderRev = useAhanu((s) => s.packManifest?.builder?.rev) ?? PACK_BUILDER_REV;
   useAhanu((s) => s.packEpoch);
@@ -225,6 +226,9 @@ export function PacksPanel() {
         </Button>
         <Button variant="outline" size="sm" onClick={framePack}>
           Frame pack
+        </Button>
+        <Button variant="outline" size="sm" onClick={frameHarbor}>
+          Frame harbor
         </Button>
       </div>
 

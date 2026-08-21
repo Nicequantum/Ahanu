@@ -44,6 +44,7 @@ import {
   shouldRecenterOnOwnship,
 } from "@/lib/ahanu/follow-camera";
 import { applyFramePack } from "@/lib/ahanu/frame-pack";
+import { applyFrameHarbor } from "@/lib/ahanu/frame-harbor";
 import {
   cameraForChartLoad,
   createDebouncedCameraPersist,
@@ -190,6 +191,7 @@ export function ChartMap() {
   const catches = useAhanu((s) => s.catches);
   const packEpoch = useAhanu((s) => s.packEpoch);
   const framePackSeq = useAhanu((s) => s.framePackSeq);
+  const frameHarborSeq = useAhanu((s) => s.frameHarborSeq);
 
   useEffect(() => {
     let dead = false;
@@ -963,6 +965,13 @@ export function ChartMap() {
     if (!map) return;
     applyFramePack(map, useAhanu.getState().packManifest);
   }, [framePackSeq]);
+
+  useEffect(() => {
+    if (frameHarborSeq <= 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+    applyFrameHarbor(map, getPackedOcean()?.enc);
+  }, [frameHarborSeq]);
 
   useEffect(() => {
     const map = mapRef.current;

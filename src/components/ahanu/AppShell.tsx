@@ -55,6 +55,7 @@ import {
   RotateCcw,
   Ruler,
   Scan,
+  Ship,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -267,6 +268,7 @@ function InstrumentBar() {
   const follow = useAhanu((s) => s.followShip);
   const setFollow = useAhanu((s) => s.setFollow);
   const framePack = useAhanu((s) => s.framePack);
+  const frameHarbor = useAhanu((s) => s.frameHarbor);
   const drop = useAhanu((s) => s.dropAnchor);
   const weigh = useAhanu((s) => s.weighAnchor);
   const score = habitatScore(v.lat, v.lon, species, hour, new Date(useAhanu.getState().clockMs));
@@ -318,6 +320,9 @@ function InstrumentBar() {
           </IconBtn>
           <IconBtn title="Frame pack" onClick={framePack}>
             <Scan className="size-4" />
+          </IconBtn>
+          <IconBtn title="Frame harbor" onClick={frameHarbor}>
+            <Ship className="size-4" />
           </IconBtn>
           <IconBtn title="Anchor" onClick={v.anchored ? weigh : drop} active={v.anchored}>
             <Anchor className="size-4" />

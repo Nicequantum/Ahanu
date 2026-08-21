@@ -139,8 +139,8 @@ export function SettingsPanel() {
         <Switch checked={follow} onCheckedChange={setFollow} />
       </div>
       <p className="mb-3 text-[11px] text-muted">
-        Pan, zoom, or Frame pack drops Follow. Last Follow is kept on this device. Tap Follow to
-        center on the vessel.
+        Pan, zoom, Frame pack, or Frame harbor drops Follow. Last Follow is kept on this device.
+        Tap Follow to center on the vessel.
       </p>
       <NmeaToggle />
       <Button variant="outline" className="w-full" onClick={anchored ? weigh : drop}>

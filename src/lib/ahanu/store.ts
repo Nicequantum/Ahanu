@@ -124,6 +124,8 @@ export interface AhanuState {
   setFollow: (v: boolean) => void;
   framePackSeq: number;
   framePack: () => void;
+  frameHarborSeq: number;
+  frameHarbor: () => void;
   setBreakSensitivity: (n: number) => void;
   addWaypoint: (w: Omit<Waypoint, "id" | "createdAt">) => void;
   removeWaypoint: (id: string) => void;
@@ -220,6 +222,7 @@ export const useAhanu = create<AhanuState>()(
       simT: 0.12,
       followShip: readPersistedFollow(),
       framePackSeq: 0,
+      frameHarborSeq: 0,
       markRipple: null,
       articleId: null,
       breakSensitivity: 1,
@@ -273,6 +276,10 @@ export const useAhanu = create<AhanuState>()(
       framePack: () => {
         get().setFollow(followAfterSkipperMapMove());
         set((s) => ({ framePackSeq: s.framePackSeq + 1 }));
+      },
+      frameHarbor: () => {
+        get().setFollow(followAfterSkipperMapMove());
+        set((s) => ({ frameHarborSeq: s.frameHarborSeq + 1 }));
       },
       setBreakSensitivity: (breakSensitivity) => set({ breakSensitivity }),
       addWaypoint: (w) =>

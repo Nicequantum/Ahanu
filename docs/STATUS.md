@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (Frame harbor, 2026-08-21)
+
+Frame pack still fits the whole trip bbox, so harbor ENC is a speck in the NW. Helm now has **Frame harbor** next to Frame pack (plotter + Packs). It fits packed official harbor-scale cells: prefer **US5PVDCB** Point Judith Harbor extract/pack footprint (`-71.55..-71.475, 41.4..41.475` from the official `.000`), else the union of US5PVDCB+US5PVDBB+US5PVDDD, else the documented US5PVDBB / PJ harbor box (`-71.55..-71.475, 41.325..41.4` — ENCProdCat 2026-08-21 / extract, not invented). Framing drops Follow the same way a skipper pan does. Camera persist stays `moveend` → `ahanu-camera`. `maxZoom` 14 so shoreline is readable (z12–14), not the canyon. One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
+
 ## This pass (Frame pack, 2026-08-21)
 
 Keyboard pan from Veatch to Point Judith Harbor is slow. Helm now has a compact **Frame pack** control (plotter next to Follow, and Packs) that fits the existing plotter to the downloaded pack bbox (`west`/`south`/`east`/`north`) or `POINT_JUDITH_CANYON_BBOX` when no pack is loaded. Framing drops Follow the same way a skipper pan does. The framed view is written to `ahanu-camera` on `moveend` (existing persist). One plotter. Not ECDIS. No invented GPS. No Worker scoring. No Flutter.
