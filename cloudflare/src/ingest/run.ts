@@ -179,7 +179,7 @@ export async function resolvePackManifest(env: IngestEnv, opts: ResolvePackOptio
     if (stored) return { manifest: stored, source: "r2" };
   }
   if (opts.limitLiveRebuild) {
-    assertLiveRebuildAllowed(opts.limitLiveRebuild.ip);
+    await assertLiveRebuildAllowed(opts.limitLiveRebuild.ip, opts.limitLiveRebuild.limiter);
   }
   const built = await buildTripPack({
     bbox: opts.bbox,

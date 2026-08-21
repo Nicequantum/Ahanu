@@ -94,6 +94,7 @@ export interface Env {
   AHANU_INGEST_TOKEN?: string;
   /** Node tests inject a stub. Production isolate has none. */
   fetchImpl?: FetchLike;
+  LIVE_REBUILD?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
 }
 
 interface ExecCtx {
@@ -675,7 +676,7 @@ export default {
           skipCache,
           packId,
           fetchImpl: env.fetchImpl,
-          limitLiveRebuild: { ip: connectingIp(request) },
+          limitLiveRebuild: { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
         });
         if (resolved.built) {
           rememberBuiltPack(resolved.built);
@@ -714,7 +715,7 @@ export default {
           packId,
           hash,
           fetchImpl: env.fetchImpl,
-          limitLiveRebuild: { ip: connectingIp(request) },
+          limitLiveRebuild: { ip: connectingIp(request), limiter: env.LIVE_REBUILD },
         });
         if (!obj) return error(404, "layer body missing", { layer });
         if (obj.source !== "r2" && env.PACKS && typeof env.PACKS.put === "function") {

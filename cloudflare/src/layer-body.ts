@@ -144,7 +144,7 @@ export async function layerBody(
   if (pinned && !skipCache) return null;
 
   if (opts?.limitLiveRebuild) {
-    assertLiveRebuildAllowed(opts.limitLiveRebuild.ip);
+    await assertLiveRebuildAllowed(opts.limitLiveRebuild.ip, opts.limitLiveRebuild.limiter);
   }
 
   const built = await buildTripPack({

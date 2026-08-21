@@ -57,7 +57,18 @@ new_sqlite_classes = ["CommunityHub"]
 # POST /api/ingest is fail-closed on secret INGEST_TOKEN (not a [vars] value).
 # Cron is in-process and does not HTTP POST /api/ingest.
 # HTTP skipCache / objects total-miss live NOAA rebuilds are fail-closed
-# 3/60s per CF-Connecting-IP. R2 hits are not counted. Cron is not HTTP.
+# 3/60s per CF-Connecting-IP via LIVE_REBUILD binding (per colo).
+# Isolate memory is the test fallback. R2 hits are not counted. Cron is not HTTP.
 # POST /api/catches stays device-token Bearer (helm localStorage), bound per row to SHA-256(token).
 [triggers]
 crons = ["15 2,8,14,20 * * *"]
+
+# Shared skipCache / objects-miss NOAA rebuild cap. Tests use isolate memory
+# when this binding is absent. namespace_id is account-unique (string int).
+[[ratelimits]]
+name = "LIVE_REBUILD"
+namespace_id = "210821"
+
+  [ratelimits.simple]
+  limit = 3
+  period = 60

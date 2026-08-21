@@ -6,13 +6,19 @@
  * unbounded. R2 / isolate hits do not take a slot. Cron and POST /api/ingest
  * call buildTripPack in-process and never come through this gate.
  *
- * Default: 3 live rebuilds / 60s / CF-Connecting-IP. Missing IP denies
- * (fail closed). Limiter errors deny. Helm Retry (skipCache=1) still works.
+ * Default: 3 live rebuilds / 60s / CF-Connecting-IP.
+ * Production uses the Workers Rate Limiting binding (per colo). Tests and a
+ * missing binding fall back to isolate memory. Missing IP or limiter errors
+ * deny. Helm Retry (skipCache=1) still works.
  */
 export const LIVE_REBUILD_LIMIT = 3;
 export const LIVE_REBUILD_WINDOW_MS = 60_000;
 
 export type LiveRebuildDecision = { ok: true } | { ok: false; retryAfter: number };
+
+export interface LiveRebuildLimiter {
+  limit: (opts: { key: string }) => Promise<{ success: boolean }>;
+}
 
 const stampsByIp = new Map<string, number[]>();
 
@@ -63,13 +69,33 @@ export function takeLiveRebuildSlot(
   }
 }
 
-/** Throw when this HTTP call is about to rebuild NOAA. No-op when not gated. */
-export function assertLiveRebuildAllowed(ip: string | null | undefined): void {
+/**
+ * Throw when this HTTP call is about to rebuild NOAA. No-op when not gated
+ * (`ip === undefined`, cron / ingest). Binding first; isolate memory fallback.
+ */
+export async function assertLiveRebuildAllowed(
+  ip: string | null | undefined,
+  limiter?: LiveRebuildLimiter,
+): Promise<void> {
   if (ip === undefined) return;
-  const decision = takeLiveRebuildSlot(ip);
+  const key = (ip ?? "").trim();
+  const windowSec = Math.max(1, Math.ceil(LIVE_REBUILD_WINDOW_MS / 1000));
+  if (!key) throw new LiveRebuildLimitError(windowSec);
+  if (limiter && typeof limiter.limit === "function") {
+    try {
+      const { success } = await limiter.limit({ key });
+      if (!success) throw new LiveRebuildLimitError(windowSec);
+      return;
+    } catch (err) {
+      if (err instanceof LiveRebuildLimitError) throw err;
+      throw new LiveRebuildLimitError(windowSec);
+    }
+  }
+  const decision = takeLiveRebuildSlot(key);
   if (!decision.ok) throw new LiveRebuildLimitError(decision.retryAfter);
 }
 
 export interface LimitLiveRebuild {
   ip: string | null;
+  limiter?: LiveRebuildLimiter;
 }

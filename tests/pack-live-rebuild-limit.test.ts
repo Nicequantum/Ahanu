@@ -166,6 +166,47 @@ describe("GET /api/packs skipCache live rebuild limit", () => {
     assert.ok(res.headers.get("Retry-After"));
   });
 
+  it("Workers Rate Limiting binding 429s skipCache and does not count R2 hits", async () => {
+    const { env } = mockEnv();
+    const keys: string[] = [];
+    let remaining = 3;
+    env.LIVE_REBUILD = {
+      limit: async ({ key }) => {
+        keys.push(key);
+        remaining -= 1;
+        return { success: remaining >= 0 };
+      },
+    };
+    const ip = "203.0.113.80";
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      tryLive: true,
+      skipCache: true,
+      timeoutMs: 50,
+      fetchImpl: ndbcFetch,
+    });
+    await persistBuiltPack(env, built);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const hit = await worker.fetch(packsReq(ip, false), env);
+    assert.equal(hit.status, 200);
+    assert.equal(hit.headers.get("X-Ahanu-Source"), "r2");
+    assert.deepEqual(keys, [], "R2 hit must not call the binding");
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      resetBuiltPackCache();
+      resetLiveNoaaCache();
+      const res = await worker.fetch(packsReq(ip, true), env);
+      statuses.push(res.status);
+    }
+    assert.deepEqual(statuses, [200, 200, 200, 429]);
+    assert.deepEqual(keys, [ip, ip, ip, ip]);
+  });
+
   it("a second IP can still skipCache after the first is limited", async () => {
     const { env } = mockEnv();
     const a = "203.0.113.50";
