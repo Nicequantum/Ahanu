@@ -71,6 +71,7 @@ function mockOpen(
     neverOpen?: boolean;
     alreadyOpen?: boolean;
     asBlob?: boolean;
+    close?: { code?: number; reason?: string };
     onAccept?: () => void;
     onSend?: () => void;
   },
@@ -114,6 +115,9 @@ function mockOpen(
       }
       for (const m of messages) {
         for (const fn of listeners.message) fn({ data: frame(m) });
+      }
+      if (opts?.close) {
+        for (const fn of listeners.close) fn(opts.close);
       }
     });
     return sock;
@@ -231,6 +235,21 @@ describe("fetchLiveAis fail-closed", () => {
     });
     assert.equal(hit, undefined);
     assert.ok(errors.some((e) => /no positions/i.test(e) && /1 frame/.test(e)));
+  });
+
+  it("websocket close reason is a liveError", async () => {
+    const errors: string[] = [];
+    const hit = await fetchLiveAis({
+      bbox: BOX,
+      apiKey: "test-key",
+      errors,
+      snapshotMs: 30,
+      subscribeDeadlineMs: 20,
+      openSocket: mockOpen([], { close: { code: 1008, reason: "Api Key Is Not Valid" } }),
+    });
+    assert.equal(hit, undefined);
+    assert.ok(errors.some((e) => /1008/.test(e) && /Api Key Is Not Valid/i.test(e)));
+    assert.ok(!errors.join(" ").includes("test-key"));
   });
 
   it("AISStream error frame is a liveError and invents nothing", async () => {

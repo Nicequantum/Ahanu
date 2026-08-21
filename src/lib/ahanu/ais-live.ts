@@ -466,7 +466,13 @@ export async function fetchLiveAis(options: {
       finish();
       resolve();
     });
-    listen(socket!, "close", () => {
+    listen(socket!, "close", (ev) => {
+      const code = (ev as { code?: number }).code;
+      const reason = String((ev as { reason?: string }).reason ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+      if (!targets.size && !failed && (reason || (typeof code === "number" && code !== 1000))) {
+        const bit = [typeof code === "number" ? String(code) : "", reason].filter(Boolean).join(" ");
+        if (bit) failed = publicAisError(`websocket closed ${bit}`);
+      }
       finish();
       resolve();
     });
