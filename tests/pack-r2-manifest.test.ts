@@ -18,6 +18,7 @@ const worker = (await import("../cloudflare/src/index.ts")).default;
 const {
   buildTripPack,
   leftoverFixtureSources,
+  leftoverNdfdWindLabel,
   packIdFor,
   peekBuiltPack,
   resetBuiltPackCache,
@@ -716,6 +717,57 @@ describe("GET /api/packs R2 manifest", () => {
     assert.equal(leftoverFixtureSources(headed.manifest.sources, headed.manifest.layers), false);
     const headFixture = headed.manifest.sources.find((s) => s.id === "fixture");
     assert.ok(!headFixture || !/not live GRIB\/SST\/CMEMS/i.test(headFixture.name));
+  });
+
+  it("GET/HEAD persist drops leftover NDFD wind labels when GFS-Wave already landed", async () => {
+    const { env, store } = mockEnv();
+    const built = await buildTripPack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+      createdAt: START,
+      tryLive: true,
+      skipCache: true,
+      now: NOW_STALE,
+      timeoutMs: 50,
+      fetchImpl: sstFetch("acspo"),
+    });
+    const wind = built.manifest.layers.find((l) => l.id === "wind");
+    assert.ok(wind);
+    wind.source = "noaa";
+    wind.label = "NDFD oceanic + GFS-Wave wind GRIB";
+    assert.equal(leftoverNdfdWindLabel(wind.label), true);
+    await persistBuiltPack(env, built);
+    const key = packManifestR2Key(built.manifest.packId);
+    const stored = JSON.parse(store.get(key));
+    const storedWind = stored.layers.find((l) => l.id === "wind");
+    storedWind.source = "noaa";
+    storedWind.label = "NDFD oceanic + GFS-Wave wind GRIB";
+    store.set(key, JSON.stringify(stored));
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+
+    const res = await worker.fetch(new Request(`http://ahanu.test/api/packs?${Q}`), env);
+    assert.equal(res.status, 200);
+    const man = (await res.json()) as { layers: { id: string; label: string; source?: string }[] };
+    const liveWind = man.layers.find((l) => l.id === "wind");
+    assert.ok(liveWind);
+    assert.equal(leftoverNdfdWindLabel(liveWind.label), false);
+    assert.doesNotMatch(liveWind.label, /NDFD/);
+    assert.match(liveWind.label, /GFS-Wave/);
+
+    resetBuiltPackCache();
+    resetLiveNoaaCache();
+    const headed = await headPackManifest(env, {
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: HOURS,
+    });
+    assert.ok(headed.manifest);
+    const headWind = headed.manifest.layers.find((l) => l.id === "wind");
+    assert.ok(headWind);
+    assert.equal(leftoverNdfdWindLabel(headWind.label), false);
+    assert.doesNotMatch(headWind.label, /NDFD/);
   });
 });
 

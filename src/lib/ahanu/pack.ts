@@ -35,7 +35,7 @@ import {
   mergeHour0IntoFixture,
   mergeLiveHoursIntoFixture,
 } from "./noaa-gfs-merge";
-import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName } from "./pack-sources";
+import { encSourceName, landedPackNotes, landedProductSources, mergePackSources, sstLabelFromLanded, sstLandedName, windLabelFromLanded } from "./pack-sources";
 
 export {
   bboxKey,
@@ -61,9 +61,11 @@ export {
   leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
+  leftoverNdfdWindLabel,
   rewriteLandedManifest,
   sstLabelFromLanded,
   sstLandedName,
+  windLabelFromLanded,
   type PackSourceRef,
 } from "./pack-sources";
 
@@ -186,6 +188,22 @@ export function sstPackRowLabel(input: {
   return sstLabelFromLanded(input);
 }
 
+/** Pack row: name GFS-Wave. Do not claim NDFD — that product is not fetched. */
+export function windPackRowLabel(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  return windLabelFromLanded(input);
+}
+
+function overlayWindNote(overlay?: string): string | undefined {
+  if (!overlay) return undefined;
+  const parsed = parseLayerBody(overlay);
+  if (!parsed || parsed.kind !== "grid") return undefined;
+  return typeof parsed.note === "string" && parsed.note.trim() ? parsed.note.trim() : undefined;
+}
+
 function overlaySstMeta(overlay?: string): { dataset?: string; note?: string } {
   if (!overlay) return {};
   const parsed = parseLayerBody(overlay);
@@ -213,6 +231,13 @@ function packRowLabel(spec: PackLayerSpec, overlay?: string): string {
     return sstPackRowLabel({
       dataset: meta.dataset,
       note: meta.note,
+      source: overlay ? "noaa" : "fixture",
+      stored: spec.label,
+    });
+  }
+  if (spec.id === "wind") {
+    return windPackRowLabel({
+      note: overlayWindNote(overlay),
       source: overlay ? "noaa" : "fixture",
       stored: spec.label,
     });

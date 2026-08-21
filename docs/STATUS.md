@@ -2,6 +2,10 @@
 
 Honest inventory. Nothing here is a badge.
 
+## This pass (leftover NDFD wind label, 2026-08-21)
+
+Live GET /api/packs on api.ahanu.dev labeled wind **NDFD oceanic + GFS-Wave wind GRIB** after a live GFS-Wave 72 h series landed. NDFD is not fetched — leftover fixture/catalog copy, same class as leftover MUR on ACSPO. Generation now names fixture **GFS-Wave wind (fixture)** and live **GFS-Wave wind**. Persist / serving R2 GET/HEAD rewrite leftover NDFD labels — no NOAA. Helm Packs remaps the stored leftover. NOAA ACSPO last cell is still 2026-08-20T12:00Z — do not invent SST. 8455083 packed. AIS leftover honest. ahanu.dev only (personal + Galilee friends); leftover lists no longer treat ahanu.app as required. No AIS ingest edit. No Flutter. PR #1 not merged.
+
 ## This pass (honest pack sources[] leftover, 2026-08-21)
 
 Pack `sources[]` still prepended **Hashed fixture objects (not live GRIB/SST/CMEMS)** when SST/wind/waves/bathy were live NOAA. AIS miss may still be the only fixture. Helm ignores `sources[]`; the API lie is leftover. Generation now names leftover fixture ids only (AIS miss stays fixture/miss) and does not label live NOAA grids as fixture. Serving R2 GET/HEAD persist writes that cleanup — no NOAA. README / DATA_PACKS no longer claim hashed SST/wind/wave fixtures or "R2/cron not provisioned" while production cron + R2 + live NOAA are on. CMEMS / NDFD / 1 km MUR stay not ingested. No AIS ingest edit. No Flutter. PR #1 not merged.
@@ -322,7 +326,7 @@ Worker `buildTripPack({ tryLive })` and preview `GET /api/packs?live=1` now fetc
 - Official S-57 cell zips are not stored in the repo or claimed as the legal chart. Full-box zip set is tens of MB; catalog excerpt only.
 - GHRSST 1 km MUR / CMEMS (keys / licence). NDFD not fetched. Production R2 + cron are on.
 - Preview `/api/packs` without `live=1`.
-- AISStream snapshot when `AISSTREAM_API_KEY` lands; miss otherwise — never the invented demo fleet. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. `ahanu.app` is not on this account. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
+- AISStream snapshot when `AISSTREAM_API_KEY` lands; miss otherwise — never the invented demo fleet. Flutter helm. Custom domains live on ahanu.dev / www.ahanu.dev (PWA) and api.ahanu.dev (packs); workers.dev stays as fallback. ahanu.dev only — personal + Galilee friends, not a commercial product. R2 is the persist target for every advertised layer (official ENC dock-to-canyon subset under ~6–8 MB, SST, wind/waves GRIB, buoys). A cold isolate should serve last-good objects from those keys.
 
 ## What works now (finish-pack-loop)
 

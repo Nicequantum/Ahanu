@@ -283,6 +283,27 @@ export function leftoverMurSstLabel(label?: string | null): boolean {
   return /MUR\s*\/\s*CoastWatch/i.test(label) || sstLandedName(undefined, label) === "MUR";
 }
 
+/** Leftover fixture/catalog copy. NDFD is not fetched. */
+export function leftoverNdfdWindLabel(label?: string | null): boolean {
+  if (!label) return false;
+  return /NDFD/i.test(label);
+}
+
+/** Pack row from the landed GFS-Wave body. Leftover NDFD catalog copy does not win. */
+export function windLabelFromLanded(input: {
+  note?: string | null;
+  source?: string;
+  stored?: string;
+}): string {
+  if (input.source === "fixture") return "GFS-Wave wind (fixture)";
+  const note = input.note ?? "";
+  if (/GFS-Wave|gfs:/i.test(note) || leftoverNdfdWindLabel(input.stored)) {
+    return "GFS-Wave wind";
+  }
+  if (input.stored && !leftoverNdfdWindLabel(input.stored)) return input.stored;
+  return "GFS-Wave wind";
+}
+
 /** Pack row from the landed body. Leftover MUR catalog copy does not win. */
 export function sstLabelFromLanded(input: {
   dataset?: string | null;
@@ -307,8 +328,9 @@ function overlayIsOfficialEnc(overlay?: string): boolean {
 
 /**
  * Persist-time rewrite. layer.label / sources[] follow the landed body so
- * R2 cannot keep a MUR label on an ACSPO object. ENC sources include
- * cell/update counts when official. Does not invent products.
+ * R2 cannot keep a MUR label on an ACSPO object or an NDFD label on a
+ * GFS-Wave wind object. ENC sources include cell/update counts when
+ * official. Does not invent products. NDFD is not fetched.
  */
 export function rewriteLandedManifest<
   T extends {
@@ -337,6 +359,16 @@ export function rewriteLandedManifest<
     }
     if (layer.id === "enc" && overlayIsOfficialEnc(overlays.enc)) {
       return { ...layer, label: "NOAA ENC (official S-57)" };
+    }
+    if (layer.id === "wind" && leftoverNdfdWindLabel(layer.label)) {
+      return {
+        ...layer,
+        label: windLabelFromLanded({
+          note: overlayNote(overlays.wind),
+          source: layer.source,
+          stored: layer.label,
+        }),
+      };
     }
     return layer;
   });

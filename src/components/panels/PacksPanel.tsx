@@ -15,6 +15,7 @@ import {
   sstHelmLine,
   sstPackRowLabel,
   sstStaleReadyCue,
+  windPackRowLabel,
 } from "@/lib/ahanu/pack";
 import { getPackedOcean } from "@/lib/ahanu/packed-fields";
 import {
@@ -294,7 +295,13 @@ export function PacksPanel() {
                         dataset: getPackedOcean()?.sst?.dataset,
                         note: getPackedOcean()?.sst?.note,
                       })
-                    : p.label}
+                    : p.id === "wind"
+                      ? windPackRowLabel({
+                          stored: p.label,
+                          source: p.source,
+                          note: getPackedOcean()?.windKt?.note,
+                        })
+                      : p.label}
               </p>
               <p className="text-[11px] text-muted">
                 {p.sizeBytes ? `${p.sizeBytes} B` : `${p.sizeMb} MB`}

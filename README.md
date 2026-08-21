@@ -70,7 +70,7 @@ npx wrangler deploy --config wrangler.toml
 ```
 
 `--config wrangler.toml` is required. Wrangler 4 find-up would otherwise pick the parent `wrangler.jsonc` (PWA) and run `AHANU_CF=1 npx vite build`.
-PWA custom domains: https://ahanu.dev and https://www.ahanu.dev. Packs: https://api.ahanu.dev. workers.dev stays up as fallback. Zone `ahanu.app` is not on this account.
+PWA custom domains: https://ahanu.dev and https://www.ahanu.dev. Packs: https://api.ahanu.dev. workers.dev stays up as fallback. ahanu.dev only — personal + Galilee friends, not a commercial product.
 
 Helm Packs download uses `VITE_AHANU_PACKS_URL` (`packsApiBase()` in `src/lib/ahanu/pack-client.ts`):
 

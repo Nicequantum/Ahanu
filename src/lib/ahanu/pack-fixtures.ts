@@ -75,7 +75,7 @@ export const PACK_LAYER_SPECS: readonly PackLayerSpec[] = [
   { id: "sst", label: "SST composite (public ERDDAP)", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "chlorophyll", label: "Chlorophyll-a L4", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
   { id: "altimetry", label: "SSH anomaly", hours: 24, format: "grid", contentType: "application/json", ext: "json", required: false },
-  { id: "wind", label: "NDFD oceanic + GFS-Wave wind GRIB", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
+  { id: "wind", label: "GFS-Wave wind", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "waves", label: "GFS-Wave / WW3 GRIB", hours: 72, format: "grid", contentType: "application/json", ext: "json", required: true },
   { id: "buoys", label: "NDBC buoy snapshot", hours: 3, format: "json", contentType: "application/json", ext: "json", required: false },
   { id: "tides", label: "CO-OPS tidal window", hours: 72, format: "json", contentType: "application/json", ext: "json", required: true },

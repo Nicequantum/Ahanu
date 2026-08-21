@@ -43,7 +43,7 @@ Layers match the Worker manifest (`TripPackLayer` + `hash` + `r2Key`). Source ad
 | SST composite       | MUR L4 + GOES-East gap-fill, COG                              | last 24 h                | Water mass. Input to on-device breaks.                       |
 | Chlorophyll-a L4    | CMEMS (licensed, not fetched) / PFEG Aqua MODIS 8-day 4 km    | last 8-day composite     | Color. Input to on-device edges. Does not block Ready.       |
 | SSH anomaly         | CoastWatch blended SLA 0.25° (CMEMS L4 licensed, not fetched) | last 24 h                | Eddy / filament field under blank SST. Does not block Ready. |
-| Wind GRIB           | NDFD + GFS-Wave                                               | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
+| Wind GRIB           | GFS-Wave ATL 0p16 (NDFD not fetched)                          | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWindKt`.                     |
 | Wave GRIB           | GFS-Wave ATL 0p16 (WW3)                                       | **72 h**, 3 h step       | Go/no-go against `BoatLimits.maxWaveFt`.                     |
 | NDBC snapshot       | JSON                                                          | ~hourly, stale after 3 h | Ground truth vs model.                                       |
 | CO-OPS tides        | JSON hi/lo + hourly                                           | **72 h**                 | Harbor windows, The Race, Block Island Sound.                |
@@ -67,7 +67,7 @@ r2://ahanu-trip-packs/packs/{packId}/{layerId}/{hash12}.{ext}
 The weather axis is 72 hours because canyon weather is a two-night problem. A fair Thursday morning is not a fair Friday night on the wall.
 
 - **Waves:** NCEP GFS-Wave / WAVEWATCH III, Atlantic regional `atlocn.0p16`, fields Hs, primary period, primary direction, swell. Global 0p25 only as fallback.
-- **Wind:** NDFD over the coastal half of the box, GFS-Wave wind over the offshore half, one GRIB the client already knows how to parse.
+- **Wind:** GFS-Wave wind over the box (NOMADS atlocn.0p16). NDFD is not fetched.
 - **Cycle:** 6-hourly. A layer whose cycle is more than 6 h old is **stale**. Stale weather is not Ready for offshore.
 - **Step:** 3 h. Enough for a go/no-go strip, small enough to keep the file in the low tens of megabytes for a canyon bbox.
 

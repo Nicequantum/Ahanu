@@ -24,7 +24,9 @@ const {
   leftoverFixtureSources,
   leftoverMurNotes,
   leftoverMurSstLabel,
+  leftoverNdfdWindLabel,
   rewriteLandedManifest,
+  windPackRowLabel,
 } = await import("../src/lib/ahanu/pack.ts");
 const { tripPackLayersFromReady } = await import("../src/lib/ahanu/pack-client.ts");
 const { GFS_HOUR0_FIXTURE_NOTE } = await import("../src/lib/ahanu/noaa-gfs-merge.ts");
@@ -1047,6 +1049,112 @@ describe("sstPackRowLabel", () => {
     const products = live.manifest.landedSources ?? [];
     assert.ok(products.some((s) => s.id === "noaa-sst" && /ACSPO/.test(s.name)));
     assert.ok(!products.some((s) => s.id === "ghrsst-coastwatch-sst"));
+  });
+});
+
+describe("windPackRowLabel", () => {
+  it("names GFS-Wave and remaps leftover NDFD catalog copy", () => {
+    assert.equal(leftoverNdfdWindLabel("NDFD oceanic + GFS-Wave wind GRIB"), true);
+    assert.equal(leftoverNdfdWindLabel("GFS-Wave wind"), false);
+    assert.equal(windPackRowLabel({ source: "fixture" }), "GFS-Wave wind (fixture)");
+    assert.equal(
+      windPackRowLabel({
+        source: "noaa",
+        stored: "NDFD oceanic + GFS-Wave wind GRIB",
+        note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+      }),
+      "GFS-Wave wind",
+    );
+    assert.equal(
+      windPackRowLabel({
+        source: "noaa",
+        stored: "NDFD oceanic + GFS-Wave wind GRIB",
+      }),
+      "GFS-Wave wind",
+    );
+    assert.doesNotMatch(
+      windPackRowLabel({ source: "noaa", stored: "NDFD oceanic + GFS-Wave wind GRIB" }),
+      /NDFD/,
+    );
+  });
+
+  it("writes GFS-Wave on the fixture-pack row, not leftover NDFD", async () => {
+    const fixture = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+    });
+    const fixtureWind = fixture.manifest.layers.find((l) => l.id === "wind")!;
+    assert.equal(fixtureWind.label, "GFS-Wave wind (fixture)");
+    assert.doesNotMatch(fixtureWind.label, /NDFD/);
+
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "wind",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0, 3],
+      hoursCovered: 72,
+      unit: "kt",
+      values: [[1, 2, 3, 4], [2, 3, 4, 5]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+    });
+    const live = await buildFixturePack({
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      start: START,
+      hours: 72,
+      createdAt: START,
+      overlays: { wind: overlay },
+    });
+    const wind = live.manifest.layers.find((l) => l.id === "wind")!;
+    assert.equal(wind.source, "noaa");
+    assert.equal(wind.label, "GFS-Wave wind");
+    assert.doesNotMatch(wind.label, /NDFD/);
+  });
+
+  it("rewriteLandedManifest replaces a leftover NDFD label from a GFS-Wave body", () => {
+    const overlay = encodeLayerBody({
+      kind: "grid",
+      layer: "wind",
+      bbox: POINT_JUDITH_CANYON_BBOX,
+      nx: 2,
+      ny: 2,
+      hours: [0],
+      hoursCovered: 72,
+      unit: "kt",
+      values: [[1, 2, 3, 4]],
+      live: true,
+      source: "noaa",
+      updatedAt: START,
+      note: "GFS-Wave 20260821 06z f000–f072 / 3 h parsed series (72 h)",
+    });
+    const next = rewriteLandedManifest(
+      {
+        sources: [{ id: "nws-ndfd", name: "NDFD oceanic" }],
+        layers: [{ id: "wind", label: "NDFD oceanic + GFS-Wave wind GRIB", source: "noaa" }],
+      },
+      { wind: overlay },
+    );
+    assert.equal(next.layers.find((l) => l.id === "wind")?.label, "GFS-Wave wind");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "wind")?.label ?? "", /NDFD/);
+    assert.ok(!next.sources.some((s) => s.id === "nws-ndfd"));
+  });
+
+  it("rewriteLandedManifest remaps leftover NDFD without a wind overlay", () => {
+    const next = rewriteLandedManifest(
+      {
+        sources: [],
+        layers: [{ id: "wind", label: "NDFD oceanic + GFS-Wave wind GRIB", source: "noaa" }],
+      },
+      {},
+    );
+    assert.equal(next.layers.find((l) => l.id === "wind")?.label, "GFS-Wave wind");
+    assert.doesNotMatch(next.layers.find((l) => l.id === "wind")?.label ?? "", /NDFD/);
   });
 });
 
