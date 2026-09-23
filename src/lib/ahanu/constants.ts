@@ -10,6 +10,8 @@ export const REGION = {
 
 export const POINT_JUDITH = { lat: 41.3615, lon: -71.4814 };
 export const MONTAUK = { lat: 41.048, lon: -71.959 };
+export const BLOCK_ISLAND = { lat: 41.1721, lon: -71.5578 };
+export const MARTHAS_VINEYARD = { lat: 41.3906, lon: -70.6455 };
 export const NEWPORT = { lat: 41.49, lon: -71.327 };
 export const VEATCH_HEAD = { lat: 39.9, lon: -69.62 };
 export const ATLANTIS_HEAD = { lat: 39.85, lon: -70.22 };
@@ -18,6 +20,17 @@ export const HUDSON_HEAD = { lat: 39.55, lon: -72.4 };
 
 export const DEFAULT_CENTER = { lat: 39.92, lon: -69.85 };
 export const DEFAULT_ZOOM = 7.35;
+
+/**
+ * Rhode Island trip-pack box: Point Judith, Montauk, Block Island, Martha's Vineyard.
+ * Decimal degrees, WGS84. Does not replace REGION (the canyon shelf).
+ */
+export const RHODE_ISLAND_BOX = {
+  west: -72.2,
+  south: 40.92,
+  east: -70.28,
+  north: 41.55,
+} as const;
 
 export const NM_PER_DEG_LAT = 60;
 export const METERS_PER_NM = 1852;
@@ -53,7 +66,9 @@ export const LAYER_META: Record<
   tracks: { label: "Track", group: "ops" },
   routes: { label: "Routes", group: "ops" },
   hms_zones: { label: "HMS closed areas", group: "ops" },
-  ais: { label: "AIS (gateway)", group: "ops" },
+  ais: { label: "AIS", group: "ops" },
+  radar: { label: "Radar returns", group: "ops" },
+  sonar: { label: "Sonar (sounder panel)", group: "ops" },
 };
 
 export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number }> = {
@@ -73,7 +88,9 @@ export const DEFAULT_LAYERS: Record<LayerId, { visible: boolean; opacity: number
   tracks: { visible: true, opacity: 0.9 },
   routes: { visible: true, opacity: 1 },
   hms_zones: { visible: false, opacity: 0.35 },
-  ais: { visible: false, opacity: 0.8 },
+  ais: { visible: true, opacity: 0.9 },
+  radar: { visible: false, opacity: 0.85 },
+  sonar: { visible: true, opacity: 1 },
 };
 
 export const DEFAULT_BOAT: BoatLimits = {

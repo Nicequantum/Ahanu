@@ -5,7 +5,9 @@ import { Switch } from "@/components/ui/switch";
 import { DISPLAY_MODES } from "@/lib/ahanu/constants";
 import { metersToFathoms } from "@/lib/ahanu/geo";
 import { useAhanu } from "@/lib/ahanu/store";
-import type { NavMode } from "@/lib/ahanu/types";
+import { Input } from "@/components/ui/input";
+import { GARMIN_SIGNAL_VHF_PORT } from "@/lib/sensors/ports";
+import type { NavMode, RadioMode } from "@/lib/ahanu/types";
 import { Pane, Stat } from "@/components/panels/pane";
 
 function NmeaToggle() {
@@ -15,6 +17,65 @@ function NmeaToggle() {
     <div className="mb-3 flex items-center justify-between">
       <span className="text-sm">NMEA Wi-Fi gateway</span>
       <Switch checked={on} onCheckedChange={set} />
+    </div>
+  );
+}
+
+const RADIOS: { id: RadioMode; label: string }[] = [
+  { id: "sim", label: "Simulated" },
+  { id: "ws", label: "WebSocket" },
+  { id: "tcp", label: "Signal TCP" },
+  { id: "udp", label: "UDP JSON" },
+];
+
+function RadioBlock() {
+  const mode = useAhanu((s) => s.radioMode);
+  const setMode = useAhanu((s) => s.setRadioMode);
+  const fallback = useAhanu((s) => s.radioSimFallback);
+  const setFallback = useAhanu((s) => s.setRadioSimFallback);
+  const ws = useAhanu((s) => s.radioWsUrl);
+  const setWs = useAhanu((s) => s.setRadioWsUrl);
+  const host = useAhanu((s) => s.radioHost);
+  const setHost = useAhanu((s) => s.setRadioHost);
+  const note = useAhanu((s) => s.sensorNote);
+  return (
+    <div className="mt-4">
+      <p className="mb-2 text-[11px] tracking-widest text-faint uppercase">AIS radio · receive only</p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {RADIOS.map((m) => (
+          <Button key={m.id} size="sm" variant={mode === m.id ? "default" : "outline"} onClick={() => setMode(m.id)}>
+            {m.label}
+          </Button>
+        ))}
+      </div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="text-sm">Simulated contacts if the radio is quiet</span>
+        <Switch checked={fallback} onCheckedChange={setFallback} />
+      </div>
+      <label className="mb-2 block text-xs text-muted" htmlFor="ais-ws">
+        WebSocket JSON gateway
+      </label>
+      <Input
+        id="ais-ws"
+        value={ws}
+        placeholder="ws://192.168.1.20:39151"
+        onChange={(e) => setWs(e.target.value)}
+        className="mb-2"
+      />
+      <label className="mb-2 block text-xs text-muted" htmlFor="ais-host">
+        Garmin Signal host · TCP {GARMIN_SIGNAL_VHF_PORT}
+      </label>
+      <Input
+        id="ais-host"
+        value={host}
+        placeholder="192.168.1.50"
+        onChange={(e) => setHost(e.target.value)}
+        className="mb-2"
+      />
+      <p className="text-xs text-muted">{note}</p>
+      <p className="mt-1 text-xs text-faint">
+        This page does not transmit. A browser cannot open raw TCP or UDP — those clients run on the boat computer.
+      </p>
     </div>
   );
 }
@@ -65,6 +126,7 @@ export function SettingsPanel() {
         <Switch checked={follow} onCheckedChange={setFollow} />
       </div>
       <NmeaToggle />
+      <RadioBlock />
       <Button variant="outline" className="w-full" onClick={anchored ? weigh : drop}>
         {anchored ? "Weigh anchor" : "Drop anchor alarm"}
       </Button>

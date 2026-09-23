@@ -29,7 +29,9 @@ export type LayerId =
   | "routes"
   | "canyons"
   | "hms_zones"
-  | "ais";
+  | "ais"
+  | "radar"
+  | "sonar";
 
 export type DisplayMode = "night" | "high-contrast" | "pure-black" | "day";
 
@@ -47,6 +49,7 @@ export type PanelId =
   | "species"
   | "settings"
   | "solunar"
+  | "sounder"
   | null;
 
 export type NavMode = "trolling" | "steaming" | "gps" | "anchor";
@@ -239,3 +242,39 @@ export interface ForecastHour {
 }
 
 export type PackStatus = "ready" | "partial" | "offline";
+
+/** Where a sensor sample came from. `sim` and `stub` are never a live radio. */
+export type SensorProvenance = "sim" | "nmea-tcp" | "nmea-vdm" | "ws-json" | "udp-json" | "stub";
+
+export type SensorKind = "ais" | "radar" | "sonar";
+
+export type RadioMode = "sim" | "tcp" | "ws" | "udp";
+
+/** Radar PPI return. `bearingDeg` is relative to the bow, clockwise. */
+export interface RadarReturn {
+  id: string;
+  rangeNm: number;
+  bearingDeg: number;
+  lat: number;
+  lon: number;
+  at: number;
+  strength: number;
+  provenance: SensorProvenance;
+}
+
+/** Fish-finder mark. Depth is meters. This does not go on the chart. */
+export interface SonarTarget {
+  id: string;
+  depthM: number;
+  strength: number;
+  at: number;
+  fish: boolean;
+  provenance: SensorProvenance;
+}
+
+export interface SonarColumn {
+  at: number;
+  depthM: number;
+  marks: { depthM: number; strength: number }[];
+  provenance: SensorProvenance;
+}

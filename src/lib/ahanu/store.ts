@@ -9,6 +9,7 @@ import {
 import { destination, haversineNm, initialBearing } from "./geo";
 import { depthM } from "./bathymetry";
 import { sstC } from "./ocean";
+import { aisTargets, type AisTarget } from "@/lib/data/ais";
 import { SEED_SPOTS } from "@/lib/data/spots";
 import { DEFAULT_PACK_LAYERS } from "@/lib/data/trip-pack";
 import { uid } from "@/lib/utils";
@@ -22,6 +23,9 @@ import type {
   MeasureState,
   NavMode,
   PanelId,
+  RadarReturn,
+  RadioMode,
+  SonarColumn,
   SpeciesId,
   TripPackLayer,
   VesselState,
@@ -72,6 +76,15 @@ export interface AhanuState {
   nmeaGateway: boolean;
   replayT: number | null;
   safetyDepthM: number;
+  radioMode: RadioMode;
+  radioSimFallback: boolean;
+  radioWsUrl: string;
+  radioHost: string;
+  traffic: AisTarget[];
+  radarHits: RadarReturn[];
+  sonarTrace: SonarColumn[];
+  sensorNote: string;
+  focusMmsi: string | null;
   setPanel: (p: PanelId) => void;
   toggleLayer: (id: LayerId) => void;
   setOpacity: (id: LayerId, opacity: number) => void;
@@ -103,6 +116,14 @@ export interface AhanuState {
   setNmeaGateway: (v: boolean) => void;
   setReplayT: (t: number | null) => void;
   setSafetyDepth: (m: number) => void;
+  setRadioMode: (m: RadioMode) => void;
+  setRadioSimFallback: (v: boolean) => void;
+  setRadioWsUrl: (url: string) => void;
+  setRadioHost: (host: string) => void;
+  setPicture: (traffic: AisTarget[], radarHits: RadarReturn[]) => void;
+  pushSonar: (column: SonarColumn) => void;
+  setSensorNote: (note: string) => void;
+  setFocusMmsi: (mmsi: string | null) => void;
 }
 
 const defaultVessel = (): VesselState => ({
@@ -160,17 +181,27 @@ export const useAhanu = create<AhanuState>()(
       nmeaGateway: false,
       replayT: null,
       safetyDepthM: 10,
+      radioMode: "sim",
+      radioSimFallback: true,
+      radioWsUrl: "",
+      radioHost: "",
+      traffic: aisTargets(Date.parse("2026-08-20T21:40:00Z"), 0),
+      radarHits: [],
+      sonarTrace: [],
+      sensorNote: "sim · no radio",
+      focusMmsi: null,
       setPanel: (panel) => set({ panel }),
       toggleLayer: (id) =>
+        set((s) => {
+          const prev = s.layers[id] ?? { visible: false, opacity: 0.8 };
+          return { layers: { ...s.layers, [id]: { ...prev, visible: !prev.visible } } };
+        }),
+      setOpacity: (id, opacity) =>
         set((s) => ({
           layers: {
             ...s.layers,
-            [id]: { ...s.layers[id], visible: !s.layers[id]!.visible },
+            [id]: { ...(s.layers[id] ?? { visible: true, opacity }), opacity },
           },
-        })),
-      setOpacity: (id, opacity) =>
-        set((s) => ({
-          layers: { ...s.layers, [id]: { ...s.layers[id]!, opacity } },
         })),
       setHour: (forecastHour) => set({ forecastHour }),
       setSpecies: (species) => set({ species }),
@@ -328,6 +359,21 @@ export const useAhanu = create<AhanuState>()(
       setNmeaGateway: (nmeaGateway) => set({ nmeaGateway }),
       setReplayT: (replayT) => set({ replayT, followShip: replayT == null }),
       setSafetyDepth: (safetyDepthM) => set({ safetyDepthM }),
+      setRadioMode: (radioMode) => set({ radioMode }),
+      setRadioSimFallback: (radioSimFallback) => set({ radioSimFallback }),
+      setRadioWsUrl: (radioWsUrl) => set({ radioWsUrl }),
+      setRadioHost: (radioHost) => set({ radioHost }),
+      setPicture: (traffic, radarHits) => set({ traffic, radarHits }),
+      pushSonar: (column) =>
+        set((s) => ({
+          sonarTrace: [...s.sonarTrace, column].slice(-72),
+          vessel:
+            column.provenance === "stub"
+              ? s.vessel
+              : { ...s.vessel, depthM: column.depthM },
+        })),
+      setSensorNote: (sensorNote) => set({ sensorNote }),
+      setFocusMmsi: (focusMmsi) => set({ focusMmsi }),
     }),
     {
       name: "ahanu-bridge-v1",
@@ -344,7 +390,19 @@ export const useAhanu = create<AhanuState>()(
         packLayers: s.packLayers,
         nmeaGateway: s.nmeaGateway,
         safetyDepthM: s.safetyDepthM,
+        radioMode: s.radioMode,
+        radioSimFallback: s.radioSimFallback,
+        radioWsUrl: s.radioWsUrl,
+        radioHost: s.radioHost,
       }),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<AhanuState>;
+        return {
+          ...current,
+          ...saved,
+          layers: { ...DEFAULT_LAYERS, ...(saved.layers ?? {}) },
+        };
+      },
     },
   ),
 );

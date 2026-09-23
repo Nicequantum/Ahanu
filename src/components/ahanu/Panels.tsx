@@ -6,6 +6,7 @@ import { PacksPanel } from "@/components/panels/PacksPanel";
 import { PlanPanel } from "@/components/panels/PlanPanel";
 import { SafetyPanel } from "@/components/panels/SafetyPanel";
 import { SettingsPanel } from "@/components/panels/SettingsPanel";
+import { SounderPanel } from "@/components/panels/SounderPanel";
 import { SolunarPanel } from "@/components/panels/SolunarPanel";
 import { SpeciesPanel } from "@/components/panels/SpeciesPanel";
 import { WeatherPanel } from "@/components/panels/WeatherPanel";
@@ -38,6 +39,8 @@ export function PanelBody({ id }: { id: Exclude<PanelId, null> }) {
       return <SolunarPanel />;
     case "settings":
       return <SettingsPanel />;
+    case "sounder":
+      return <SounderPanel />;
     default:
       return null;
   }

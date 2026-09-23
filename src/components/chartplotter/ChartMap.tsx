@@ -7,7 +7,8 @@ import { CANYONS } from "@/lib/data/canyons";
 import { BUOYS } from "@/lib/data/buoys";
 import { CLOSED_AREAS } from "@/lib/data/regs";
 import { COMMUNITY_REPORTS } from "@/lib/data/community";
-import { aisGeo, aisTargets } from "@/lib/data/ais";
+import { aisGeo } from "@/lib/data/ais";
+import type { RadarReturn } from "@/lib/ahanu/types";
 import { steamRouteGeo, waveFieldGeo, windBarbGeo } from "@/lib/ahanu/wind-field";
 import { circleRingGeo, destination, formatCoord } from "@/lib/ahanu/geo";
 import { replayAt } from "@/lib/ahanu/replay";
@@ -15,6 +16,21 @@ import { useAhanu } from "@/lib/ahanu/store";
 
 const BOUNDS: [[number, number], [number, number], [number, number], [number, number]] =
   overlayBounds();
+
+function radarGeo(hits: RadarReturn[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: hits.map((h) => ({
+      type: "Feature" as const,
+      properties: {
+        id: h.id,
+        rangeNm: Number(h.rangeNm.toFixed(2)),
+        bearingDeg: Math.round(h.bearingDeg),
+      },
+      geometry: { type: "Point" as const, coordinates: [h.lon, h.lat] },
+    })),
+  };
+}
 
 function canyonGeo(): GeoJSON.FeatureCollection {
   return {
@@ -148,8 +164,9 @@ export function ChartMap() {
   const mode = useAhanu((s) => s.displayMode);
   const sens = useAhanu((s) => s.breakSensitivity);
   const boat = useAhanu((s) => s.boat);
-  const clock = useAhanu((s) => s.clockMs);
-  const aisTick = Math.floor(clock / 20000);
+  const traffic = useAhanu((s) => s.traffic);
+  const radarHits = useAhanu((s) => s.radarHits);
+  const focusMmsi = useAhanu((s) => s.focusMmsi);
   const replayT = useAhanu((s) => s.replayT);
   const catches = useAhanu((s) => s.catches);
 
@@ -408,7 +425,8 @@ export function ChartMap() {
           },
         });
 
-        map.addSource("ais", { type: "geojson", data: aisGeo(aisTargets(clock, hour)) });
+        const live = useAhanu.getState();
+        map.addSource("ais", { type: "geojson", data: aisGeo(live.traffic) });
         map.addLayer({
           id: "ais",
           type: "circle",
@@ -431,6 +449,19 @@ export function ChartMap() {
             "circle-opacity": 0,
             "circle-stroke-width": 1,
             "circle-stroke-color": "#071016",
+          },
+        });
+        map.addSource("radar", { type: "geojson", data: radarGeo(live.radarHits) });
+        map.addLayer({
+          id: "radar",
+          type: "circle",
+          source: "radar",
+          paint: {
+            "circle-radius": 4.5,
+            "circle-color": "#4ecdc4",
+            "circle-opacity": 0,
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#e4b56a",
           },
         });
 
@@ -492,6 +523,14 @@ export function ChartMap() {
 
       map.on("click", (e) => {
         const st = useAhanu.getState();
+        if (map?.getLayer("ais")) {
+          const hits = map.queryRenderedFeatures(e.point, { layers: ["ais"] });
+          const mmsi = hits[0]?.properties?.mmsi;
+          if (typeof mmsi === "string" && mmsi) {
+            st.setFocusMmsi(mmsi);
+            return;
+          }
+        }
         if (st.measure.active) {
           st.addMeasurePoint({ lat: e.lngLat.lat, lon: e.lngLat.lng });
         }
@@ -549,6 +588,7 @@ export function ChartMap() {
     vis("wind", layers.wind.visible, 0.8);
     vis("waves", layers.waves.visible, 0.45);
     vis("ais", layers.ais.visible, 0.9);
+    vis("radar", layers.radar?.visible ?? false, 0.9);
     vis("community", layers.spots.visible, 0.55);
     if (map.getLayer("hms")) {
       map.setPaintProperty("hms", "fill-opacity", layers.hms_zones.visible ? layers.hms_zones.opacity : 0);
@@ -561,11 +601,20 @@ export function ChartMap() {
     }
     if (map.getLayer("ais")) {
       map.setPaintProperty("ais", "circle-opacity", layers.ais.visible ? layers.ais.opacity : 0);
+      map.setPaintProperty(
+        "ais",
+        "circle-stroke-width",
+        ["case", ["==", ["get", "mmsi"], focusMmsi ?? ""], 2, 1],
+      );
+    }
+    if (map.getLayer("radar")) {
+      const on = layers.radar?.visible ?? false;
+      map.setPaintProperty("radar", "circle-opacity", on ? layers.radar?.opacity ?? 0.85 : 0);
     }
     if (map.getLayer("chl-edges")) {
       map.setPaintProperty("chl-edges", "circle-opacity", layers.chl_edges.visible ? 0.8 : 0);
     }
-  }, [layers]);
+  }, [layers, focusMmsi]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -591,8 +640,17 @@ export function ChartMap() {
   useEffect(() => {
     const map = mapRef.current;
     const src = map?.getSource("ais") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
-    src?.setData?.(aisGeo(aisTargets(clock, hour)));
-  }, [aisTick, hour]);
+    src?.setData?.(aisGeo(traffic));
+    const radar = map?.getSource("radar") as { setData?: (d: GeoJSON.GeoJSON) => void } | undefined;
+    radar?.setData?.(radarGeo(radarHits));
+  }, [traffic, radarHits]);
+
+  useEffect(() => {
+    if (!focusMmsi) return;
+    const hit = useAhanu.getState().traffic.find((t) => t.mmsi === focusMmsi);
+    if (!hit) return;
+    mapRef.current?.easeTo({ center: [hit.lon, hit.lat], duration: 400, essential: true });
+  }, [focusMmsi]);
 
   useEffect(() => {
     const map = mapRef.current;

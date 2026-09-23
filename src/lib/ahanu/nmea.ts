@@ -92,7 +92,7 @@ export interface DecodedNmea {
 
 export function decodeSentence(sentenceStr: string): DecodedNmea | null {
   const raw = sentenceStr.trim();
-  if (!raw.startsWith("$") || raw.length < 6) return null;
+  if ((!raw.startsWith("$") && !raw.startsWith("!")) || raw.length < 6) return null;
   const star = raw.lastIndexOf("*");
   const body = star >= 0 ? raw.slice(1, star) : raw.slice(1);
   if (body.length < 5) return null;
