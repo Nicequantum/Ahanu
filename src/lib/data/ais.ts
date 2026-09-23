@@ -1,4 +1,4 @@
-/** DEMO/GATEWAY simulated AIS. Adapter boundary for a future NMEA/Wi-Fi gateway — not a live feed. */
+/** Simulated AIS fleet. Fallback when no radio is attached — not a live feed. */
 
 import { CANYONS } from "@/lib/data/canyons";
 import {
@@ -10,7 +10,7 @@ import {
   VEATCH_HEAD,
 } from "@/lib/ahanu/constants";
 import { destination, haversineNm, initialBearing } from "@/lib/ahanu/geo";
-import type { LatLon } from "@/lib/ahanu/types";
+import type { LatLon, SensorProvenance } from "@/lib/ahanu/types";
 
 export type AisShipType = "fishing" | "tanker" | "cargo" | "pleasure" | "tug";
 
@@ -25,6 +25,15 @@ export interface AisTarget {
   heading: number;
   lengthM: number;
   destination: string;
+  /** Nautical miles at closest approach. Absent until own-ship is applied. */
+  cpaNm?: number | null;
+  /** Minutes to CPA. Negative means the contact is opening. */
+  tcpaMin?: number | null;
+  navStatus?: number | null;
+  receivedAt?: number;
+  provenance?: SensorProvenance;
+  /** True when a radar return sits on the same position and time. */
+  corroborated?: boolean;
 }
 
 interface Spec {
@@ -235,6 +244,9 @@ export function aisGeo(targets: AisTarget[]): GeoJSON.FeatureCollection {
         cog: t.cog,
         sog: t.sog,
         heading: t.heading,
+        cpaNm: t.cpaNm ?? null,
+        tcpaMin: t.tcpaMin ?? null,
+        corroborated: t.corroborated ? 1 : 0,
       },
       geometry: { type: "Point" as const, coordinates: [t.lon, t.lat] },
     })),

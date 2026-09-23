@@ -9,9 +9,10 @@
 /// `$`/`!`, `*`, and hex digits themselves are not included. Hex is uppercase
 /// and zero-padded to two characters.
 ///
-/// Ahanu does not talk to an NMEA 2000 backbone. A future Wi-Fi gateway
-/// publishes JSON `VesselState`. These helpers cover 0183 sentences that
-/// gateway may still emit.
+/// Ahanu does not talk to an NMEA 2000 backbone and does not transmit.
+/// A Wi-Fi gateway publishes JSON `VesselState` or raw 0183. VDM/VDO AIS
+/// decode lives in TypeScript (`src/lib/ahanu/ais`); this file stays the
+/// checksum port. Garmin Signal VHF AIS is TCP port 39150, receive-only.
 library;
 
 bool _hasStartDelim(String s) => s.startsWith(r'$') || s.startsWith('!');

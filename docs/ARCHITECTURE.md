@@ -108,16 +108,35 @@ Auth on mutating routes is a bearer stub. Production will issue short-lived devi
 
 ---
 
-## NMEA 2000 / Wi-Fi gateway (future)
+## NMEA, AIS, and the sensor bus
 
-Ahanu does not talk to the backbone itself. A small gateway on the boat (Wi-Fi access point + NMEA 2000 or 0183 bridge) will publish:
+Ahanu does not transmit. The radio stays the radio. The helm is eyes.
 
-- position, COG, SOG, heading
-- depth
-- wind (if the vessel has it)
-- later: engine / fuel, AIS targets (`LayerId` `"ais"` is reserved)
+A gateway on the boat (or a Garmin Signal VHF AIS output) publishes sentences. The browser cannot open raw TCP or UDP, so the PWA listens on a WebSocket. The Node adapters — TCP port **39150** for Garmin Signal, and a UDP JSON gateway — are receive-only and are not imported by the chart bundle. When nothing is attached, simulated contacts stay available as an explicit fallback. A bad checksum, a void RMC, or a missing position is dropped. The bus does not invent a target.
 
-The PWA and the Flutter client both consume a local WebSocket / UDP JSON feed. When the gateway is absent, the client simulates or freezes last-known `VesselState`. Gateway code is not in this repository.
+```
+SensorSource  connect → stream → disconnect
+    ├─ AIS      VDM/VDO + RMC/GGA own-ship, or the simulated fleet
+    ├─ Radar    range/bearing → lat/lon using own-ship heading (stub until a set is fitted)
+    └─ Sonar    depth + marks → VesselState and the sounder panel, never the chart
+```
+
+AIS paints MapLibre layer `ais` (name, MMSI, COG, SOG, CPA/TCPA). Radar paints layer `radar`. Contacts within 0.25 nm and 30 s are one picture; the AIS target is marked corroborated and the radar dot is not drawn twice. Sonar is the Sounder panel.
+
+Own-ship from RMC/GGA normalizes AIS. Scoring still runs on the device. Workers still only package bytes. The radio address is boat-local state — not a Worker var, and this change adds no Cloudflare binding.
+
+### Rhode Island trip-pack box
+
+`RHODE_ISLAND_BOX` in `src/lib/ahanu/constants.ts` (and the Dart port) is the inshore box, not the canyon `REGION`:
+
+| Edge | Degrees |
+| --- | --- |
+| West | -72.20 |
+| South | 40.92 |
+| East | -70.28 |
+| North | 41.55 |
+
+That box contains Point Judith, Montauk, Block Island, and Martha's Vineyard. Canyon trips still use `REGION`.
 
 ---
 

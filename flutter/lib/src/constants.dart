@@ -30,6 +30,8 @@ const REGION = RegionBBox(
 
 const POINT_JUDITH = LatLon(lat: 41.3615, lon: -71.4814);
 const MONTAUK = LatLon(lat: 41.048, lon: -71.959);
+const BLOCK_ISLAND = LatLon(lat: 41.1721, lon: -71.5578);
+const MARTHAS_VINEYARD = LatLon(lat: 41.3906, lon: -70.6455);
 const NEWPORT = LatLon(lat: 41.49, lon: -71.327);
 const VEATCH_HEAD = LatLon(lat: 39.9, lon: -69.62);
 const ATLANTIS_HEAD = LatLon(lat: 39.85, lon: -70.22);
@@ -38,6 +40,14 @@ const HUDSON_HEAD = LatLon(lat: 39.55, lon: -72.4);
 
 const DEFAULT_CENTER = LatLon(lat: 39.92, lon: -69.85);
 const DEFAULT_ZOOM = 7.35;
+
+/// Rhode Island trip-pack box: Point Judith, Montauk, Block Island, Martha's Vineyard.
+const RHODE_ISLAND_BOX = RegionBBox(
+  west: -72.2,
+  east: -70.28,
+  south: 40.92,
+  north: 41.55,
+);
 
 const NM_PER_DEG_LAT = 60.0;
 const METERS_PER_NM = 1852.0;
@@ -80,7 +90,9 @@ const LAYER_META = <LayerId, LayerMeta>{
   LayerId.tracks: LayerMeta(label: 'Track', group: LayerGroup.ops),
   LayerId.routes: LayerMeta(label: 'Routes', group: LayerGroup.ops),
   LayerId.hmsZones: LayerMeta(label: 'HMS closed areas', group: LayerGroup.ops),
-  LayerId.ais: LayerMeta(label: 'AIS (gateway)', group: LayerGroup.ops),
+  LayerId.ais: LayerMeta(label: 'AIS', group: LayerGroup.ops),
+  LayerId.radar: LayerMeta(label: 'Radar returns', group: LayerGroup.ops),
+  LayerId.sonar: LayerMeta(label: 'Sonar (sounder panel)', group: LayerGroup.ops),
 };
 
 const DEFAULT_LAYERS = <LayerId, LayerState>{
@@ -100,7 +112,9 @@ const DEFAULT_LAYERS = <LayerId, LayerState>{
   LayerId.tracks: LayerState(visible: true, opacity: 0.9),
   LayerId.routes: LayerState(visible: true, opacity: 1),
   LayerId.hmsZones: LayerState(visible: false, opacity: 0.35),
-  LayerId.ais: LayerState(visible: false, opacity: 0.8),
+  LayerId.ais: LayerState(visible: true, opacity: 0.9),
+  LayerId.radar: LayerState(visible: false, opacity: 0.85),
+  LayerId.sonar: LayerState(visible: true, opacity: 1),
 };
 
 const DEFAULT_BOAT = BoatLimits(

@@ -16,32 +16,35 @@ export function LayersPanel() {
     <Pane title="Layers" kicker="Chartplotter">
       {GROUPS.map((g) => {
         const ids = (Object.keys(LAYER_META) as LayerId[]).filter((id) => LAYER_META[id].group === g);
-        const on = ids.filter((id) => layers[id].visible).length;
+        const on = ids.filter((id) => layers[id]?.visible).length;
         return (
           <div key={g} className="mb-5">
             <p className="mb-2 text-[10px] tracking-[0.2em] text-faint uppercase">
               {g} · {on}/{ids.length}
             </p>
-            {ids.map((id) => (
+            {ids.map((id) => {
+              const layer = layers[id] ?? { visible: false, opacity: 0.8 };
+              return (
               <div key={id} className="mb-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm">{LAYER_META[id].label}</span>
-                  <Switch checked={layers[id].visible} onCheckedChange={() => toggle(id)} />
+                  <Switch checked={layer.visible} onCheckedChange={() => toggle(id)} />
                 </div>
-                {layers[id].visible && (
+                {layer.visible && (
                   <div className="mt-2">
                     <Slider
                       min={0.15}
                       max={1}
                       step={0.05}
-                      value={[layers[id].opacity]}
+                      value={[layer.opacity]}
                       onValueChange={([v]) => setOp(id, v ?? 0.5)}
                     />
-                    <p className="mt-1 text-[10px] tabular text-faint">{Math.round(layers[id].opacity * 100)}%</p>
+                    <p className="mt-1 text-[10px] tabular text-faint">{Math.round(layer.opacity * 100)}%</p>
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         );
       })}

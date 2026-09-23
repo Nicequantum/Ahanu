@@ -58,7 +58,9 @@ enum LayerId {
   routes('routes'),
   canyons('canyons'),
   hmsZones('hms_zones'),
-  ais('ais');
+  ais('ais'),
+  radar('radar'),
+  sonar('sonar');
 
   const LayerId(this.wire);
   final String wire;
@@ -106,7 +108,8 @@ enum PanelId {
   packs('packs'),
   species('species'),
   settings('settings'),
-  solunar('solunar');
+  solunar('solunar'),
+  sounder('sounder');
 
   const PanelId(this.wire);
   final String wire;
@@ -691,6 +694,92 @@ enum PackStatus {
 
   static PackStatus fromWire(String value) =>
       PackStatus.values.firstWhere((e) => e.wire == value);
+}
+
+/// Where a sensor sample came from. `sim` and `stub` are never a live radio.
+enum SensorProvenance {
+  sim('sim'),
+  nmeaTcp('nmea-tcp'),
+  nmeaVdm('nmea-vdm'),
+  wsJson('ws-json'),
+  udpJson('udp-json'),
+  stub('stub');
+
+  const SensorProvenance(this.wire);
+  final String wire;
+
+  static SensorProvenance fromWire(String value) =>
+      SensorProvenance.values.firstWhere((e) => e.wire == value);
+}
+
+enum SensorKind {
+  ais('ais'),
+  radar('radar'),
+  sonar('sonar');
+
+  const SensorKind(this.wire);
+  final String wire;
+
+  static SensorKind fromWire(String value) =>
+      SensorKind.values.firstWhere((e) => e.wire == value);
+}
+
+enum RadioMode {
+  sim('sim'),
+  tcp('tcp'),
+  ws('ws'),
+  udp('udp');
+
+  const RadioMode(this.wire);
+  final String wire;
+
+  static RadioMode fromWire(String value) =>
+      RadioMode.values.firstWhere((e) => e.wire == value);
+}
+
+/// Radar PPI return. [bearingDeg] is relative to the bow, clockwise.
+/// [rangeNm] is nautical miles. Position is WGS84 after own-ship heading is applied.
+class RadarReturn {
+  const RadarReturn({
+    required this.id,
+    required this.rangeNm,
+    required this.bearingDeg,
+    required this.lat,
+    required this.lon,
+    required this.at,
+    required this.strength,
+    required this.provenance,
+  });
+
+  final String id;
+  final double rangeNm;
+  final double bearingDeg;
+  final double lat;
+  final double lon;
+
+  /// Unix epoch milliseconds.
+  final int at;
+  final double strength;
+  final SensorProvenance provenance;
+}
+
+/// Fish-finder mark. Depth stays meters. Not a chart layer.
+class SonarTarget {
+  const SonarTarget({
+    required this.id,
+    required this.depthM,
+    required this.strength,
+    required this.at,
+    required this.fish,
+    required this.provenance,
+  });
+
+  final String id;
+  final double depthM;
+  final double strength;
+  final int at;
+  final bool fish;
+  final SensorProvenance provenance;
 }
 
 bool _listEq<T>(List<T>? a, List<T>? b) {
