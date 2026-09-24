@@ -109,7 +109,8 @@ enum PanelId {
   species('species'),
   settings('settings'),
   solunar('solunar'),
-  sounder('sounder');
+  sounder('sounder'),
+  engine('engine');
 
   const PanelId(this.wire);
   final String wire;
@@ -715,7 +716,8 @@ enum SensorProvenance {
 enum SensorKind {
   ais('ais'),
   radar('radar'),
-  sonar('sonar');
+  sonar('sonar'),
+  engine('engine');
 
   const SensorKind(this.wire);
   final String wire;
@@ -790,3 +792,117 @@ bool _listEq<T>(List<T>? a, List<T>? b) {
   }
   return true;
 }
+
+/// Twin-inboard bank. `unmapped` is never a guess for port.
+enum EngineId {
+  port('port'),
+  starboard('starboard'),
+  unmapped('unmapped');
+
+  const EngineId(this.wire);
+  final String wire;
+
+  static EngineId fromWire(String value) =>
+      EngineId.values.firstWhere((e) => e.wire == value);
+}
+
+/// Normalized engine source. Display units only, never the wire unit.
+enum EngineSourceKind {
+  analogN2k('analog-n2k'),
+  smartcraft('smartcraft'),
+  mefi('mefi'),
+  standalone('standalone'),
+  sim('sim');
+
+  const EngineSourceKind(this.wire);
+  final String wire;
+
+  static EngineSourceKind fromWire(String value) =>
+      EngineSourceKind.values.firstWhere((e) => e.wire == value);
+}
+
+enum ReadingQuality {
+  ok('ok'),
+  stale('stale'),
+  missing('missing');
+
+  const ReadingQuality(this.wire);
+  final String wire;
+
+  static ReadingQuality fromWire(String value) =>
+      ReadingQuality.values.firstWhere((e) => e.wire == value);
+}
+
+enum EngineRoomMode {
+  carb('carb'),
+  efi('efi');
+
+  const EngineRoomMode(this.wire);
+  final String wire;
+
+  static EngineRoomMode fromWire(String value) =>
+      EngineRoomMode.values.firstWhere((e) => e.wire == value);
+}
+
+enum EngineFeed {
+  sim('sim'),
+  analog('analog'),
+  digital('digital');
+
+  const EngineFeed(this.wire);
+  final String wire;
+
+  static EngineFeed fromWire(String value) =>
+      EngineFeed.values.firstWhere((e) => e.wire == value);
+}
+
+/// One gauge sample. Mirrors TypeScript `EngineReading`.
+class EngineReading {
+  const EngineReading({
+    required this.engineId,
+    required this.param,
+    required this.value,
+    required this.unit,
+    required this.ts,
+    required this.source,
+    required this.quality,
+    this.instance,
+    this.pgn,
+  });
+
+  final EngineId engineId;
+  final String param;
+  final double value;
+  final String unit;
+  final String ts;
+  final EngineSourceKind source;
+  final ReadingQuality quality;
+  final int? instance;
+  final int? pgn;
+}
+
+/// Tier 1 discrete alarm or Tier 2 DTC. The tier is never inferred from the other.
+class EngineAlarm {
+  const EngineAlarm({
+    required this.tier,
+    required this.engineId,
+    required this.code,
+    required this.description,
+    required this.state,
+    required this.ts,
+    required this.source,
+    this.instance,
+    this.pgn,
+  });
+
+  final int tier;
+  final EngineId engineId;
+  final int? instance;
+  final String code;
+  final String description;
+  final String state;
+  final String ts;
+  final EngineSourceKind source;
+  final int? pgn;
+}
+

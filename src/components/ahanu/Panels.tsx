@@ -1,3 +1,4 @@
+import { EnginePanel } from "@/components/panels/EnginePanel";
 import { IntelPanel } from "@/components/panels/IntelPanel";
 import { KnowledgePanel } from "@/components/panels/KnowledgePanel";
 import { LayersPanel } from "@/components/panels/LayersPanel";
@@ -41,6 +42,8 @@ export function PanelBody({ id }: { id: Exclude<PanelId, null> }) {
       return <SettingsPanel />;
     case "sounder":
       return <SounderPanel />;
+    case "engine":
+      return <EnginePanel />;
     default:
       return null;
   }

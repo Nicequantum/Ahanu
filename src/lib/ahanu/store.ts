@@ -30,7 +30,13 @@ import type {
   TripPackLayer,
   VesselState,
   Waypoint,
+  EngineAlarm,
+  EngineDtc,
+  EngineFeed,
+  EngineReading,
+  EngineRoomMode,
 } from "./types";
+import type { InstanceMap } from "./engine/map";
 
 const TROLL_PATH = (() => {
   const pts = [];
@@ -124,6 +130,24 @@ export interface AhanuState {
   pushSonar: (column: SonarColumn) => void;
   setSensorNote: (note: string) => void;
   setFocusMmsi: (mmsi: string | null) => void;
+  engineMode: EngineRoomMode;
+  engineThemeId: string;
+  engineInstanceMap: InstanceMap;
+  engineFeed: EngineFeed;
+  engineHost: string;
+  engineReadings: EngineReading[];
+  engineAlarms: EngineAlarm[];
+  engineDtcs: EngineDtc[];
+  engineNote: string;
+  engineFocus: { param: string; engineId: EngineReading["engineId"] } | null;
+  setEngineMode: (m: EngineRoomMode) => void;
+  setEngineTheme: (id: string) => void;
+  setEngineMap: (map: InstanceMap) => void;
+  setEngineFeed: (feed: EngineFeed) => void;
+  setEngineHost: (host: string) => void;
+  setEnginePicture: (readings: EngineReading[], alarms: EngineAlarm[], dtcs: EngineDtc[]) => void;
+  setEngineNote: (note: string) => void;
+  setEngineFocus: (focus: AhanuState["engineFocus"]) => void;
 }
 
 const defaultVessel = (): VesselState => ({
@@ -190,6 +214,16 @@ export const useAhanu = create<AhanuState>()(
       sonarTrace: [],
       sensorNote: "sim · no radio",
       focusMmsi: null,
+      engineMode: "carb",
+      engineThemeId: "stealth-night",
+      engineInstanceMap: {},
+      engineFeed: "sim",
+      engineHost: "",
+      engineReadings: [],
+      engineAlarms: [],
+      engineDtcs: [],
+      engineNote: "sim · no gateway",
+      engineFocus: null,
       setPanel: (panel) => set({ panel }),
       toggleLayer: (id) =>
         set((s) => {
@@ -374,6 +408,14 @@ export const useAhanu = create<AhanuState>()(
         })),
       setSensorNote: (sensorNote) => set({ sensorNote }),
       setFocusMmsi: (focusMmsi) => set({ focusMmsi }),
+      setEngineMode: (engineMode) => set({ engineMode }),
+      setEngineTheme: (engineThemeId) => set({ engineThemeId }),
+      setEngineMap: (engineInstanceMap) => set({ engineInstanceMap }),
+      setEngineFeed: (engineFeed) => set({ engineFeed }),
+      setEngineHost: (engineHost) => set({ engineHost }),
+      setEnginePicture: (engineReadings, engineAlarms, engineDtcs) => set({ engineReadings, engineAlarms, engineDtcs }),
+      setEngineNote: (engineNote) => set({ engineNote }),
+      setEngineFocus: (engineFocus) => set({ engineFocus }),
     }),
     {
       name: "ahanu-bridge-v1",
@@ -394,6 +436,11 @@ export const useAhanu = create<AhanuState>()(
         radioSimFallback: s.radioSimFallback,
         radioWsUrl: s.radioWsUrl,
         radioHost: s.radioHost,
+        engineMode: s.engineMode,
+        engineThemeId: s.engineThemeId,
+        engineInstanceMap: s.engineInstanceMap,
+        engineFeed: s.engineFeed,
+        engineHost: s.engineHost,
       }),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<AhanuState>;

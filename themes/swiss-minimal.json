@@ -1,0 +1,20 @@
+{
+  "id": "swiss-minimal",
+  "label": "Swiss minimal",
+  "nightSafe": false,
+  "palette": {
+    "bg": "#f4f1ea",
+    "face": "#faf8f4",
+    "ink": "#1a1a1a",
+    "muted": "#6b675f",
+    "accent": "#c0392b",
+    "hot": "#c0392b",
+    "ok": "#1a1a1a",
+    "warn": "#c0392b",
+    "tick": "#d9d3c7"
+  },
+  "typography": { "display": "Outfit, sans-serif", "ui": "Outfit, sans-serif", "figure": "Outfit, sans-serif" },
+  "gauge": { "bezel": 0, "needle": "line", "arc": 0.55, "face": "flat" },
+  "background": "solid",
+  "animation": "none"
+}

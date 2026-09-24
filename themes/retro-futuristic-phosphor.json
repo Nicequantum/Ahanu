@@ -1,0 +1,20 @@
+{
+  "id": "retro-futuristic-phosphor",
+  "label": "Retro phosphor",
+  "nightSafe": true,
+  "palette": {
+    "bg": "#0a0700",
+    "face": "#100c02",
+    "ink": "#ffb000",
+    "muted": "#8a6410",
+    "accent": "#ffc44d",
+    "hot": "#ff6a00",
+    "ok": "#d6a000",
+    "warn": "#ffd27a",
+    "tick": "#3a2a08"
+  },
+  "typography": { "display": "ui-monospace, monospace", "ui": "ui-monospace, monospace", "figure": "ui-monospace, monospace" },
+  "gauge": { "bezel": 1, "needle": "line", "arc": 0.78, "face": "lcd" },
+  "background": "scan",
+  "animation": "phosphor"
+}
