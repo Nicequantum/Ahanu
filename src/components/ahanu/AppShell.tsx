@@ -1,6 +1,7 @@
 import { AisRoster } from "@/components/ahanu/AisRoster";
 import { ChartIsland } from "@/components/ahanu/ChartIsland";
 import { startHelmSensors } from "@/lib/sensors/bridge";
+import { startEngineRoom } from "@/lib/sensors/engine-bridge";
 import { PanelBody } from "@/components/ahanu/Panels";
 import { CompassTape } from "@/components/ahanu/CompassTape";
 import { MarkBurst } from "@/components/ahanu/MarkBurst";
@@ -37,6 +38,7 @@ import {
   Play,
   Settings,
   Waves,
+  Gauge,
   Sparkles,
   RotateCcw,
   Ruler,
@@ -56,6 +58,7 @@ const NAV: { id: Exclude<PanelId, null>; icon: typeof Layers; label: string }[] 
   { id: "species", icon: MapPinned, label: "Species" },
   { id: "solunar", icon: Moon, label: "Solunar" },
   { id: "sounder", icon: Waves, label: "Sounder" },
+  { id: "engine", icon: Gauge, label: "Engines" },
   { id: "settings", icon: Settings, label: "Bridge" },
 ];
 
@@ -76,6 +79,10 @@ export function AppShell() {
 
   useEffect(() => {
     return startHelmSensors();
+  }, []);
+
+  useEffect(() => {
+    return startEngineRoom();
   }, []);
 
   useEffect(() => {
@@ -120,7 +127,8 @@ export function AppShell() {
       </nav>
       <aside
         className={cn(
-          "absolute top-16 right-2 bottom-28 z-20 w-[min(100%-1rem,380px)] overflow-hidden rounded-2xl bg-surface/94 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:bottom-24",
+          "absolute top-16 right-2 bottom-28 z-20 overflow-hidden rounded-2xl bg-surface/94 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:bottom-24",
+          panel === "engine" ? "w-[min(100%-1rem,720px)]" : "w-[min(100%-1rem,380px)]",
           panel ? "translate-x-0" : "pointer-events-none translate-x-[120%]",
         )}
       >
@@ -312,7 +320,7 @@ function IconBtn({
 function MobileNav() {
   const panel = useAhanu((s) => s.panel);
   const setPanel = useAhanu((s) => s.setPanel);
-  const items = NAV.filter((n) => ["layers", "intel", "log", "sounder", "packs"].includes(n.id));
+  const items = NAV.filter((n) => ["layers", "intel", "log", "engine", "sounder"].includes(n.id));
   return (
     <nav className="absolute right-2 bottom-2 left-2 z-30 flex items-center justify-around rounded-2xl bg-surface/95 px-1 py-1 shadow-[0_0_0_1px_var(--color-line)] backdrop-blur-md md:hidden">
       {items.map((n) => (

@@ -118,12 +118,36 @@ A gateway on the boat (or a Garmin Signal VHF AIS output) publishes sentences. T
 SensorSource  connect → stream → disconnect
     ├─ AIS      VDM/VDO + RMC/GGA own-ship, or the simulated fleet
     ├─ Radar    range/bearing → lat/lon using own-ship heading (stub until a set is fitted)
-    └─ Sonar    depth + marks → VesselState and the sounder panel, never the chart
+    ├─ Sonar    depth + marks → VesselState and the sounder panel, never the chart
+    └─ Engine   normalized readings for the engine room, simulated until a gateway is configured
 ```
 
 AIS paints MapLibre layer `ais` (name, MMSI, COG, SOG, CPA/TCPA). Radar paints layer `radar`. Contacts within 0.25 nm and 30 s are one picture; the AIS target is marked corroborated and the radar dot is not drawn twice. Sonar is the Sounder panel.
 
 Own-ship from RMC/GGA normalizes AIS. Scoring still runs on the device. Workers still only package bytes. The radio address is boat-local state — not a Worker var, and this change adds no Cloudflare binding.
+
+## Engine room
+
+The engine room is another `SensorSource` (`kind: "engine"`) beside AIS, radar, and sonar. Gauges bind only to `EngineReading`. They never see a raw NMEA 2000 frame.
+
+Ingest converts wire units before the reading exists. Coolant leaves the adapter in °F from the 127489 engine-temperature field (uint16, 0.01 K). Oil and transmission temperature, where present, are the 0.1 K fields. Pressures leave in psi (100 Pa, or 1000 Pa for fuel pressure). Alternator voltage and fuel rate are signed 16-bit fields; 0x7FFF is missing, not a number. The shared helpers live in `src/lib/ahanu/engine/units.ts`. `unit` on the reading is that display unit.
+
+NMEA 2000 engine instance is not port. `config/engine-instance-map.json` ships empty. The first-run card shows raw RPM per instance and the skipper assigns port and starboard. Until then the bank is `unmapped`, a warning is logged, and the delta strip is an em dash. Instance 0 is never assumed to be port.
+
+Two adapters share that map:
+
+- **AnalogAdapter** — Actisense EMU-1 / Across Ocean style. PGN 127488 (RPM, boost, trim) and PGN 127489 (coolant, oil pressure, voltage, hours, fuel rate, fuel pressure, Tier 1 discrete status). It ignores 127493.
+- **DigitalAdapter** — Yacht Devices YDEG-04 SmartCraft / MEFI4B+ path, and a factory Mercury NMEA 2000 gateway. The same two PGNs, plus PGN 127493 for transmission temperature, pressure, and gear.
+
+Boost is the standard 127488 boost field. Commanded AFR, actual AFR, knock, injector pulse width, per-cylinder trims, and EGT are **not** numbered in the YDEG-04 manual. `src/lib/ahanu/engine/ydeg04-fields.ts` records them as unpublished. The digital adapter does not invent offsets inside 127489, and it does not invent DTCs from discrete-status bits. Tier 1 alarms are those bits. Tier 2 DTCs stay an empty list until a real EFI source is connected.
+
+Yacht Devices publishes the YDEG-04 as incompatible with mechanically controlled / analog engines, with MEFI-1 through MEFI-4, and with Mercury SmartCraft ECM555 / PCM555. A 1976 carbureted Mercruiser is in that incompatible set. The carbureted mode of the panel shows the analog gauges only. EFI mode adds the extra cells, which stay "—" while `quality` is `missing`.
+
+Stale timeouts are per PGN family in `config/engine-thresholds.json`: 500 ms for 127488 (~10 Hz), 4000 ms for 127489 and 127493 (~1 Hz).
+
+The live path is simulated unless a boat-local host is configured. The browser stores that host and does not open a socket. Nothing in the engine module transmits.
+
+Themes are JSON files in `themes/`. Adding a look is a new file. `stealth-night` is the night-bridge default and is persisted with the instance map.
 
 ### Rhode Island trip-pack box
 

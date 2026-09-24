@@ -1,0 +1,20 @@
+{
+  "id": "two-thousands-lcd",
+  "label": "Two-thousands LCD",
+  "nightSafe": true,
+  "palette": {
+    "bg": "#06120c",
+    "face": "#07160f",
+    "ink": "#b6ff9a",
+    "muted": "#3e7a48",
+    "accent": "#7dff6b",
+    "hot": "#ff5a4a",
+    "ok": "#b6ff9a",
+    "warn": "#e6ff6a",
+    "tick": "#143222"
+  },
+  "typography": { "display": "ui-monospace, monospace", "ui": "ui-monospace, monospace", "figure": "ui-monospace, monospace" },
+  "gauge": { "bezel": 1, "needle": "bar", "arc": 0.62, "face": "lcd" },
+  "background": "solid",
+  "animation": "none"
+}

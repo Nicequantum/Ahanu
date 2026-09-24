@@ -50,6 +50,7 @@ export type PanelId =
   | "settings"
   | "solunar"
   | "sounder"
+  | "engine"
   | null;
 
 export type NavMode = "trolling" | "steaming" | "gps" | "anchor";
@@ -246,7 +247,7 @@ export type PackStatus = "ready" | "partial" | "offline";
 /** Where a sensor sample came from. `sim` and `stub` are never a live radio. */
 export type SensorProvenance = "sim" | "nmea-tcp" | "nmea-vdm" | "ws-json" | "udp-json" | "stub";
 
-export type SensorKind = "ais" | "radar" | "sonar";
+export type SensorKind = "ais" | "radar" | "sonar" | "engine";
 
 export type RadioMode = "sim" | "tcp" | "ws" | "udp";
 
@@ -278,3 +279,54 @@ export interface SonarColumn {
   marks: { depthM: number; strength: number }[];
   provenance: SensorProvenance;
 }
+
+/** Bank on a twin-inboard boat. `unmapped` is never a guess for port. */
+export type EngineId = "port" | "starboard" | "unmapped";
+
+/** Where a normalized reading came from. Wire units never appear here. */
+export type EngineSourceKind = "analog-n2k" | "smartcraft" | "mefi" | "standalone" | "sim";
+
+export type ReadingQuality = "ok" | "stale" | "missing";
+
+/** Carbureted analog today, EFI when a gateway is actually connected. */
+export type EngineRoomMode = "carb" | "efi";
+
+/** Opt-in live path. `sim` is the only default. */
+export type EngineFeed = "sim" | "analog" | "digital";
+
+/**
+ * One gauge sample. Gauges bind to this and nothing raw.
+ * `unit` is the display unit after ingest conversion.
+ */
+export interface EngineReading {
+  engineId: EngineId;
+  param: string;
+  value: number;
+  unit: string;
+  ts: string;
+  source: EngineSourceKind;
+  quality: ReadingQuality;
+  instance?: number;
+  pgn?: number;
+}
+
+/** Tier 1 is a discrete-status bit. Tier 2 is an ECM DTC. Never the same object. */
+export interface EngineAlarm {
+  tier: 1 | 2;
+  engineId: EngineId;
+  instance?: number;
+  code: string;
+  description: string;
+  state: "active" | "historic" | "unavailable";
+  ts: string;
+  source: EngineSourceKind;
+  pgn?: number;
+}
+
+/** Factory ECM code. Empty until a real EFI source connects. */
+export interface EngineDtc {
+  code: string;
+  description: string;
+  state: "active" | "historic";
+}
+

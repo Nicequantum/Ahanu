@@ -1,0 +1,20 @@
+{
+  "id": "twenty-fifteen-flat",
+  "label": "Twenty-fifteen flat",
+  "nightSafe": true,
+  "palette": {
+    "bg": "#1b2126",
+    "face": "#242b31",
+    "ink": "#e8eef2",
+    "muted": "#8b98a3",
+    "accent": "#4c8dff",
+    "hot": "#ff5d5d",
+    "ok": "#3ecf8e",
+    "warn": "#f0b429",
+    "tick": "#313a42"
+  },
+  "typography": { "display": "Outfit, sans-serif", "ui": "Outfit, sans-serif", "figure": "Outfit, sans-serif" },
+  "gauge": { "bezel": 0, "needle": "bar", "arc": 0.5, "face": "flat" },
+  "background": "solid",
+  "animation": "none"
+}

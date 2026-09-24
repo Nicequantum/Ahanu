@@ -1,0 +1,15 @@
+{
+  "note": "127488 is about 10 Hz. 127489 and 127493 are about 1 Hz. Do not share one timeout.",
+  "staleMs": {
+    "127488": 500,
+    "127489": 4000,
+    "127493": 4000
+  },
+  "delta": {
+    "rpm": { "warn": 150, "direction": "high", "digits": 0 },
+    "coolantTemp": { "warn": 8, "direction": "high", "digits": 0 },
+    "oilPressure": { "warn": 6, "direction": "low", "digits": 0 },
+    "voltage": { "warn": 0.4, "direction": "low", "digits": 1 },
+    "afrActual": { "warn": 0.6, "direction": "low", "digits": 1 }
+  }
+}

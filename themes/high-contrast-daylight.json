@@ -1,0 +1,20 @@
+{
+  "id": "high-contrast-daylight",
+  "label": "High-contrast daylight",
+  "nightSafe": false,
+  "palette": {
+    "bg": "#f7f7f4",
+    "face": "#ffffff",
+    "ink": "#111111",
+    "muted": "#444444",
+    "accent": "#111111",
+    "hot": "#b00020",
+    "ok": "#0b6b32",
+    "warn": "#8a5a00",
+    "tick": "#222222"
+  },
+  "typography": { "display": "Outfit, sans-serif", "ui": "Outfit, sans-serif", "figure": "Outfit, sans-serif" },
+  "gauge": { "bezel": 2, "needle": "sword", "arc": 0.72, "face": "flat" },
+  "background": "solid",
+  "animation": "none"
+}

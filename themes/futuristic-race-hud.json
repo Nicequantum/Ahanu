@@ -1,0 +1,20 @@
+{
+  "id": "futuristic-race-hud",
+  "label": "Futuristic race HUD",
+  "nightSafe": true,
+  "palette": {
+    "bg": "#05070d",
+    "face": "#0a1020",
+    "ink": "#d7fbff",
+    "muted": "#5d7c88",
+    "accent": "#39f3ff",
+    "hot": "#ff2d6a",
+    "ok": "#3dffb0",
+    "warn": "#ffe14a",
+    "tick": "#163040"
+  },
+  "typography": { "display": "Outfit, sans-serif", "ui": "Outfit, sans-serif", "figure": "ui-monospace, monospace" },
+  "gauge": { "bezel": 1, "needle": "line", "arc": 0.82, "face": "flat" },
+  "background": "vignette",
+  "animation": "glow"
+}

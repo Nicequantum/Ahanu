@@ -1,0 +1,20 @@
+{
+  "id": "seventies-nautical",
+  "label": "Seventies nautical",
+  "nightSafe": false,
+  "palette": {
+    "bg": "#1c140c",
+    "face": "#f3ead7",
+    "ink": "#2a2118",
+    "muted": "#7a6848",
+    "accent": "#8a6a32",
+    "hot": "#9c3b2e",
+    "ok": "#2f6b45",
+    "warn": "#a56b12",
+    "tick": "#c4b08a"
+  },
+  "typography": { "display": "Fraunces, serif", "ui": "Outfit, sans-serif", "figure": "Fraunces, serif" },
+  "gauge": { "bezel": 3, "needle": "sword", "arc": 0.7, "face": "dished" },
+  "background": "vignette",
+  "animation": "none"
+}

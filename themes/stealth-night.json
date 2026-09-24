@@ -1,0 +1,20 @@
+{
+  "id": "stealth-night",
+  "label": "Stealth night",
+  "nightSafe": true,
+  "palette": {
+    "bg": "#071016",
+    "face": "#0d1c26",
+    "ink": "#d5e2e8",
+    "muted": "#6d828c",
+    "accent": "#8aa0ab",
+    "hot": "#e06b5a",
+    "ok": "#6bcb8b",
+    "warn": "#e0b15a",
+    "tick": "#1c303c"
+  },
+  "typography": { "display": "Fraunces, serif", "ui": "Outfit, sans-serif", "figure": "ui-monospace, monospace" },
+  "gauge": { "bezel": 1, "needle": "line", "arc": 0.75, "face": "flat" },
+  "background": "solid",
+  "animation": "none"
+}
