@@ -1,10 +1,13 @@
 import type { EngineReading } from "@/lib/ahanu/types";
 
-/** Stale is per PGN family. A slow 127489 must not use the 127488 timeout. */
+/**
+ * Stale is per PGN family. A slow 127489 must not use the 127488 timeout.
+ * Standalone-ECU readings carry no PGN and use the `standalone` key.
+ */
 export function applyStale(readings: EngineReading[], nowMs: number, staleMs: Record<string, number>): EngineReading[] {
   return readings.map((reading) => {
-    if (reading.quality === "missing" || reading.pgn == null) return reading;
-    const limit = staleMs[String(reading.pgn)];
+    if (reading.quality === "missing") return reading;
+    const limit = staleMs[reading.pgn == null ? "standalone" : String(reading.pgn)];
     if (limit == null) return reading;
     const age = nowMs - Date.parse(reading.ts);
     if (!Number.isFinite(age) || age > limit) return { ...reading, quality: "stale" };

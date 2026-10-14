@@ -29,6 +29,7 @@ export function startEngineRoom(): () => void {
     }
     source = new EngineSimSource({
       getMap: () => useAhanu.getState().engineInstanceMap,
+      getMode: () => useAhanu.getState().engineMode,
       warn: (line) => {
         console.warn(line);
         useAhanu.getState().setEngineNote(line);
