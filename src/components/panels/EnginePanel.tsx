@@ -1,11 +1,13 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { BarGraph } from "@/components/engine/BarGraph";
 import { DeltaChip } from "@/components/engine/DeltaChip";
+import { DualView } from "@/components/engine/DualView";
+import { InstanceView } from "@/components/engine/InstanceView";
 import { FaultPill } from "@/components/engine/FaultPill";
 import { NeedleGauge } from "@/components/engine/NeedleGauge";
 import { NumericReadout } from "@/components/engine/NumericReadout";
 import { TachArc } from "@/components/engine/TachArc";
-import { CARB_PARAMS, EFI_PARAMS, ENGINE_THRESHOLDS, PARAM_UNIT } from "@/lib/ahanu/engine/config";
+import { CARB_PARAMS, EFI_PARAMS, ENGINE_THRESHOLDS, INJECTOR_CHANNELS, PARAM_UNIT, STANDALONE_PARAMS } from "@/lib/ahanu/engine/config";
 import { bankDelta } from "@/lib/ahanu/engine/delta";
 import { assignInstance } from "@/lib/ahanu/engine/map";
 import { displayValue } from "@/lib/ahanu/engine/quality";
@@ -31,7 +33,16 @@ const WIDGET: Record<string, { kind: "tach" | "needle" | "bar" | "num"; min: num
   transTemp: { kind: "needle", min: 100, max: 240, digits: 0 },
   transPressure: { kind: "needle", min: 0, max: 400, digits: 0 },
   gear: { kind: "num", min: 0, max: 2, digits: 0 },
+  mapKpa: { kind: "bar", min: 0, max: 300, digits: 0 },
+  tps: { kind: "bar", min: 0, max: 100, digits: 0 },
+  iat: { kind: "needle", min: 0, max: 200, digits: 0 },
+  afrA: { kind: "num", min: 10, max: 18, digits: 2 },
+  afrB: { kind: "num", min: 10, max: 18, digits: 2 },
+  sparkAdvance: { kind: "num", min: -10, max: 50, digits: 1 },
+  ...Object.fromEntries(INJECTOR_CHANNELS.map((p) => [p, { kind: "num" as const, min: 0, max: 20, digits: 2 }])),
 };
+
+type View = "gauges" | "dual" | "instances";
 
 function byBank(readings: EngineReading[], id: EngineId, param: string): EngineReading | undefined {
   return readings.find((row) => row.engineId === id && row.param === param);
@@ -86,8 +97,14 @@ export function EnginePanel() {
   const [gear, setGear] = useState(false);
   const themes = useMemo(() => themesFromBundles(), []);
   const theme = themes.find((row) => row.id === themeId) ?? themes.find((row) => row.id === DEFAULT_THEME_ID) ?? STEALTH_NIGHT;
-  const params = mode === "efi" ? [...CARB_PARAMS, ...EFI_PARAMS.filter((p) => !p.startsWith("cylTrim"))] : [...CARB_PARAMS];
-  const cyl = mode === "efi" ? EFI_PARAMS.filter((p) => p.startsWith("cylTrim")) : [];
+  const [view, setView] = useState<View>("gauges");
+  const seen = useMemo(() => new Set(readings.map((row) => row.param)), [readings]);
+  // EFI: the standalone (Grok Pilot) fields always show, em dash when absent. Legacy SmartCraft/MEFI params only where data exists.
+  const params =
+    mode === "efi"
+      ? [...new Set<string>([...CARB_PARAMS, ...STANDALONE_PARAMS, ...EFI_PARAMS.filter((p) => !p.startsWith("cylTrim") && seen.has(p))])]
+      : [...CARB_PARAMS];
+  const cyl = mode === "efi" ? [...INJECTOR_CHANNELS, ...EFI_PARAMS.filter((p) => p.startsWith("cylTrim"))].filter((p) => seen.has(p)) : [];
   const instances = [...new Set(readings.map((row) => row.instance).filter((id): id is number => id != null))];
   const unmapped = instances.filter((id) => map[String(id)] == null);
 
@@ -142,7 +159,18 @@ export function EnginePanel() {
           return <DeltaChip key={param} label={param === "coolantTemp" ? "coolant" : param === "oilPressure" ? "oil" : param} text={delta.text} hot={delta.worse != null} />;
         })}
       </div>
-      {focus ? (
+      <div className="mb-3 flex gap-1" role="tablist">
+        {(["gauges", "dual", "instances"] as const).map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={view === id} className="flex-1 rounded-md px-2 py-1 text-xs" style={pill(theme, view === id)} onClick={() => setView(id)}>
+            {id === "gauges" ? "Gauges" : id === "dual" ? "Side by side" : "Instances"}
+          </button>
+        ))}
+      </div>
+      {view === "dual" && !focus ? (
+        <DualView readings={readings} params={[...params, ...cyl].filter((p) => p !== "hours")} />
+      ) : view === "instances" && !focus ? (
+        <InstanceView readings={readings} map={map} feed={feed} mode={mode} onMap={assign} />
+      ) : focus ? (
         <DeepDive param={focus.param} engineId={focus.engineId} onClose={() => setFocus(null)} />
       ) : (
         <div className="grid grid-cols-2 gap-3">

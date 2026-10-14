@@ -3,13 +3,22 @@
   "staleMs": {
     "127488": 500,
     "127489": 4000,
-    "127493": 4000
+    "127493": 4000,
+    "standalone": 1000
   },
   "delta": {
     "rpm": { "warn": 150, "direction": "high", "digits": 0 },
     "coolantTemp": { "warn": 8, "direction": "high", "digits": 0 },
     "oilPressure": { "warn": 6, "direction": "low", "digits": 0 },
     "voltage": { "warn": 0.4, "direction": "low", "digits": 1 },
-    "afrActual": { "warn": 0.6, "direction": "low", "digits": 1 }
+    "afrActual": { "warn": 0.6, "direction": "low", "digits": 1 },
+    "mapKpa": { "warn": 8, "direction": "high", "digits": 0 },
+    "tps": { "warn": 5, "direction": "high", "digits": 0 },
+    "iat": { "warn": 15, "direction": "high", "digits": 0 },
+    "afrA": { "warn": 0.6, "direction": "high", "digits": 1 },
+    "afrB": { "warn": 0.6, "direction": "high", "digits": 1 },
+    "sparkAdvance": { "warn": 3, "direction": "high", "digits": 1 },
+    "injectorPw": { "warn": 0.6, "direction": "high", "digits": 2 },
+    "egt": { "warn": 75, "direction": "high", "digits": 0 }
   }
 }

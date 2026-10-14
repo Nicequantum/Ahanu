@@ -23,6 +23,7 @@ export const ENGINE_THRESHOLDS: {
     "127488": 500,
     "127489": 4000,
     "127493": 4000,
+    standalone: 1000,
   },
   delta: {
     rpm: { warn: 150, direction: "high", digits: 0 },
@@ -30,6 +31,14 @@ export const ENGINE_THRESHOLDS: {
     oilPressure: { warn: 6, direction: "low", digits: 0 },
     voltage: { warn: 0.4, direction: "low", digits: 1 },
     afrActual: { warn: 0.6, direction: "low", digits: 1 },
+    mapKpa: { warn: 8, direction: "high", digits: 0 },
+    tps: { warn: 5, direction: "high", digits: 0 },
+    iat: { warn: 15, direction: "high", digits: 0 },
+    afrA: { warn: 0.6, direction: "high", digits: 1 },
+    afrB: { warn: 0.6, direction: "high", digits: 1 },
+    sparkAdvance: { warn: 3, direction: "high", digits: 1 },
+    injectorPw: { warn: 0.6, direction: "high", digits: 2 },
+    egt: { warn: 75, direction: "high", digits: 0 },
   },
 };
 
@@ -57,6 +66,36 @@ export const EFI_PARAMS = [
   "gear",
 ] as const;
 
+/**
+ * Grok Pilot standalone ECU (Speeduino Dropbear) fields. Names map 1:1 to
+ * Nicequantum/ahanu-ecu docs/DATA-SCHEMA.md v0.1 through engine/schema.ts.
+ */
+export const STANDALONE_PARAMS = [
+  "mapKpa",
+  "tps",
+  "iat",
+  "afrA",
+  "afrB",
+  "afrCommanded",
+  "sparkAdvance",
+  "egt",
+  "injectorPw",
+] as const;
+
+export const INJECTOR_CHANNELS = [
+  "injectorPw1",
+  "injectorPw2",
+  "injectorPw3",
+  "injectorPw4",
+  "injectorPw5",
+  "injectorPw6",
+  "injectorPw7",
+  "injectorPw8",
+] as const;
+
+/** AFR spread between the two widebands on one engine before its data is untrusted. Placeholder until ahanu-ecu sets it. */
+export const WIDEBAND_SPREAD_AFR = 0.5;
+
 export const PARAM_UNIT: Record<string, string> = {
   rpm: "rpm",
   coolantTemp: "°F",
@@ -83,4 +122,18 @@ export const PARAM_UNIT: Record<string, string> = {
   transTemp: "°F",
   transPressure: "psi",
   gear: "gear",
+  mapKpa: "kPa",
+  tps: "%",
+  iat: "°F",
+  afrA: "AFR",
+  afrB: "AFR",
+  sparkAdvance: "°BTDC",
+  injectorPw1: "ms",
+  injectorPw2: "ms",
+  injectorPw3: "ms",
+  injectorPw4: "ms",
+  injectorPw5: "ms",
+  injectorPw6: "ms",
+  injectorPw7: "ms",
+  injectorPw8: "ms",
 };
